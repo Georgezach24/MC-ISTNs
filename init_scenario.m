@@ -24,7 +24,7 @@ S.URLLC.lateCount = 0;
 S.servBS = 1;
 S.servSAT = 1;
 
-% Current action (start conservative)
+% Current action 
 S.action.modeU = 0; % 0=TN,1=NTN,2=SPLIT,3=DUP
 S.action.modeE = 0; % 0=TN,1=NTN,2=SPLIT
 

@@ -8,9 +8,9 @@ bsx = P.BS(S.servBS).x;
 
 satIdx = S.servSAT;
 satx = S.SATx(satIdx);
-alt  = P.SAT(satIdx).alt;   % <-- FIX: per-satellite altitude
+alt  = P.SAT(satIdx).alt;   
 
-% Distances (TN 1D; NTN 3D with altitude)
+% Distances 
 d_tn  = max(abs(uex - bsx), 1.0);              % meters
 d_ntn = sqrt((uex - satx).^2 + alt.^2);        % meters
 
@@ -32,7 +32,7 @@ Pr_ntn_UL = P.NTN.Pul * g_ntn / PL_ntn;
 % Noise
 N = P.N0 * P.W;
 
-% Interference (start with none / or small constant)
+% Interference 
 I_tn  = 0;
 I_ntn = 0;
 

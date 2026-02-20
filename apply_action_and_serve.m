@@ -101,9 +101,7 @@ end
 end
 
 function [S, stepKPI] = deliver_urllc_if_packet_done(S, P, servedBits, propDelay, stepKPI)
-% Very simplified: whenever accumulated served bits cross one packet boundary, deliver one packet.
-% Since we keep queue bits, delivery happens when total served removes >= pktBits.
-% We'll just deliver at most 1 pkt per slot for now (fine for 64B/1ms start).
+
 
 if servedBits >= P.URLLC.pktBits
     % deliver earliest undelivered inflight

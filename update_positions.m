@@ -13,7 +13,7 @@ elseif S.UE.x > P.areaLen
     S.UE.v = -S.UE.v;
 end
 
-% Satellite ground-track proxy motion (wrap)
+% Satellite ground-track proxy motion 
 for i = 1:numel(P.SAT)
     S.SATx(i) = mod(P.SAT(i).x0 + P.SAT(i).v * t, P.areaLen);
 end
