@@ -16,6 +16,13 @@ capNTNdl = RNTNdl * P.dt;
 capTNul  = RTNul  * P.dt;
 capNTNul = RNTNul * P.dt;
 
+if S.HO_TN.active
+    capTNdl = 0; capTNul = 0;
+end
+if S.HO_NTN.active
+    capNTNdl = 0; capNTNul = 0;
+end
+
 % --- URLLC DL serving ---
 if S.qDL_URLLC > 0
     switch action.modeU
