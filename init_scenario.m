@@ -50,4 +50,20 @@ S.log.kpi_eMBB_bitsUL = zeros(P.T,1);
 S.energy_J = 0;
 S.log.energy_J = zeros(P.T,1);
 
+% HO state for TN
+S.HO_TN.active = false;
+S.HO_TN.timer_s = 0;
+S.HO_TN.ttt_s = 0;
+S.HO_TN.cand = S.servBS;  % candidate BS index
+
+% HO state for NTN
+S.HO_NTN.active = false;
+S.HO_NTN.timer_s = 0;
+S.HO_NTN.ttt_s = 0;
+S.HO_NTN.cand = S.servSAT; % candidate SAT index
+
+% Log HO events
+S.log.hoTN = zeros(P.T,1);
+S.log.hoNTN = zeros(P.T,1);
+
 end
