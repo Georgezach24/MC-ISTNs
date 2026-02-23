@@ -21,13 +21,25 @@ switch upper(scenario)
         error('Scenario must be A or C');
 end
 
+% --- Handover params (network-controlled) ---
+P.HO.hyst_dB = 3;                 % hysteresis
+P.HO.hyst = 10^(P.HO.hyst_dB/10); % linear
+
+P.HO.TTT_TN_s  = 40e-3;           % 40 ms
+P.HO.TTT_NTN_s = 80e-3;           % 80 ms
+
+P.HO.exec_TN_s  = 10e-3;          % 10 ms interruption
+P.HO.exec_NTN_s = 30e-3;          % 30 ms interruption
+
+
 % Traffic
 P.URLLC.pktBytes = 64;
 P.URLLC.pktBits  = 8 * P.URLLC.pktBytes;
 P.URLLC.period   = 10e-3;            % 1 pkt per 10 ms (100 pps)
 
 P.eMBB.backlogged = true;
-P.eMBB.pktBits = 12000;            
+P.eMBB.pktBits = 12000;
+
 
 % Topology (simple 1D line for start)
 P.areaLen = 2000;                     % meters
