@@ -1,101 +1,146 @@
 function L = compute_links(S, P)
-%COMPUTE_LINKS Compute DL/UL SINR and rates for serving TN and NTN links
+%COMPUTE_LINKS Compute DL/UL SINR and rates for ALL candidate TN BSs and NTN sats.
+% Returns:
+%   L.TN.SINR_DL(1:NB), L.TN.SINR_UL(1:NB), L.TN.R_DL, L.TN.R_UL, L.TN.Dprop
+%   L.NTN.SINR_DL(1:NS), L.NTN.SINR_UL(1:NS), L.NTN.R_DL, L.NTN.R_UL, L.NTN.Dprop
+%
+% Also provides convenient serving-link copies:
+%   L.SINR_TN_DL, L.SINR_TN_UL, L.SINR_NTN_DL, L.SINR_NTN_UL
+%   L.R_TN_DL,    L.R_TN_UL,    L.R_NTN_DL,    L.R_NTN_UL
+%   L.Dprop_TN,   L.Dprop_NTN
 
 uex = S.UE.x;
 
-% Serving BS and SAT x positions
-bsx = P.BS(S.servBS).x;
+NB = numel(P.BS);
+NS = numel(P.SAT);
 
-satIdx = S.servSAT;
-satx = S.SATx(satIdx);
-alt  = P.SAT(satIdx).alt;   
-
-% Distances 
-d_tn  = max(abs(uex - bsx), 1.0);              % meters
-d_ntn = sqrt((uex - satx).^2 + alt.^2);        % meters
-
-% Pathloss (linear)
-PL_tn  = (d_tn.^P.TN.alpha);
-PL_ntn = (d_ntn.^P.NTN.alpha) * db2lin(P.NTN.extraLoss_dB);
-
-% Fading power gains
-g_tn  = fading_gain(P.TN.fading, 1, P);
-g_ntn = fading_gain(P.NTN.fading, 1, P);
-
-% Received powers (signal)
-Pr_tn_DL  = P.TN.Pdl  * g_tn  / PL_tn;
-Pr_ntn_DL = P.NTN.Pdl * g_ntn / PL_ntn;
-
-Pr_tn_UL  = P.TN.Pul  * g_tn  / PL_tn;
-Pr_ntn_UL = P.NTN.Pul * g_ntn / PL_ntn;
-
-% Noise
+% Noise power
 N = P.N0 * P.W;
 
-% Interference 
+% Optional interference (start at 0)
 I_tn  = 0;
 I_ntn = 0;
 
-SINR_tn_DL  = Pr_tn_DL  / (I_tn  + N);
-SINR_ntn_DL = Pr_ntn_DL / (I_ntn + N);
-SINR_tn_UL  = Pr_tn_UL  / (I_tn  + N);
-SINR_ntn_UL = Pr_ntn_UL / (I_ntn + N);
+% --- TN candidates ---
+SINR_TN_DL = zeros(1,NB);
+SINR_TN_UL = zeros(1,NB);
+R_TN_DL    = zeros(1,NB);
+R_TN_UL    = zeros(1,NB);
+Dprop_TN   = zeros(1,NB);
 
-% Rates (Shannon)
-R_tn_DL  = P.W * log2(1 + SINR_tn_DL);
-R_ntn_DL = P.W * log2(1 + SINR_ntn_DL);
-R_tn_UL  = P.W * log2(1 + SINR_tn_UL);
-R_ntn_UL = P.W * log2(1 + SINR_ntn_UL);
+for b = 1:NB
+    bsx = P.BS(b).x;
 
-% Prop delays
-Dprop_tn  = d_tn  / P.c;
-Dprop_ntn = d_ntn / P.c;
+    d_tn = max(abs(uex - bsx), 1.0); % meters
+    PL_tn = d_tn.^P.TN.alpha;
 
-% Outage flags
-out_tn  = (SINR_tn_DL  < P.SINRmin);
-out_ntn = (SINR_ntn_DL < P.SINRmin);
+    g_tn = fading_gain(P.TN.fading, P, 'TN');
 
-% Output struct
+    Pr_tn_DL = P.TN.Pdl * g_tn / PL_tn;
+    Pr_tn_UL = P.TN.Pul * g_tn / PL_tn;
+
+    SINR_TN_DL(b) = Pr_tn_DL / (I_tn + N);
+    SINR_TN_UL(b) = Pr_tn_UL / (I_tn + N);
+
+    R_TN_DL(b) = P.W * log2(1 + SINR_TN_DL(b));
+    R_TN_UL(b) = P.W * log2(1 + SINR_TN_UL(b));
+
+    Dprop_TN(b) = d_tn / P.c;
+end
+
+% --- NTN candidates ---
+SINR_NTN_DL = zeros(1,NS);
+SINR_NTN_UL = zeros(1,NS);
+R_NTN_DL    = zeros(1,NS);
+R_NTN_UL    = zeros(1,NS);
+Dprop_NTN   = zeros(1,NS);
+
+for s = 1:NS
+    satx = S.SATx(s);
+    alt  = P.SAT(s).alt;
+
+    d_ntn = sqrt((uex - satx).^2 + alt.^2); % meters
+    PL_ntn = (d_ntn.^P.NTN.alpha) * db2lin_local(P.NTN.extraLoss_dB);
+
+    g_ntn = fading_gain(P.NTN.fading, P, 'NTN');
+
+    Pr_ntn_DL = P.NTN.Pdl * g_ntn / PL_ntn;
+    Pr_ntn_UL = P.NTN.Pul * g_ntn / PL_ntn;
+
+    SINR_NTN_DL(s) = Pr_ntn_DL / (I_ntn + N);
+    SINR_NTN_UL(s) = Pr_ntn_UL / (I_ntn + N);
+
+    R_NTN_DL(s) = P.W * log2(1 + SINR_NTN_DL(s));
+    R_NTN_UL(s) = P.W * log2(1 + SINR_NTN_UL(s));
+
+    Dprop_NTN(s) = d_ntn / P.c;
+end
+
+% Package
 L = struct();
-L.SINR_TN_DL  = SINR_tn_DL;
-L.SINR_NTN_DL = SINR_ntn_DL;
-L.SINR_TN_UL  = SINR_tn_UL;
-L.SINR_NTN_UL = SINR_ntn_UL;
 
-L.R_TN_DL  = R_tn_DL;
-L.R_NTN_DL = R_ntn_DL;
-L.R_TN_UL  = R_tn_UL;
-L.R_NTN_UL = R_ntn_UL;
+L.TN = struct();
+L.TN.SINR_DL = SINR_TN_DL;
+L.TN.SINR_UL = SINR_TN_UL;
+L.TN.R_DL    = R_TN_DL;
+L.TN.R_UL    = R_TN_UL;
+L.TN.Dprop   = Dprop_TN;
 
-L.Dprop_TN  = Dprop_tn;
-L.Dprop_NTN = Dprop_ntn;
+L.NTN = struct();
+L.NTN.SINR_DL = SINR_NTN_DL;
+L.NTN.SINR_UL = SINR_NTN_UL;
+L.NTN.R_DL    = R_NTN_DL;
+L.NTN.R_UL    = R_NTN_UL;
+L.NTN.Dprop   = Dprop_NTN;
 
-L.out_TN  = out_tn;
-L.out_NTN = out_ntn;
+% Convenience: serving links
+L.SINR_TN_DL  = SINR_TN_DL(S.servBS);
+L.SINR_TN_UL  = SINR_TN_UL(S.servBS);
+L.R_TN_DL     = R_TN_DL(S.servBS);
+L.R_TN_UL     = R_TN_UL(S.servBS);
+L.Dprop_TN    = Dprop_TN(S.servBS);
+
+L.SINR_NTN_DL = SINR_NTN_DL(S.servSAT);
+L.SINR_NTN_UL = SINR_NTN_UL(S.servSAT);
+L.R_NTN_DL    = R_NTN_DL(S.servSAT);
+L.R_NTN_UL    = R_NTN_UL(S.servSAT);
+L.Dprop_NTN   = Dprop_NTN(S.servSAT);
+
+% Outage flags (serving)
+L.out_TN  = (L.SINR_TN_DL  < P.SINRmin);
+L.out_NTN = (L.SINR_NTN_DL < P.SINRmin);
 
 end
 
-function g = fading_gain(type, n, P)
+% ---------------- Helpers ----------------
+
+function g = fading_gain(type, P, domain)
 switch lower(type)
     case 'rayleigh'
-        h = (randn(n,1) + 1j*randn(n,1))/sqrt(2);
-        g = abs(h).^2;
+        h = (randn + 1j*randn)/sqrt(2);
+        g = abs(h)^2;
 
     case 'nakagami'
-        m = P.NTN.nak_m;   % assume integer m
-        g = 0;
-        for i = 1:m
-            g = g - log(rand);   % sum of exponentials
+        % Toolbox-free Nakagami-m power gain:
+        % |h|^2 ~ Gamma(m, 1/m). For integer m:
+        % sum of m exponentials / m
+        if strcmpi(domain, 'NTN')
+            m = P.NTN.nak_m;
+        else
+            m = 1;
         end
-        g = g / m;
+        m = max(1, round(m));
+        acc = 0;
+        for i = 1:m
+            acc = acc - log(rand); % Exp(1)
+        end
+        g = acc / m;
 
     otherwise
-        g = ones(n,1);
+        g = 1.0;
+end
 end
 
-g = g(1);
-end
-
-function x = db2lin(dB)
+function x = db2lin_local(dB)
 x = 10.^(dB/10);
 end
