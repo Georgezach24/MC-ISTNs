@@ -1,24 +1,30 @@
 function S = traffic_step(S, P, k)
-%TRAFFIC_STEP Generate URLLC packets (DL+UL) and keep eMBB backlogged
+%TRAFFIC_STEP Generate URLLC packets (1 per 10ms) into preallocated queue
 
 t = (k-1) * P.dt;
 
-% URLLC periodic arrivals (DL & UL)
+period = 10e-3;        % 10 ms -> 100 pkt/s
+pktBits = 64*8;
+
+S.URLLC.pktBits = pktBits;
+
 if t >= S.URLLC.nextGenTime
-    % DL packet
-    S.qDL_URLLC = S.qDL_URLLC + P.URLLC.pktBits;
-    S.URLLC.inflight(end+1) = struct('genTime', t, 'bits', P.URLLC.pktBits, ...
-                                     'delivered', false, 'delay', NaN);
-    % UL packet
-    S.qUL_URLLC = S.qUL_URLLC + P.URLLC.pktBits;
+    S.URLLC.genCount = S.URLLC.genCount + 1;
 
-    S.URLLC.nextGenTime = S.URLLC.nextGenTime + P.URLLC.period;
-end
+    S.URLLC.tail = S.URLLC.tail + 1;
+    j = S.URLLC.tail;
 
-% eMBB backlogged queues (DL & UL)
-if P.eMBB.backlogged
-    S.qDL_eMBB = 1e12; % effectively infinite bits
-    S.qUL_eMBB = 1e12;
+    % Safety: in case maxPkts was underestimated
+    if j > S.URLLC.maxPkts
+        error('URLLC.maxPkts exceeded. Increase margin in init_scenario.');
+    end
+
+    S.URLLC.queue(j).genTime = t;
+    S.URLLC.queue(j).delivered = false;
+    S.URLLC.queue(j).expired = false;
+    S.URLLC.queue(j).delay = NaN;
+
+    S.URLLC.nextGenTime = S.URLLC.nextGenTime + period;
 end
 
 end

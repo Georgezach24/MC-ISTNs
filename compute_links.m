@@ -1,24 +1,14 @@
 function L = compute_links(S, P)
 %COMPUTE_LINKS Compute DL/UL SINR and rates for ALL candidate TN BSs and NTN sats.
-% Returns:
-%   L.TN.SINR_DL(1:NB), L.TN.SINR_UL(1:NB), L.TN.R_DL, L.TN.R_UL, L.TN.Dprop
-%   L.NTN.SINR_DL(1:NS), L.NTN.SINR_UL(1:NS), L.NTN.R_DL, L.NTN.R_UL, L.NTN.Dprop
-%
-% Also provides convenient serving-link copies:
-%   L.SINR_TN_DL, L.SINR_TN_UL, L.SINR_NTN_DL, L.SINR_NTN_UL
-%   L.R_TN_DL,    L.R_TN_UL,    L.R_NTN_DL,    L.R_NTN_UL
-%   L.Dprop_TN,   L.Dprop_NTN
+% Returns arrays for candidates and convenience fields for serving links.
 
 uex = S.UE.x;
 
 NB = numel(P.BS);
 NS = numel(P.SAT);
 
-% Noise power
-N = P.N0 * P.W;
-
-% Optional interference (start at 0)
-I_tn  = 0;
+N = P.N0 * P.W;   % noise power (W)
+I_tn = 0;
 I_ntn = 0;
 
 % --- TN candidates ---
@@ -31,7 +21,7 @@ Dprop_TN   = zeros(1,NB);
 for b = 1:NB
     bsx = P.BS(b).x;
 
-    d_tn = max(abs(uex - bsx), 1.0); % meters
+    d_tn = max(abs(uex - bsx), 1.0);
     PL_tn = d_tn.^P.TN.alpha;
 
     g_tn = fading_gain(P.TN.fading, P, 'TN');
@@ -59,7 +49,7 @@ for s = 1:NS
     satx = S.SATx(s);
     alt  = P.SAT(s).alt;
 
-    d_ntn = sqrt((uex - satx).^2 + alt.^2); % meters
+    d_ntn = sqrt((uex - satx).^2 + alt.^2);
     PL_ntn = (d_ntn.^P.NTN.alpha) * db2lin_local(P.NTN.extraLoss_dB);
 
     g_ntn = fading_gain(P.NTN.fading, P, 'NTN');
@@ -76,24 +66,15 @@ for s = 1:NS
     Dprop_NTN(s) = d_ntn / P.c;
 end
 
-% Package
+% Package candidate arrays
 L = struct();
+L.TN = struct('SINR_DL', SINR_TN_DL, 'SINR_UL', SINR_TN_UL, ...
+              'R_DL', R_TN_DL, 'R_UL', R_TN_UL, 'Dprop', Dprop_TN);
 
-L.TN = struct();
-L.TN.SINR_DL = SINR_TN_DL;
-L.TN.SINR_UL = SINR_TN_UL;
-L.TN.R_DL    = R_TN_DL;
-L.TN.R_UL    = R_TN_UL;
-L.TN.Dprop   = Dprop_TN;
+L.NTN = struct('SINR_DL', SINR_NTN_DL, 'SINR_UL', SINR_NTN_UL, ...
+               'R_DL', R_NTN_DL, 'R_UL', R_NTN_UL, 'Dprop', Dprop_NTN);
 
-L.NTN = struct();
-L.NTN.SINR_DL = SINR_NTN_DL;
-L.NTN.SINR_UL = SINR_NTN_UL;
-L.NTN.R_DL    = R_NTN_DL;
-L.NTN.R_UL    = R_NTN_UL;
-L.NTN.Dprop   = Dprop_NTN;
-
-% Convenience: serving links
+% Convenience: serving-link values
 L.SINR_TN_DL  = SINR_TN_DL(S.servBS);
 L.SINR_TN_UL  = SINR_TN_UL(S.servBS);
 L.R_TN_DL     = R_TN_DL(S.servBS);
@@ -106,8 +87,7 @@ L.R_NTN_DL    = R_NTN_DL(S.servSAT);
 L.R_NTN_UL    = R_NTN_UL(S.servSAT);
 L.Dprop_NTN   = Dprop_NTN(S.servSAT);
 
-% Outage flags (serving)
-L.out_TN  = (L.SINR_TN_DL  < P.SINRmin);
+L.out_TN  = (L.SINR_TN_DL < P.SINRmin);
 L.out_NTN = (L.SINR_NTN_DL < P.SINRmin);
 
 end
@@ -124,7 +104,7 @@ switch lower(type)
         % Toolbox-free Nakagami-m power gain:
         % |h|^2 ~ Gamma(m, 1/m). For integer m:
         % sum of m exponentials / m
-        if strcmpi(domain, 'NTN')
+        if strcmpi(domain,'NTN')
             m = P.NTN.nak_m;
         else
             m = 1;
