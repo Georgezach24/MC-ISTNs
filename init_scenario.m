@@ -1,84 +1,122 @@
 function S = init_scenario(P)
 %INIT_SCENARIO Initialize simulation state and preallocate URLLC storage
+% Συνάρτηση αρχικοποίησης της κατάστασης (state) της προσομοίωσης και
+% προδέσμευσης (preallocation) δομών/μνήμης για URLLC και logs.
 
-% UE
-S.t = 0;
-S.UE.x = P.UE.x0;
-S.UE.v = P.UE.v;
+% --------- UE - User Equipment ---------------------------------------
+S.t = 0;            % Αρχικοποίηση χρόνου προσομοίωσης (σε slots ή/και seconds ανάλογα τη χρήση).
+S.UE.x = P.UE.x0;   % Αρχική θέση χρήστη (λαμβάνεται από τις παραμέτρους P).
+S.UE.v = P.UE.v;    % Ταχύτητα χρήστη (λαμβάνεται από τις παραμέτρους P).
+%----------------------------------------------------------------------
 
-% Serving nodes
-S.servBS = 1;
-S.servSAT = 1;
+% --------- Serving Nodes (τρέχον serving) ----------------------------
+S.servBS  = 1;      % Δείκτης (index) του επίγειου BS που σερβίρει αρχικά τον UE.
+S.servSAT = 1;      % Δείκτης (index) του δορυφόρου που σερβίρει αρχικά τον UE.
+% Σημείωση: Ξεκινάς από BS=1 και SAT=1 για να έχεις γνωστή αρχική κατάσταση
+% και να παρακολουθείς καθαρά τα handovers.
+%----------------------------------------------------------------------
 
-% Current action
-S.action.modeU = 0; % 0 TN, 1 NTN, 2 SPLIT, 3 DUP
-S.action.modeE = 0; % 0 TN, 1 NTN, 2 SPLIT
+% --------- Current Action (πολιτική/ενέργεια συστήματος) -------------
+S.action.modeU = 0; % URLLC mode: 0 TN, 1 NTN, 2 SPLIT, 3 DUP
+S.action.modeE = 0; % eMBB  mode: 0 TN, 1 NTN, 2 SPLIT
+% Τα mode εδώ αντιστοιχούν στην απόφαση serving ανά υπηρεσία:
+% - TN: εξυπηρέτηση μόνο από επίγειο
+% - NTN: εξυπηρέτηση μόνο από δορυφόρο
+% - SPLIT: καταμερισμός/συνάθροιση πόρων σε δύο links
+% - DUP: διπλή μετάδοση (κυρίως για URLLC αξιοπιστία)
+%----------------------------------------------------------------------
 
-% -----------------------
-% Handover state (TN)
-% -----------------------
-S.HO_TN.active = false;
-S.HO_TN.timer_s = 0;
-S.HO_TN.ttt_s = 0;
-S.HO_TN.cand = S.servBS;
-S.HO_TN.filtSINR = ones(1, numel(P.BS));
+% =====================================================================
+%                     HANDOVER STATE (TN)
+% =====================================================================
+S.HO_TN.active   = false;                 % Flag: αν βρίσκεται σε εξέλιξη TN handover (interruption).
+S.HO_TN.timer_s  = 0;                     % Μετρητής χρόνου εκτέλεσης HO (σε seconds).
+S.HO_TN.ttt_s    = 0;                     % Μετρητής Time-To-Trigger που έχει “συσσωρευτεί”.
+S.HO_TN.cand     = S.servBS;              % Candidate BS για HO (αρχικά ο τρέχων serving).
+S.HO_TN.filtSINR = ones(1, numel(P.BS));  % Φιλτραρισμένο SINR (ή μετρική) ανά BS.
+% Σκοπός: να κρατάς “ομαλοποιημένη” μετρική (π.χ. μέσω alpha filter) ώστε
+% να αποφεύγεται ping-pong και να τροφοδοτείται σωστά το HO logic.
+%----------------------------------------------------------------------
 
-% -----------------------
-% Handover state (NTN)
-% -----------------------
-S.HO_NTN.active = false;
-S.HO_NTN.timer_s = 0;
-S.HO_NTN.ttt_s = 0;
-S.HO_NTN.cand = S.servSAT;
-S.HO_NTN.filtSINR = ones(1, numel(P.SAT));
+% =====================================================================
+%                     HANDOVER STATE (NTN)
+% =====================================================================
+S.HO_NTN.active   = false;                  % Flag: αν βρίσκεται σε εξέλιξη NTN handover.
+S.HO_NTN.timer_s  = 0;                      % Μετρητής χρόνου εκτέλεσης NTN HO (σε seconds).
+S.HO_NTN.ttt_s    = 0;                      % Μετρητής Time-To-Trigger για NTN HO.
+S.HO_NTN.cand     = S.servSAT;              % Candidate Satellite για HO (αρχικά ο τρέχων serving).
+S.HO_NTN.filtSINR = ones(1, numel(P.SAT));  % Φιλτραρισμένο SINR ανά SAT.
+% NTN HO συνήθως έχει μεγαλύτερα TTT/exec, άρα χρειάζεται ξεχωριστή κατάσταση
+% για να “τρέχει” ανεξάρτητα από το TN HO.
+%----------------------------------------------------------------------
 
-% -----------------------
-% URLLC packet store (preallocated FIFO)
-% -----------------------
-S.URLLC.genCount  = 0;
-S.URLLC.succCount = 0;
-S.URLLC.failCount = 0;
+% =====================================================================
+%               URLLC PACKET STORE (preallocated FIFO)
+% =====================================================================
+S.URLLC.genCount  = 0;  % Πλήθος πακέτων που δημιουργήθηκαν συνολικά.
+S.URLLC.succCount = 0;  % Πλήθος πακέτων που παραδόθηκαν επιτυχώς εντός deadline.
+S.URLLC.failCount = 0;  % Πλήθος πακέτων που απέτυχαν (π.χ. λόγω deadline expiry).
+% Οι counters χρησιμοποιούνται για KPI (π.χ. reliability, drop rate).
+%----------------------------------------------------------------------
 
-S.URLLC.head = 1;  % index of head-of-line active pkt
-S.URLLC.tail = 0;  % number of generated pkts
+S.URLLC.head = 1; % Δείκτης head-of-line πακέτου (το παλαιότερο ενεργό στο FIFO).
+S.URLLC.tail = 0; % Πλήθος πακέτων που έχουν παραχθεί (άρα tail = “τελευταίο index”).
+% FIFO λογική: head δείχνει ποιο πακέτο εξυπηρετείς πρώτο, tail μεγαλώνει με κάθε γέννηση.
+%----------------------------------------------------------------------
 
-% Estimate max packets based on simulation time and generation rate
+% --------- Εκτίμηση μέγιστων πακέτων για preallocation ---------------
 % URLLC: 1 pkt per 10ms => 100 pkt/s
-genRate = 100; % pkt/s
-simTime = P.T * P.dt;
+genRate = 100;          % pkt/s (σταθερή εκτίμηση ρυθμού άφιξης για sizing).
+simTime = P.T * P.dt;   % Συνολικός χρόνος προσομοίωσης σε seconds.
+%----------------------------------------------------------------------
 
-S.URLLC.maxPkts = ceil(simTime * genRate) + 2000; % margin
+S.URLLC.maxPkts = ceil(simTime * genRate) + 2000; % +margin ασφαλείας
+% Προδέσμευση μνήμης για να αποφύγεις δυναμική αύξηση arrays (πολύ αργή σε MATLAB).
+% Το +2000 λειτουργεί σαν buffer ώστε να μην “ξεμείνεις” αν υπάρξουν παραπάνω γεννήσεις
+% (ή αν αλλάξεις simTime/lambda αργότερα).
+%----------------------------------------------------------------------
 
+% --------- Ορισμός δομής πακέτου και preallocation ουράς -------------
 S.URLLC.queue(S.URLLC.maxPkts,1) = struct( ...
-    'genTime', 0, ...
-    'delivered', false, ...
-    'expired', false, ...
-    'delay', NaN);
+    'genTime',   0, ...     % Χρόνος γέννησης του πακέτου (seconds ή slot-time reference).
+    'delivered', false, ... % Flag: αν παραδόθηκε επιτυχώς.
+    'expired',   false, ... % Flag: αν έληξε (deadline missed).
+    'delay',     NaN);      % Καθυστέρηση παράδοσης (seconds). NaN αν δεν παραδόθηκε.
+% Κάθε element της queue αντιστοιχεί σε ένα URLLC packet με metadata για KPI.
+%----------------------------------------------------------------------
 
-% Will be set by traffic_step each iteration
-S.URLLC.pktBits = 64*8;
-S.URLLC.nextGenTime = 0;
+% --------- Μεταβλητές που θα ενημερώνονται κάθε iteration -------------
+S.URLLC.pktBits     = 64*8; % Μέγεθος URLLC πακέτου σε bits (ευθυγραμμισμένο με P.URLLC.pktSize).
+S.URLLC.nextGenTime = 0;    % Επόμενος χρόνος γέννησης πακέτου (θα το θέτει traffic_step).
+% nextGenTime: υποστηρίζει event-based Poisson/periodic γεννήσεις αντί για “κάθε slot”.
+%----------------------------------------------------------------------
 
-% -----------------------
-% Logs (preallocate common ones here if you want)
-% -----------------------
-S.log = struct();
+% =====================================================================
+%                             LOGS
+% =====================================================================
+S.log = struct(); % Αρχικοποίηση δομής logs για αποθήκευση ιστορικού.
+%----------------------------------------------------------------------
 
-% Optional: preallocate frequently used logs to speed up
-S.log.actionU = zeros(P.T,1,'uint8');
-S.log.actionE = zeros(P.T,1,'uint8');
+% --------- Προδέσμευση βασικών logs για επιτάχυνση --------------------
+S.log.actionU = zeros(P.T,1,'uint8'); % Log του URLLC action ανά slot (μικρό type για οικονομία).
+S.log.actionE = zeros(P.T,1,'uint8'); % Log του eMBB action ανά slot.
+%----------------------------------------------------------------------
 
-S.log.SINR_TN_DL  = zeros(P.T,1);
-S.log.SINR_NTN_DL = zeros(P.T,1);
+S.log.SINR_TN_DL  = zeros(P.T,1); % Log SINR Downlink για TN ανά slot.
+S.log.SINR_NTN_DL = zeros(P.T,1); % Log SINR Downlink για NTN ανά slot.
+%----------------------------------------------------------------------
 
-S.log.hoTN  = zeros(P.T,1);
-S.log.hoNTN = zeros(P.T,1);
+S.log.hoTN  = zeros(P.T,1); % Log/flag γεγονότων TN handover ανά slot (π.χ. 0/1 ή states).
+S.log.hoNTN = zeros(P.T,1); % Log/flag γεγονότων NTN handover ανά slot.
+%----------------------------------------------------------------------
 
-S.log.servBS  = zeros(P.T,1,'uint8');
-S.log.servSAT = zeros(P.T,1,'uint8');
-S.log.ueX     = zeros(P.T,1);
+S.log.servBS  = zeros(P.T,1,'uint8'); % Log serving BS index ανά slot.
+S.log.servSAT = zeros(P.T,1,'uint8'); % Log serving SAT index ανά slot.
+S.log.ueX     = zeros(P.T,1);         % Log θέσης UE ανά slot.
+%----------------------------------------------------------------------
 
-S.log.kpi_URLLC_succ  = zeros(P.T,1);
-S.log.kpi_URLLC_delay = nan(P.T,1);
+S.log.kpi_URLLC_succ  = zeros(P.T,1); % Log επιτυχίας URLLC (π.χ. delivered within deadline) ανά slot.
+S.log.kpi_URLLC_delay = nan(P.T,1);   % Log delay URLLC ανά slot (NaN όταν δεν υπάρχει delivered pkt).
+%----------------------------------------------------------------------
 
 end
