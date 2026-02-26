@@ -92,7 +92,6 @@ L.out_NTN = (L.SINR_NTN_DL < P.SINRmin);
 
 end
 
-% ---------------- Helpers ----------------
 
 function g = fading_gain(type, P, domain)
 switch lower(type)
@@ -101,9 +100,6 @@ switch lower(type)
         g = abs(h)^2;
 
     case 'nakagami'
-        % Toolbox-free Nakagami-m power gain:
-        % |h|^2 ~ Gamma(m, 1/m). For integer m:
-        % sum of m exponentials / m
         if strcmpi(domain,'NTN')
             m = P.NTN.nak_m;
         else
