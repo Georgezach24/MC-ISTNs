@@ -1,80 +1,152 @@
 function L = compute_links(S, P)
-%COMPUTE_LINKS Compute DL/UL SINR and rates for ALL candidate TN BSs and NTN sats.
-% Returns arrays for candidates and convenience fields for serving links.
+% Συνάρτηση υπολογισμού καναλιού για ΟΛΟΥΣ τους υποψήφιους κόμβους:
+% - TN (Terrestrial BS)
+% - NTN (Satellites)
+%
+% Υπολογίζει για κάθε candidate:
+%   • SINR (DL / UL)
+%   • Ρυθμό μετάδοσης (Shannon capacity)
+%   • Propagation delay
+%
+% Επιστρέφει:
+%   - Arrays για όλους τους candidates
+%   - "Convenience" τιμές για τα τρέχοντα serving links
 
-uex = S.UE.x;
+% =====================================================================
+%                        Γενικές Μεταβλητές
+% =====================================================================
 
-NB = numel(P.BS);
-NS = numel(P.SAT);
+uex = S.UE.x;              % Τρέχουσα θέση UE (1D)
 
-N = P.N0 * P.W;   % noise power (W)
-I_tn = 0;
-I_ntn = 0;
+NB = numel(P.BS);          % Πλήθος επίγειων BS
+NS = numel(P.SAT);         % Πλήθος δορυφόρων
 
-% --- TN candidates ---
+N = P.N0 * P.W;            % Noise power = N0 * Bandwidth (W)
+I_tn = 0;                  % Interference TN (απλοποιημένο: 0)
+I_ntn = 0;                 % Interference NTN (απλοποιημένο: 0)
+
+% =====================================================================
+%                    Terrestrial Network (TN)
+% =====================================================================
+
+% --------- Προδέσμευση πινάκων ---------------------------------------
 SINR_TN_DL = zeros(1,NB);
 SINR_TN_UL = zeros(1,NB);
 R_TN_DL    = zeros(1,NB);
 R_TN_UL    = zeros(1,NB);
 Dprop_TN   = zeros(1,NB);
+%----------------------------------------------------------------------
 
 for b = 1:NB
-    bsx = P.BS(b).x;
 
-    d_tn = max(abs(uex - bsx), 1.0);
+    % --------- Γεωμετρία ---------------------------------------------
+    bsx = P.BS(b).x;                          % Θέση BS
+    d_tn = max(abs(uex - bsx), 1.0);           % Απόσταση UE–BS (min 1m για αποφυγή singularity)
+    %----------------------------------------------------------------------
+
+    % --------- Pathloss μοντέλο --------------------------------------
+    % PL = d^alpha
     PL_tn = d_tn.^P.TN.alpha;
+    %----------------------------------------------------------------------
 
+    % --------- Small-scale fading -------------------------------------
     g_tn = fading_gain(P.TN.fading, P, 'TN');
+    %----------------------------------------------------------------------
 
+    % --------- Received Power -----------------------------------------
     Pr_tn_DL = P.TN.Pdl * g_tn / PL_tn;
     Pr_tn_UL = P.TN.Pul * g_tn / PL_tn;
+    %----------------------------------------------------------------------
 
+    % --------- SINR ---------------------------------------------------
     SINR_TN_DL(b) = Pr_tn_DL / (I_tn + N);
     SINR_TN_UL(b) = Pr_tn_UL / (I_tn + N);
+    %----------------------------------------------------------------------
 
+    % --------- Shannon Rate -------------------------------------------
     R_TN_DL(b) = P.W * log2(1 + SINR_TN_DL(b));
     R_TN_UL(b) = P.W * log2(1 + SINR_TN_UL(b));
+    %----------------------------------------------------------------------
 
+    % --------- Propagation Delay --------------------------------------
     Dprop_TN(b) = d_tn / P.c;
+    %----------------------------------------------------------------------
+
 end
 
-% --- NTN candidates ---
+% =====================================================================
+%                    Non-Terrestrial Network (NTN)
+% =====================================================================
+
+% --------- Προδέσμευση πινάκων ---------------------------------------
 SINR_NTN_DL = zeros(1,NS);
 SINR_NTN_UL = zeros(1,NS);
 R_NTN_DL    = zeros(1,NS);
 R_NTN_UL    = zeros(1,NS);
 Dprop_NTN   = zeros(1,NS);
+%----------------------------------------------------------------------
 
 for s = 1:NS
-    satx = S.SATx(s);
-    alt  = P.SAT(s).alt;
 
+    % --------- Γεωμετρία 3D -------------------------------------------
+    satx = S.SATx(s);          % Οριζόντια θέση satellite (ground-track)
+    alt  = P.SAT(s).alt;       % Υψόμετρο satellite
+
+    % 3D απόσταση UE–Satellite
     d_ntn = sqrt((uex - satx).^2 + alt.^2);
+    %----------------------------------------------------------------------
+
+    % --------- Pathloss μοντέλο ---------------------------------------
+    % PL = d^alpha * extraLoss
     PL_ntn = (d_ntn.^P.NTN.alpha) * db2lin_local(P.NTN.extraLoss_dB);
+    %----------------------------------------------------------------------
 
+    % --------- Small-scale fading -------------------------------------
     g_ntn = fading_gain(P.NTN.fading, P, 'NTN');
+    %----------------------------------------------------------------------
 
+    % --------- Received Power -----------------------------------------
     Pr_ntn_DL = P.NTN.Pdl * g_ntn / PL_ntn;
     Pr_ntn_UL = P.NTN.Pul * g_ntn / PL_ntn;
+    %----------------------------------------------------------------------
 
+    % --------- SINR ---------------------------------------------------
     SINR_NTN_DL(s) = Pr_ntn_DL / (I_ntn + N);
     SINR_NTN_UL(s) = Pr_ntn_UL / (I_ntn + N);
+    %----------------------------------------------------------------------
 
+    % --------- Shannon Rate -------------------------------------------
     R_NTN_DL(s) = P.W * log2(1 + SINR_NTN_DL(s));
     R_NTN_UL(s) = P.W * log2(1 + SINR_NTN_UL(s));
+    %----------------------------------------------------------------------
 
+    % --------- Propagation Delay --------------------------------------
     Dprop_NTN(s) = d_ntn / P.c;
+    %----------------------------------------------------------------------
+
 end
 
-% Package candidate arrays
+% =====================================================================
+%                    Πακετάρισμα Αποτελεσμάτων
+% =====================================================================
+
 L = struct();
-L.TN = struct('SINR_DL', SINR_TN_DL, 'SINR_UL', SINR_TN_UL, ...
-              'R_DL', R_TN_DL, 'R_UL', R_TN_UL, 'Dprop', Dprop_TN);
 
-L.NTN = struct('SINR_DL', SINR_NTN_DL, 'SINR_UL', SINR_NTN_UL, ...
-               'R_DL', R_NTN_DL, 'R_UL', R_NTN_UL, 'Dprop', Dprop_NTN);
+% --------- Arrays υποψηφίων κόμβων -----------------------------------
+L.TN = struct('SINR_DL', SINR_TN_DL, ...
+              'SINR_UL', SINR_TN_UL, ...
+              'R_DL',    R_TN_DL, ...
+              'R_UL',    R_TN_UL, ...
+              'Dprop',   Dprop_TN);
 
-% Convenience: serving-link values
+L.NTN = struct('SINR_DL', SINR_NTN_DL, ...
+               'SINR_UL', SINR_NTN_UL, ...
+               'R_DL',    R_NTN_DL, ...
+               'R_UL',    R_NTN_UL, ...
+               'Dprop',   Dprop_NTN);
+%----------------------------------------------------------------------
+
+% --------- Τρέχον Serving Link (Convenience fields) -------------------
 L.SINR_TN_DL  = SINR_TN_DL(S.servBS);
 L.SINR_TN_UL  = SINR_TN_UL(S.servBS);
 L.R_TN_DL     = R_TN_DL(S.servBS);
@@ -86,36 +158,59 @@ L.SINR_NTN_UL = SINR_NTN_UL(S.servSAT);
 L.R_NTN_DL    = R_NTN_DL(S.servSAT);
 L.R_NTN_UL    = R_NTN_UL(S.servSAT);
 L.Dprop_NTN   = Dprop_NTN(S.servSAT);
+%----------------------------------------------------------------------
 
-L.out_TN  = (L.SINR_TN_DL < P.SINRmin);
+% --------- Outage flags ----------------------------------------------
+L.out_TN  = (L.SINR_TN_DL  < P.SINRmin);
 L.out_NTN = (L.SINR_NTN_DL < P.SINRmin);
+%----------------------------------------------------------------------
 
 end
 
 
-function g = fading_gain(type, P, domain)
-switch lower(type)
-    case 'rayleigh'
-        h = (randn + 1j*randn)/sqrt(2);
-        g = abs(h)^2;
+% =====================================================================
+%                        Fading Models
+% =====================================================================
 
+function g = fading_gain(type, P, domain)
+
+switch lower(type)
+
+    % --------- Rayleigh fading ----------------------------------------
+    case 'rayleigh'
+        h = (randn + 1j*randn)/sqrt(2); % Complex Gaussian
+        g = abs(h)^2;                  % Power gain
+    %----------------------------------------------------------------------
+
+    % --------- Nakagami-m fading --------------------------------------
     case 'nakagami'
         if strcmpi(domain,'NTN')
-            m = P.NTN.nak_m;
+            m = P.NTN.nak_m;  % Χρήση παραμέτρου m για satellites
         else
             m = 1;
         end
-        m = max(1, round(m));
+
+        m = max(1, round(m)); % Εξασφάλιση m >= 1
+
         acc = 0;
         for i = 1:m
-            acc = acc - log(rand); % Exp(1)
+            acc = acc - log(rand); % Άθροισμα Exp(1)
         end
-        g = acc / m;
 
+        g = acc / m; % Κανονικοποίηση (mean ≈ 1)
+    %----------------------------------------------------------------------
+
+    % --------- No fading ----------------------------------------------
     otherwise
         g = 1.0;
 end
+
 end
+
+
+% =====================================================================
+%                   Βοηθητική Συνάρτηση dB → Linear
+% =====================================================================
 
 function x = db2lin_local(dB)
 x = 10.^(dB/10);
