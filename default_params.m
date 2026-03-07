@@ -9,16 +9,16 @@ P.T = round(P.simTime / P.dt);
 P.link.useSimpleRateModel = true;
 
 % TN SNR trace parameters (dB)
-P.TN.snr_mu = 12;
-P.TN.snr_sigma_fast = 2.0;
-P.TN.snr_sin_amp = 4;
-P.TN.snr_sin_hz  = 0.7;
+P.TN.snr_mu = 10;
+P.TN.snr_sigma_fast = 1.5;
+P.TN.snr_sin_amp = 3;
+P.TN.snr_sin_hz  = 0.2;
 
 % NTN SNR trace parameters (dB)
-P.NTN.snr_mu = 6;
-P.NTN.snr_sigma_fast = 0.7;
-P.NTN.snr_sin_amp = 2;
-P.NTN.snr_sin_hz  = 0.1;
+P.NTN.snr_mu = 9.5;
+P.NTN.snr_sigma_fast = 1.0;
+P.NTN.snr_sin_amp = 3;
+P.NTN.snr_sin_hz  = 0.2;
 
 % Clamp
 P.link.snr_min = -10;
@@ -36,5 +36,11 @@ P.traffic.eMBB_mean_bits_per_s  = 20e6;
 
 % Queue limits 
 P.Q.maxBits = 200e6;
+
+% Handover parameters
+P.HO.hyst_dB_equiv = 2;   % margin για να θεωρηθεί το άλλο link καλύτερο
+P.HO.TTT = 10;            % time-to-trigger σε slots (50 ms αν dt=1ms)
+P.HO.interrupt = 10;      % interruption duration σε slots (20 ms)
+P.HO.alpha = 0.7;         % filtering coefficient
 
 end
