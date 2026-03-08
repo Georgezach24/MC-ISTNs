@@ -1,14 +1,13 @@
 function S = traffic_step(P, S, k)
 
-% Mean arrivals per slot
 muU = P.traffic.urlLC_mean_bits_per_s * P.dt;
-mue = P.traffic.eMBB_mean_bits_per_s  * P.dt;
+muE = P.traffic.eMBB_mean_bits_per_s  * P.dt;
 
-% Simple Poisson arrivals in bits 
-arrU = poissrnd(muU);
-arre = poissrnd(mue);
+for u = 1:P.Nue
+    arrU = poissrnd(muU);
+    arrE = poissrnd(muE);
 
-S.Q.urlLC_bits = min(S.Q.urlLC_bits + arrU, P.Q.maxBits);
-S.Q.eMBB_bits  = min(S.Q.eMBB_bits  + arre, P.Q.maxBits);
-
+    S.UE(u).Q.urlLC_bits = min(S.UE(u).Q.urlLC_bits + arrU, P.Q.maxBits);
+    S.UE(u).Q.eMBB_bits  = min(S.UE(u).Q.eMBB_bits + arrE, P.Q.maxBits);
+end
 end

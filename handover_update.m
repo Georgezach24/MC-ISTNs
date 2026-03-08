@@ -1,67 +1,87 @@
 function S = handover_update(S, P, L)
 
-% 1) Update filtered rates
-if S.filtRateTN == 0
-    S.filtRateTN = L.R_TN;
-else
-    S.filtRateTN = P.HO.alpha * S.filtRateTN + (1 - P.HO.alpha) * L.R_TN;
-end
+for u = 1:P.Nue
 
-if S.filtRateNTN == 0
-    S.filtRateNTN = L.R_NTN;
-else
-    S.filtRateNTN = P.HO.alpha * S.filtRateNTN + (1 - P.HO.alpha) * L.R_NTN;
-end
-
-% 2) If HO interruption is active, count it down
-if S.HO.active
-    S.HO.interruptTimer = S.HO.interruptTimer - 1;
-
-    if S.HO.interruptTimer <= 0
-        S.HO.active = false;
-        S.HO.interruptTimer = 0;
-    end
-
-    return;
-end
-
-% 3) Compare serving and other link
-if S.servingLink == 0
-    servingMetric = S.filtRateTN;
-    otherMetric   = S.filtRateNTN;
-    otherLink     = 1;
-else
-    servingMetric = S.filtRateNTN;
-    otherMetric   = S.filtRateTN;
-    otherLink     = 0;
-end
-
-% Hysteresis rule:
-% το άλλο link πρέπει να είναι τουλάχιστον 10% καλύτερο
-betterCondition = otherMetric > 1.02 * servingMetric;
-
-% 4) TTT logic
-if betterCondition
-    if S.HO.candidate == otherLink
-        S.HO.timer = S.HO.timer + 1;
+    % -----------------------------------
+    % 1) Update filtered best TN/NTN rates
+    % -----------------------------------
+    if S.UE(u).filtRateTN == 0
+        S.UE(u).filtRateTN = L.bestTNrate(u);
     else
-        S.HO.candidate = otherLink;
-        S.HO.timer = 1;
+        S.UE(u).filtRateTN = P.HO.alpha * S.UE(u).filtRateTN + ...
+            (1 - P.HO.alpha) * L.bestTNrate(u);
     end
-else
-    S.HO.candidate = -1;
-    S.HO.timer = 0;
-end
 
-% 5) Execute HO if TTT reached
-if S.HO.timer >= P.HO.TTT
-    S.servingLink = S.HO.candidate;
+    if S.UE(u).filtRateNTN == 0
+        S.UE(u).filtRateNTN = L.bestNTNrate(u);
+    else
+        S.UE(u).filtRateNTN = P.HO.alpha * S.UE(u).filtRateNTN + ...
+            (1 - P.HO.alpha) * L.bestNTNrate(u);
+    end
 
-    S.HO.active = true;
-    S.HO.interruptTimer = P.HO.interrupt;
+    % -----------------------------------
+    % 2) If interruption active, count down
+    % -----------------------------------
+    if S.UE(u).HO.active
+        S.UE(u).HO.interruptTimer = S.UE(u).HO.interruptTimer - 1;
 
-    S.HO.candidate = -1;
-    S.HO.timer = 0;
+        if S.UE(u).HO.interruptTimer <= 0
+            S.UE(u).HO.active = false;
+            S.UE(u).HO.interruptTimer = 0;
+        end
+
+        continue;
+    end
+
+    % -----------------------------------
+    % 3) Current serving metric
+    % -----------------------------------
+    if S.UE(u).servingType == 0
+        currentMetric = S.UE(u).filtRateTN;
+        otherMetric   = S.UE(u).filtRateNTN;
+        candType = 1;
+        candID   = L.bestNTNid(u);
+    else
+        currentMetric = S.UE(u).filtRateNTN;
+        otherMetric   = S.UE(u).filtRateTN;
+        candType = 0;
+        candID   = L.bestTNid(u);
+    end
+
+    betterCondition = otherMetric > P.HO.marginRatio * currentMetric;
+
+    % -----------------------------------
+    % 4) TTT logic
+    % -----------------------------------
+    if betterCondition
+        if S.UE(u).HO.candidateType == candType && S.UE(u).HO.candidateID == candID
+            S.UE(u).HO.timer = S.UE(u).HO.timer + 1;
+        else
+            S.UE(u).HO.candidateType = candType;
+            S.UE(u).HO.candidateID = candID;
+            S.UE(u).HO.timer = 1;
+        end
+    else
+        S.UE(u).HO.candidateType = -1;
+        S.UE(u).HO.candidateID = -1;
+        S.UE(u).HO.timer = 0;
+    end
+
+    % -----------------------------------
+    % 5) Execute handover
+    % -----------------------------------
+    if S.UE(u).HO.timer >= P.HO.TTT
+        S.UE(u).servingType = S.UE(u).HO.candidateType;
+        S.UE(u).servingID   = S.UE(u).HO.candidateID;
+
+        S.UE(u).HO.active = true;
+        S.UE(u).HO.interruptTimer = P.HO.interrupt;
+        S.UE(u).HO.count = S.UE(u).HO.count + 1;
+
+        S.UE(u).HO.candidateType = -1;
+        S.UE(u).HO.candidateID = -1;
+        S.UE(u).HO.timer = 0;
+    end
 end
 
 end

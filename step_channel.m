@@ -1,32 +1,71 @@
-function L = step_channel(P, S, k)
+function [S, L] = step_channel(P, S, k)
 
-t = (k-1)*P.dt;
+t = (k-1) * P.dt;
 
-% SNR traces (dB)
-snrTN = P.TN.snr_mu ...
-    + P.TN.snr_sin_amp*sin(2*pi*P.TN.snr_sin_hz*t) ...
-    + P.TN.snr_sigma_fast*randn();
+L.R_TN_all = zeros(P.Nue, P.Nbs);
+L.R_NTN_all = zeros(P.Nue, P.Nsat);
 
-snrNTN = P.NTN.snr_mu ...
-    + P.NTN.snr_sin_amp*sin(2*pi*P.NTN.snr_sin_hz*t + 1.0) ...
-    + P.NTN.snr_sigma_fast*randn();
+L.bestTNrate = zeros(P.Nue,1);
+L.bestTNid   = zeros(P.Nue,1);
 
-snrTN  = min(max(snrTN,  P.link.snr_min), P.link.snr_max);
-snrNTN = min(max(snrNTN, P.link.snr_min), P.link.snr_max);
+L.bestNTNrate = zeros(P.Nue,1);
+L.bestNTNid   = zeros(P.Nue,1);
 
-L.SNR_TN_dB  = snrTN;
-L.SNR_NTN_dB = snrNTN;
+for u = 1:P.Nue
+    % -------------------------
+    % Update user position
+    % -------------------------
+    S.UE(u).x = S.UE(u).x + S.UE(u).v * P.dt;
 
-% Rate model:
-% R = eta * BW * log2(1 + SNR_linear)
-snrTN_lin  = 10^(snrTN/10);
-snrNTN_lin = 10^(snrNTN/10);
+    % keep inside area with simple wrap-around
+    if S.UE(u).x > P.areaLen
+        S.UE(u).x = S.UE(u).x - P.areaLen;
+    end
 
-L.R_TN  = P.link.eta * P.link.BW * log2(1 + snrTN_lin);   % bits/s
-L.R_NTN = P.link.eta * P.link.BW * log2(1 + snrNTN_lin);  % bits/s
+    x = S.UE(u).x;
 
-% Convert to per-slot capacities (bits per slot)
-L.capTN_bits  = L.R_TN  * P.dt;
-L.capNTN_bits = L.R_NTN * P.dt;
+    % -------------------------
+    % TN rates to all BSs
+    % -------------------------
+    for b = 1:P.Nbs
+        d = abs(x - P.BS.pos(b)) + 1; % avoid zero distance
+
+        snr_dB = P.TN.snr0 ...
+            - P.TN.pathlossCoeff * d ...
+            + 2*sin(2*pi*0.2*t + 0.4*u + 0.3*b) ...
+            + P.TN.fastSigma * randn();
+
+        snr_dB = min(max(snr_dB, P.link.snrMin), P.link.snrMax);
+        snr_lin = 10^(snr_dB/10);
+
+        L.R_TN_all(u,b) = P.link.eta * P.link.BW * log2(1 + snr_lin);
+    end
+
+    % -------------------------
+    % NTN rates to all satellites
+    % -------------------------
+    for s = 1:P.Nsat
+        d = abs(x - P.SAT.pos(s)) + 1;
+
+        snr_dB = P.NTN.snr0 ...
+            - P.NTN.pathlossCoeff * d ...
+            + 1.5*sin(2*pi*0.05*t + 0.5*u + 0.2*s) ...
+            + P.NTN.fastSigma * randn();
+
+        snr_dB = min(max(snr_dB, P.link.snrMin), P.link.snrMax);
+        snr_lin = 10^(snr_dB/10);
+
+        L.R_NTN_all(u,s) = P.link.eta * P.link.BW * log2(1 + snr_lin);
+    end
+
+    % -------------------------
+    % Best TN and NTN candidate
+    % -------------------------
+    [L.bestTNrate(u), idxTN] = max(L.R_TN_all(u,:));
+    [L.bestNTNrate(u), idxNTN] = max(L.R_NTN_all(u,:));
+
+    L.bestTNid(u) = idxTN;
+    L.bestNTNid(u) = idxNTN;
+end
 
 end

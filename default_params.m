@@ -1,46 +1,62 @@
 function P = default_params()
 
+% ---------------------------------
 % Time
-P.dt = 1e-3;          % 1 ms slot
-P.simTime = 10;       % seconds
+% ---------------------------------
+P.dt = 1e-3;              % 1 ms
+P.simTime = 10;           % seconds
 P.T = round(P.simTime / P.dt);
 
-% --- Link models  ---
-P.link.useSimpleRateModel = true;
+% ---------------------------------
+% Topology
+% ---------------------------------
+P.Nue = 12;                % number of users
+P.Nbs = 2;                % number of TN base stations
+P.Nsat = 2;               % number of NTN nodes
+P.areaLen = 2000;         % 1D line [m]
 
-% TN SNR trace parameters (dB)
-P.TN.snr_mu = 10;
-P.TN.snr_sigma_fast = 1.5;
-P.TN.snr_sin_amp = 3;
-P.TN.snr_sin_hz  = 0.2;
+% Fixed node positions (1D for simplicity)
+P.BS.pos = [500 1500];
+P.SAT.pos = [300 1700];
 
-% NTN SNR trace parameters (dB)
-P.NTN.snr_mu = 9.5;
-P.NTN.snr_sigma_fast = 1.0;
-P.NTN.snr_sin_amp = 3;
-P.NTN.snr_sin_hz  = 0.2;
+% ---------------------------------
+% Mobility
+% ---------------------------------
+P.UE.vMean = 5;           % m/s
+P.UE.vStd = 1;            % m/s randomization
 
-% Clamp
-P.link.snr_min = -10;
-P.link.snr_max = 30;
+% ---------------------------------
+% Link model
+% ---------------------------------
+P.link.BW = 20e6;         % Hz
+P.link.eta = 0.6;
 
-% Bandwidth for simple rate model
-P.link.BW = 20e6; % 20 MHz
+P.link.snrMin = -10;
+P.link.snrMax = 30;
 
-% “Efficiency loss” factor 
-P.link.eta = 0.6; % 0..1
+% TN 
+P.TN.snr0 = 22;           
+P.TN.pathlossCoeff = 0.012;
+P.TN.fastSigma = 1.2;
 
-% Traffic (bits per slot arrivals)
-P.traffic.urlLC_mean_bits_per_s = 2e6; % 2 Mbps offered load 
-P.traffic.eMBB_mean_bits_per_s  = 20e6;
+% NTN 
+P.NTN.snr0 = 20;
+P.NTN.pathlossCoeff = 0.007;
+P.NTN.fastSigma = 0.7;
 
-% Queue limits 
+% ---------------------------------
+% Traffic
+% ---------------------------------
+P.traffic.urlLC_mean_bits_per_s = 4e6;
+P.traffic.eMBB_mean_bits_per_s  = 15e6;
+
 P.Q.maxBits = 200e6;
 
-% Handover parameters
-P.HO.hyst_dB_equiv = 2;   % margin για να θεωρηθεί το άλλο link καλύτερο
-P.HO.TTT = 10;            % time-to-trigger σε slots (50 ms αν dt=1ms)
-P.HO.interrupt = 10;      % interruption duration σε slots (20 ms)
-P.HO.alpha = 0.7;         % filtering coefficient
-
+% ---------------------------------
+% Handover
+% ---------------------------------
+P.HO.alpha = 0.7;
+P.HO.TTT = 12;                % slots
+P.HO.interrupt = 8;          % slots
+P.HO.marginRatio = 1.02;     
 end

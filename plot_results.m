@@ -1,46 +1,70 @@
 function plot_results(P, Log)
 
-t = Log.t;
+t = (0:P.T-1) * P.dt;
 
 figure;
-plot(t, Log.R_TN/1e6, "-"); hold on;
-plot(t, Log.R_NTN/1e6, "-");
+plot(t, Log.meanBestTN/1e6, 'LineWidth', 1.2); hold on;
+plot(t, Log.meanBestNTN/1e6, 'LineWidth', 1.2);
 grid on;
-xlabel("Time (s)");
-ylabel("Rate (Mbps)");
-title("TN and NTN rates");
-legend("TN","NTN","Location","best");
+xlabel('Time (s)');
+ylabel('Mean Best Rate (Mbps)');
+title('Mean Best TN and NTN Rates Across Users');
+legend('Best TN','Best NTN','Location','best');
 
 figure;
-stairs(t, Log.servingLink, "LineWidth", 1.2);
+plot(t, Log.sumQ_URLLC/1e6, 'LineWidth', 1.2); hold on;
+plot(t, Log.sumQ_eMBB/1e6, 'LineWidth', 1.2);
 grid on;
-xlabel("Time (s)");
-ylabel("Serving Link");
-title("Serving link over time");
-yticks([0 1]);
-yticklabels({'TN','NTN'});
+xlabel('Time (s)');
+ylabel('Total Queue (Mbits)');
+title('Aggregate Queue Occupancy');
+legend('URLLC','eMBB','Location','best');
 
 figure;
-stairs(t, Log.HOactive, "LineWidth", 1.2);
+avgRate = cumsum(Log.totalBitsDL) ./ ((1:P.T)' * P.dt);
+plot(t, avgRate/1e6, 'LineWidth', 1.2);
 grid on;
-xlabel("Time (s)");
-ylabel("HO active");
-title("Handover interruption state");
+xlabel('Time (s)');
+ylabel('Running Avg Delivered Throughput (Mbps)');
+title('Aggregate Running Average Throughput');
 
 figure;
-plot(t, Log.qURLLC/1e6, "-"); hold on;
-plot(t, Log.qeMBB/1e6, "-");
+plot(t, Log.numHOactive, 'LineWidth', 1.2);
 grid on;
-xlabel("Time (s)");
-ylabel("Queue (Mbits)");
-title("Queues");
-legend("URLLC","eMBB","Location","best");
+xlabel('Time (s)');
+ylabel('Users in HO');
+title('Number of Users Under HO Interruption');
 
 figure;
-plot(t, cumsum(Log.bitsDL)/(t(end)+P.dt)/1e6, "-");
+imagesc(t, 1:P.Nue, Log.servingType');
+colorbar;
+xlabel('Time (s)');
+ylabel('User index');
+title('Serving Type per User (0=TN, 1=NTN)');
+
+
+figure;
+plot(t, Log.loadTN(:,1), 'LineWidth', 1.2); hold on;
+if size(Log.loadTN,2) > 1
+    plot(t, Log.loadTN(:,2), 'LineWidth', 1.2);
+end
 grid on;
-xlabel("Time (s)");
-ylabel("Avg delivered Mbps");
-title("Running average delivered throughput");
+xlabel('Time (s)');
+ylabel('Users attached');
+title('TN Node Load');
+legendStrings = arrayfun(@(x) sprintf('TN BS %d',x), 1:size(Log.loadTN,2), 'UniformOutput', false);
+legend(legendStrings, 'Location', 'best');
+
+figure;
+plot(t, Log.loadNTN(:,1), 'LineWidth', 1.2); hold on;
+if size(Log.loadNTN,2) > 1
+    plot(t, Log.loadNTN(:,2), 'LineWidth', 1.2);
+end
+grid on;
+xlabel('Time (s)');
+ylabel('Users attached');
+title('NTN Node Load');
+legendStrings = arrayfun(@(x) sprintf('NTN %d',x), 1:size(Log.loadNTN,2), 'UniformOutput', false);
+legend(legendStrings, 'Location', 'best');
 
 end

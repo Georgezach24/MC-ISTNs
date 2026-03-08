@@ -1,27 +1,32 @@
 function S = init_state(P)
 
-S.k = 0;
+for u = 1:P.Nue
+    % User position
+    S.UE(u).x = rand * P.areaLen;
 
-% Queues (bits)
-S.Q.urlLC_bits = 0;
-S.Q.eMBB_bits  = 0;
+    % User speed
+    S.UE(u).v = max(0.5, P.UE.vMean + P.UE.vStd*randn());
 
-% Serving link state
-% 0 = TN, 1 = NTN
-S.servingLink = 0;   % ξεκινάμε από TN
+    % Queues
+    S.UE(u).Q.urlLC_bits = 0;
+    S.UE(u).Q.eMBB_bits = 0;
 
+    % Serving state
+    S.UE(u).servingType = 0;   % 0 = TN, 1 = NTN
+    S.UE(u).servingID = 1;
 
-% Handover state
-S.HO.candidate = -1;        % -1 σημαίνει "κανένας υποψήφιος"
-S.HO.timer = 0;             % πόσα slots κρατάει η HO συνθήκη
-S.HO.active = false;        % αν εκτελείται handover τώρα
-S.HO.interruptTimer = 0;    % πόσα slots διακοπής απομένουν
+    % Handover state
+    S.UE(u).HO.candidateType = -1;
+    S.UE(u).HO.candidateID = -1;
+    S.UE(u).HO.timer = 0;
+    S.UE(u).HO.active = false;
+    S.UE(u).HO.interruptTimer = 0;
+    S.UE(u).HO.count = 0;
 
-
-% Filtered metrics
-S.filtRateTN  = 0;
-S.filtRateNTN = 0;
-
+    % Filtered metrics
+    S.UE(u).filtRateTN = 0;
+    S.UE(u).filtRateNTN = 0;
+end
 end
 
 
