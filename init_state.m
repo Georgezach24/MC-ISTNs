@@ -7,6 +7,13 @@ for u = 1:P.Nue
     % User speed
     S.UE(u).v = max(0.5, P.UE.vMean + P.UE.vStd*randn());
 
+    % User profile
+    if rand < P.profile.urlProb
+        S.UE(u).profile = 1;   % URLLC-oriented
+    else
+        S.UE(u).profile = 0;   % eMBB-oriented
+    end
+
     % Queues
     S.UE(u).Q.urlLC_bits = 0;
     S.UE(u).Q.eMBB_bits = 0;
@@ -23,9 +30,8 @@ for u = 1:P.Nue
     S.UE(u).HO.interruptTimer = 0;
     S.UE(u).HO.count = 0;
 
-    % Filtered metrics
-    S.UE(u).filtRateTN = 0;
-    S.UE(u).filtRateNTN = 0;
+    % Time since last HO
+    S.UE(u).dwellTime = 0;
 end
 end
 

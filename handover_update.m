@@ -1,27 +1,30 @@
 function S = handover_update(S, P, L)
 
+% -----------------------------------
+% 0) Snapshot of current node loads
+% Exclude users currently under interruption
+% -----------------------------------
+loadTN  = zeros(P.Nbs,1);
+loadNTN = zeros(P.Nsat,1);
+
+for uu = 1:P.Nue
+    if S.UE(uu).HO.active
+        continue;
+    end
+
+    if S.UE(uu).servingType == 0
+        loadTN(S.UE(uu).servingID) = loadTN(S.UE(uu).servingID) + 1;
+    else
+        loadNTN(S.UE(uu).servingID) = loadNTN(S.UE(uu).servingID) + 1;
+    end
+end
+
+% -----------------------------------
+% 1) User-by-user HO update
+% -----------------------------------
 for u = 1:P.Nue
 
-    % -----------------------------------
-    % 1) Update filtered best TN/NTN rates
-    % -----------------------------------
-    if S.UE(u).filtRateTN == 0
-        S.UE(u).filtRateTN = L.bestTNrate(u);
-    else
-        S.UE(u).filtRateTN = P.HO.alpha * S.UE(u).filtRateTN + ...
-            (1 - P.HO.alpha) * L.bestTNrate(u);
-    end
-
-    if S.UE(u).filtRateNTN == 0
-        S.UE(u).filtRateNTN = L.bestNTNrate(u);
-    else
-        S.UE(u).filtRateNTN = P.HO.alpha * S.UE(u).filtRateNTN + ...
-            (1 - P.HO.alpha) * L.bestNTNrate(u);
-    end
-
-    % -----------------------------------
-    % 2) If interruption active, count down
-    % -----------------------------------
+    % If interruption active, count down
     if S.UE(u).HO.active
         S.UE(u).HO.interruptTimer = S.UE(u).HO.interruptTimer - 1;
 
@@ -33,42 +36,62 @@ for u = 1:P.Nue
         continue;
     end
 
+    % Increase dwell time while user stays on current serving link
+    S.UE(u).dwellTime = S.UE(u).dwellTime + 1;
+
+    currentType = S.UE(u).servingType;
+    currentID   = S.UE(u).servingID;
+
     % -----------------------------------
-    % 3) Current serving metric
+    % Candidate options
+    % - stay on current
+    % - best TN
+    % - best NTN
     % -----------------------------------
-    if S.UE(u).servingType == 0
-        currentMetric = S.UE(u).filtRateTN;
-        otherMetric   = S.UE(u).filtRateNTN;
-        candType = 1;
-        candID   = L.bestNTNid(u);
-    else
-        currentMetric = S.UE(u).filtRateNTN;
-        otherMetric   = S.UE(u).filtRateTN;
+    [scoreStay, ~] = utility_score_multi(P, S, L, u, currentType, currentID, loadTN, loadNTN);
+    [scoreTN,   ~] = utility_score_multi(P, S, L, u, 0, L.bestTNid(u), loadTN, loadNTN);
+    [scoreNTN,  ~] = utility_score_multi(P, S, L, u, 1, L.bestNTNid(u), loadTN, loadNTN);
+
+    scores = [scoreStay, scoreTN, scoreNTN];
+    [bestScore, idx] = max(scores);
+
+    % Decode best target
+    if idx == 1
+        candType = currentType;
+        candID   = currentID;
+    elseif idx == 2
         candType = 0;
         candID   = L.bestTNid(u);
+    else
+        candType = 1;
+        candID   = L.bestNTNid(u);
     end
 
-    betterCondition = otherMetric > P.HO.marginRatio * currentMetric;
+    % Improvement over current
+    improvement = bestScore - scoreStay;
+    isDifferent = ~(candType == currentType && candID == currentID);
 
     % -----------------------------------
-    % 4) TTT logic
+    % TTT logic based on utility gain
     % -----------------------------------
-    if betterCondition
+    if isDifferent && (improvement > P.HO.utilityMargin)
+
         if S.UE(u).HO.candidateType == candType && S.UE(u).HO.candidateID == candID
             S.UE(u).HO.timer = S.UE(u).HO.timer + 1;
         else
             S.UE(u).HO.candidateType = candType;
-            S.UE(u).HO.candidateID = candID;
+            S.UE(u).HO.candidateID   = candID;
             S.UE(u).HO.timer = 1;
         end
+
     else
         S.UE(u).HO.candidateType = -1;
-        S.UE(u).HO.candidateID = -1;
+        S.UE(u).HO.candidateID   = -1;
         S.UE(u).HO.timer = 0;
     end
 
     % -----------------------------------
-    % 5) Execute handover
+    % Execute HO
     % -----------------------------------
     if S.UE(u).HO.timer >= P.HO.TTT
         S.UE(u).servingType = S.UE(u).HO.candidateType;
@@ -79,8 +102,11 @@ for u = 1:P.Nue
         S.UE(u).HO.count = S.UE(u).HO.count + 1;
 
         S.UE(u).HO.candidateType = -1;
-        S.UE(u).HO.candidateID = -1;
+        S.UE(u).HO.candidateID   = -1;
         S.UE(u).HO.timer = 0;
+
+        % reset dwell time after HO
+        S.UE(u).dwellTime = 0;
     end
 end
 

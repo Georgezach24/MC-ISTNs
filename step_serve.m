@@ -3,6 +3,7 @@ function [S, out] = step_serve(P, S, L)
 out.bitsDL_user = zeros(P.Nue,1);
 out.totalBitsDL = 0;
 
+
 % -------------------------------------------------
 % 1) Count active users per serving node
 % -------------------------------------------------
@@ -69,5 +70,8 @@ for u = 1:P.Nue
     out.bitsDL_user(u) = bits;
     out.totalBitsDL = out.totalBitsDL + bits;
 end
+
+
+
 
 end

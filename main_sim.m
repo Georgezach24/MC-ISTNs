@@ -20,6 +20,16 @@ Log.servingID   = zeros(P.T, P.Nue);
 Log.loadTN = zeros(P.T, P.Nbs);
 Log.loadNTN = zeros(P.T, P.Nsat);
 
+Log.profile     = zeros(P.Nue,1);      % 1=URLLC-oriented, 0=eMBB-oriented
+Log.bitsDL_user = zeros(P.T, P.Nue);   % served bits per slot per user
+Log.qURLLC_user = zeros(P.T, P.Nue);   % URLLC queue per user
+Log.qeMBB_user  = zeros(P.T, P.Nue);   % eMBB queue per user
+Log.HOcount_user_final = zeros(P.Nue,1);
+
+for u = 1:P.Nue
+    Log.profile(u) = S.UE(u).profile;
+end
+
 for k = 1:P.T
     % 1) Update channels and user positions
     [S, L] = step_channel(P, S, k);
@@ -32,6 +42,11 @@ for k = 1:P.T
 
     % 4) Serve traffic
     [S, stepOut] = step_serve(P, S, L);
+    for u = 1:P.Nue
+        Log.bitsDL_user(k,u) = stepOut.bitsDL_user(u);
+        Log.qURLLC_user(k,u) = S.UE(u).Q.urlLC_bits;
+        Log.qeMBB_user(k,u)  = S.UE(u).Q.eMBB_bits;
+    end
 
     % 5) Logs
     Log.totalBitsDL(k) = stepOut.totalBitsDL;
@@ -70,6 +85,11 @@ totalHOs = 0;
 for u = 1:P.Nue
     totalHOs = totalHOs + S.UE(u).HO.count;
 end
+for u = 1:P.Nue
+    Log.HOcount_user_final(u) = S.UE(u).HO.count;
+end
+
+summarize_profile_kpis(P, Log);
 
 fprintf('Total Handovers = %d\n', totalHOs);
 
