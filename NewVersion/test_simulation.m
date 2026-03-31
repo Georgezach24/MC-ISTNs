@@ -72,10 +72,6 @@ bestSnrDbVec = zeros(numUsers,1);
 capacityMbpsVec = zeros(numUsers,1);
 servingBSVec = zeros(numUsers,1);
 
-% Προαιρετικά: αποθήκευση ανά BS
-distanceMat = zeros(numUsers,numBs);
-pathLossMat = zeros(numUsers,numBs);
-snrDbMat = zeros(numUsers,numBs);
 
 % ------------------ Loop για κάθε χρήστη ------------------
 for u = 1:numUsers
