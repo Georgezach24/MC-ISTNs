@@ -31,9 +31,9 @@ simParameters.Carrier.NSizeGrid = 51;
 simParameters.Carrier.SubcarrierSpacing = 30;
 simParameters.Carrier.CyclicPrefix = 'Normal';
 
-simParameters.CarrierFrequency = 3.5e9;
-simParameters.TxPower = 40;                 % dBm ανά BS
-simParameters.RxNoiseFigure = 6;            % dB
+simParameters.CarrierFrequency = 3.5e9;     % FR1
+simParameters.TxPower = 43;                 % dBm ανά BS
+simParameters.RxNoiseFigure = 5;            % dB
 simParameters.RxAntTemperature = 290;       % K
 
 simParameters.PathLossModel = '5G-NR';
@@ -96,6 +96,7 @@ satSlantRangeVec  = nan(numUsers,1);
 satElevationVec   = nan(numUsers,1);
 satPathLossVec    = nan(numUsers,1);
 satSnrDbVec       = nan(numUsers,1);
+
 
 %% ------------------ Loop για κάθε χρήστη ------------------
 for u = 1:numUsers
