@@ -111,7 +111,6 @@ for u = 1:numUsers
     %% ===== Terrestrial BS candidates =====
     for b = 1:numBs
 
-        % Χρησιμοποιούμε τοπικό ENU σύστημα με origin:
         % latitude/longitude του BS και h0 = 0 m
         lat0 = bs_geo(b,1);
         lon0 = bs_geo(b,2);
@@ -154,8 +153,6 @@ for u = 1:numUsers
 
         snrDbMat(u,b) = snr_db;
 
-        fprintf("User %d - BS %d: GroundDist = %.2f m, 3D Range = %.2f m, PathLoss = %.2f dB, SNR = %.2f dB\n", ...
-                u, b, groundDistance, d3d, pathLoss, snr_db);
 
         if snr_db > userBestSNR
             userBestSNR       = snr_db;
@@ -191,9 +188,7 @@ for u = 1:numUsers
     satPathLossVec(u) = satPathLoss;
     satSnrDbVec(u)    = satSnrDb;
 
-    fprintf("User %d - SAT: Elevation = %.2f deg, SlantRange = %.2f m, PathLoss = %.2f dB, SNR = %.2f dB\n", ...
-            u, elevSat, slantRangeSat, satPathLoss, satSnrDb);
-
+ 
     if satSnrDb > userBestSNR
         userBestSNR       = satSnrDb;
         userBestNode      = "SAT-1";
@@ -216,8 +211,6 @@ for u = 1:numUsers
     capacityMbpsVec(u)     = capacity * 1e-6;
     bestElevationDegVec(u) = userBestElevation;
 
-    fprintf("=> User %d συνδέεται στο %s (%s) με SNR = %.2f dB\n\n", ...
-            u, userBestNode, userBestType, userBestSNR);
 end
 
 %% ------------------ Πίνακας αποτελεσμάτων ------------------
