@@ -203,6 +203,10 @@ for u = 1:numUsers
     end
 
     %% ===== Capacity =====
+    %(Για τώρα το σύστημα αφού υπολογίσει και επιλέξει τον καλύτερο κόμβο
+    %βάση SNR απλά υπολογίζει το capacity αυτού μετά)
+    % ToDo: να το βάλω να υπολογίζει για κάθε snr και το capacity και να
+    % συγκρίνει μετά και το καλύτερο capacity.
     snr_lin = 10^(userBestSNR/10);
     capacity = userBestBW * log2(1 + snr_lin);   % bits/s
 
