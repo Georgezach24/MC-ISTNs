@@ -16,9 +16,10 @@ user_geo = [37.9845 23.7288 1.5;
             38.0500 23.9500 1.5];
 
 
-% [latitude, longitude, altitude_m]
+%SATs: [latitude, longitude, altitude_m]
 sat_geo = [38.0200 23.8200 550e3];   % LEO (550 km)
 
+%User calculations
 numUsers = size(user_geo,1);
 numBs    = size(bs_geo,1);
 
@@ -101,6 +102,7 @@ satSnrDbVec       = nan(numUsers,1);
 %% ------------------ Loop για κάθε χρήστη ------------------
 for u = 1:numUsers
 
+    %Αρικοποιήσεις.
     userBestSNR       = -Inf;
     userBestNode      = "";
     userBestType      = "";
@@ -154,7 +156,7 @@ for u = 1:numUsers
 
         snrDbMat(u,b) = snr_db;
 
-
+        %Σύγκριση καλύτερου SNR.
         if snr_db > userBestSNR
             userBestSNR       = snr_db;
             userBestNode      = "BS" + string(b);
@@ -175,13 +177,13 @@ for u = 1:numUsers
     satSlantRangeVec(u) = slantRangeSat;
     satElevationVec(u)  = elevSat;
 
-    if elevSat >= satParameters.MinElevationDeg
-        lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency;
-        satPathLoss = fspl(slantRangeSat, lambdaSat);
+    if elevSat >= satParameters.MinElevationDeg %Αν ο δορυφόρος είναι ορατός από τον χρήστη.
+        lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency; %Υπολογισμός (λ)
+        satPathLoss = fspl(slantRangeSat, lambdaSat); %Free space loss για τον δορυφόρο.
         satSnrDb = (satParameters.TxPower - 30) ...
                    - satPathLoss ...
                    - noisePowerSAT_dBW;
-    else
+    else %Αλλιώς θέσε τα ως άπειρα για να μην επιλέγονται ποτέ.
         satPathLoss = inf;
         satSnrDb = -Inf;
     end
@@ -189,7 +191,7 @@ for u = 1:numUsers
     satPathLossVec(u) = satPathLoss;
     satSnrDbVec(u)    = satSnrDb;
 
- 
+    %Σύγκριση των SNR για TN και NTN.
     if satSnrDb > userBestSNR
         userBestSNR       = satSnrDb;
         userBestNode      = "SAT-1";
