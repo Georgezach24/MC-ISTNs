@@ -13,6 +13,7 @@ user_geo = [37.9845 23.7288 1.5;
             37.9870 23.7325 1.5;
             37.9825 23.7268 1.5;
             37.9900 23.7450 1.5;
+            37.0380 23.9550 1.5;
             38.0500 23.9500 1.5];
 
 
@@ -43,8 +44,10 @@ simParameters.PathLoss.Scenario = 'UMa';
 simParameters.PathLoss.EnvironmentHeight = 1;
 
 %% ------------------ Parameters (Satellite) ------------------
-satParameters.CarrierFrequency = 2.01e9;     %  S-band
-satParameters.TxPower = 34;                 % dBm
+satParameters.CarrierFrequency = 2.01e9;     % S-band
+satParameters.TxPower = 34;                 % dBm (Ισχύς ενισχυτή)
+satParameters.AntennaGain = 30;             % dBi (Κέρδος κατευθυντικής κεραίας LEO, TR 38.821)
+satParameters.EIRP = satParameters.TxPower + satParameters.AntennaGain; % EIRP για να έχουμε σωστό υπολογισμό ισχύος
 satParameters.Bandwidth = 20e6;             % Hz
 satParameters.MinElevationDeg = 10;         % visibility mask
 
@@ -180,7 +183,7 @@ for u = 1:numUsers
     if elevSat >= satParameters.MinElevationDeg %Αν ο δορυφόρος είναι ορατός από τον χρήστη.
         lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency; %Υπολογισμός (λ)
         satPathLoss = fspl(slantRangeSat, lambdaSat); %Free space loss για τον δορυφόρο.
-        satSnrDb = (satParameters.TxPower - 30) ...
+        satSnrDb = (satParameters.EIRP - 30) ...
                    - satPathLoss ...
                    - noisePowerSAT_dBW;
     else %Αλλιώς θέσε τα ως άπειρα για να μην επιλέγονται ποτέ.
