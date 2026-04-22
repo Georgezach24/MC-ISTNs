@@ -47,11 +47,7 @@ switch scenarioType
         simParameters.PathLoss.EnvironmentHeight = 1; 
     case 'UMi'
         bs_height_m = 10;
-        simParameters.PathLoss.EnvironmentHeight = 1; 
-    case 'RMa'
-        bs_height_m = 35; 
-        simParameters.PathLoss.BuildingHeight = 5;    
-        simParameters.PathLoss.StreetWidth = 20;      
+        simParameters.PathLoss.EnvironmentHeight = 1;       
 end
 
 % Ενημέρωση των υψομέτρων των BS στον πίνακα bs_geo αυτόματα βάσει σεναρίου
