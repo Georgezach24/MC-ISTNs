@@ -200,14 +200,8 @@ for u = 1:numUsers
     capacityMbpsVec(u) = capacity * 1e-6;    % Mbps
 end
 
-%% ------------------ Πίνακας αποτελεσμάτων ------------------
-userID = (1:numUsers)';
-resultsTable = table(userID, bestNodeVec, bestNodeTypeVec, ...
-    bestDistanceVec, bestPathLossVec, bestSnrDbVec, ...
-    capacityMbpsVec, bestElevationDegVec, ...
-    'VariableNames', {'User','ServingNode','ServingType', ...
-    'Distance_m','PathLoss_dB','SNR_dB','Capacity_Mbps','SatElevation_deg'});
-disp(resultsTable)
+%Συνάρτηση για εμφάνηση του πίνακα.
+array (numUsers, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, bestSnrDbVec, capacityMbpsVec, bestElevationDegVec)
 
 % Call the visualization
 visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeVec, bestNodeVec)
