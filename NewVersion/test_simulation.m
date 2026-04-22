@@ -38,7 +38,7 @@ simParameters.PathLossModel = '5G-NR';
 simParameters.PathLoss = nrPathLossConfig;
 
 % -- Επιλογή Σεναρίου βάσει TR 38.901 --
-scenarioType = 'UMa'; % Μπορείς να το αλλάξεις σε 'UMi' ή 'RMa' στο μέλλον
+scenarioType = 'UMa';
 simParameters.PathLoss.Scenario = scenarioType;
 
 switch scenarioType
