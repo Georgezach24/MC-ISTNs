@@ -9,20 +9,6 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 numUsers = size(user_geo,1);
 numBs    = size(bs_geo,1);
 
-%% ------------------ Fading / LOS για terrestrial model ------------------
-if contains(simParameters.DelayProfile,'CDL','IgnoreCase',true)
-    channel = nrCDLChannel;
-    channel.DelayProfile = simParameters.DelayProfile;
-    chInfo = info(channel);
-    kFactor = chInfo.KFactorFirstCluster;
-else
-    channel = nrTDLChannel;
-    channel.DelayProfile = simParameters.DelayProfile;
-    chInfo = info(channel);
-    kFactor = chInfo.KFactorFirstTap;
-end
-simParameters.LOS = kFactor > -Inf;
-
 %% ------------------ Bandwidth ------------------
 BW_bs = simParameters.Carrier.NSizeGrid * 12 * ...
         simParameters.Carrier.SubcarrierSpacing * 1e3;   % Hz
@@ -49,6 +35,8 @@ groundDistanceMat = nan(numUsers,numBs);
 range3DMat        = nan(numUsers,numBs);
 pathLossMat       = nan(numUsers,numBs);
 snrDbMat          = nan(numUsers,numBs);
+pLosMat           = nan(numUsers,numBs);
+losMat            = false(numUsers,numBs);
 satSlantRangeVec  = nan(numUsers,1);
 satElevationVec   = nan(numUsers,1);
 satPathLossVec    = nan(numUsers,1);
@@ -84,10 +72,20 @@ for u = 1:numUsers
         groundDistanceMat(u,b) = groundDistance;
         range3DMat(u,b)        = d3d;
 
-        pathLoss = nrPathLoss(simParameters.PathLoss, ...
+        % LOS ανά ζεύξη βάσει πιθανότητας απόστασης (3GPP TR 38.901 §7.4.2,
+        % Πίνακας 7.4.2-1), αντί για μία σταθερή global τιμή LOS.
+        pLos  = losProbability38901(groundDistance, user_geo(u,3), simParameters.PathLoss.Scenario);
+        isLos = rand() < pLos;
+        pLosMat(u,b) = pLos;
+        losMat(u,b)  = isLos;
+
+        [pathLoss, sigmaSF] = nrPathLoss(simParameters.PathLoss, ...
                               simParameters.CarrierFrequency, ...
-                              simParameters.LOS, ...
+                              isLos, ...
                               txPosition, rxPosition);
+
+        % Shadow fading: log-normal δείγμα με τυπική απόκλιση sigmaSF (TR 38.901 §7.4.1)
+        pathLoss = pathLoss + sigmaSF * randn();
         pathLossMat(u,b) = pathLoss;
 
         snr_db = (simParameters.TxPower - 30) - pathLoss - noisePowerBS_dBW;
@@ -165,4 +163,34 @@ for u = 1:numUsers
     capacityMbpsVec(u) = capacity * 1e-6;    % Mbps
 end
 
+end
+
+function pLos = losProbability38901(d2D, hUT, scenario)
+% Πιθανότητα LOS για μία ζεύξη BS-χρήστη, βάσει 3GPP TR 38.901 v17.0.0,
+% Πίνακας 7.4.2-1 (LOS probability). d2D σε μέτρα (οριζόντια απόσταση),
+% hUT το ύψος του χρήστη σε μέτρα.
+switch scenario
+    case 'UMi'
+        if d2D <= 18
+            pLos = 1;
+        else
+            pLos = 18/d2D + exp(-d2D/36) * (1 - 18/d2D);
+        end
+    case 'UMa'
+        if d2D <= 18
+            pLos = 1;
+        else
+            if hUT <= 13
+                Cprime = 0;
+            else
+                g = 1.25e-6 * d2D^3 * exp(-d2D/150);
+                Cprime = ((hUT - 13)/10)^1.5 * g;
+            end
+            pLos = (18/d2D + exp(-d2D/63) * (1 - 18/d2D)) * (1 + Cprime);
+        end
+    otherwise
+        error('losProbability38901:UnsupportedScenario', ...
+            'Άγνωστο PathLoss.Scenario "%s" - η πιθανότητα LOS (TR 38.901 §7.4.2) είναι ορισμένη μόνο για "UMa" και "UMi".', ...
+            scenario);
+end
 end

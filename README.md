@@ -8,7 +8,7 @@ This simulation is the reference generator for a future dataset (Part 2) intende
 
 For a fixed set of geographic positions (base stations, users, one satellite):
 
-1. Computes terrestrial path loss per user–BS pair using the 3GPP TR 38.901 channel model (`UMa`/`UMi` scenario, selectable), via MATLAB's 5G Toolbox.
+1. Computes terrestrial path loss per user–BS pair using the 3GPP TR 38.901 channel model (`UMa`/`UMi` scenario, selectable), via MATLAB's 5G Toolbox — including a per-link LOS/NLOS draw from the TR 38.901 §7.4.2 distance-dependent LOS probability, and log-normal shadow fading from the model's own shadow-fading standard deviation (§7.4.1).
 2. Computes the satellite path loss per user using free-space path loss, gated by a minimum elevation visibility mask.
 3. Derives SNR for every candidate link (BS and satellite) from fixed transmit power / EIRP and thermal noise.
 4. Selects each user's serving node as the candidate with the **highest SNR** (single-connectivity, per-user greedy selection).
@@ -42,7 +42,8 @@ The script prints a per-user results table (serving node, distance, path loss, S
 
 ```
 PROD/
-  test_simulation.m   Entry point — scenario definition, link budget, selection, capacity
+  test_simulation.m   Entry point — scenario definition, calls simulateScenario, then reporting
+  simulateScenario.m   Per-user link budget: LOS draw, shadow fading, SNR, node selection, capacity
   array.m              Formats and prints the per-user results table
   visual.m             3D plot of base stations, users, satellite, and serving links
   istn.zip             Archived snapshot of an earlier version
@@ -61,7 +62,8 @@ Plots/
 
 ## Roadmap
 
-- Parameterize the scenario into a callable function and add a Monte-Carlo batch driver to generate a labeled dataset (varied topologies, load, and satellite geometry) as CSV/Parquet.
-- Add shadow/fast fading variability so repeated scenarios aren't fully deterministic.
+- Add a Monte-Carlo batch driver on top of `simulateScenario.m` to generate a labeled dataset (varied topologies, load, and satellite geometry) as CSV/Parquet.
+- Add atmospheric/scintillation loss to the satellite link (TR 38.821 §6.1) and antenna gain modeling on the terrestrial side (TR 38.901 §7.3), so terrestrial and satellite links are on equal footing.
+- Cap capacity to standard MCS/CQI spectral efficiency (TS 38.214) instead of unbounded Shannon capacity.
 - Add satellite pass dynamics (time-varying elevation).
 - Part 2 (separate, future work): train an ML model on the generated dataset to predict the best connectivity option per user.

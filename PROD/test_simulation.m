@@ -1,5 +1,6 @@
 clc;
 clear;
+rng(42); % Σταθερός σπόρος RNG για αναπαραγώγιμα αποτελέσματα (LOS draw + shadow fading είναι πλέον στοχαστικά)
 %% ------------------ Γεωγραφικές θέσεις [lat lon h(m)] ------------------
 % Παράδειγμα συντεταγμένων κοντά στην Αθήνα
 % BS: [latitude, longitude, height_m] (Τα ύψη θα ενημερωθούν αυτόματα από το σενάριο)
@@ -60,8 +61,6 @@ satParameters.AntennaGain = 30;             % dBi (Κέρδος κατευθυν
 satParameters.EIRP = satParameters.TxPower + satParameters.AntennaGain; 
 satParameters.Bandwidth = 20e6;             % Hz
 satParameters.MinElevationDeg = 10;         % visibility mask
-
-simParameters.DelayProfile = 'TDL-A';
 
 %% ------------------ Εκτέλεση σεναρίου (επιλογή κόμβου + χωρητικότητα) ------------------
 [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
