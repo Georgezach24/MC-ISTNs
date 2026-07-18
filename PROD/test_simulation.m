@@ -62,13 +62,32 @@ satParameters.EIRP = satParameters.TxPower + satParameters.AntennaGain;
 satParameters.Bandwidth = 20e6;             % Hz
 satParameters.MinElevationDeg = 10;         % visibility mask
 
+%% ------------------ Parameters (Ενεργειακό μοντέλο) ------------------
+% Γραμμικό μοντέλο κατανάλωσης ισχύος EARTH (Auer et al., "How much energy
+% is needed to run a wireless network?", IEEE Wireless Commun., 2011) για
+% τον σταθμό βάσης: P = NumTrx*(P0 + DeltaP*Pout) σε ενεργή λειτουργία,
+% NumTrx*Psleep σε αδράνεια (τιμές αναφοράς macro cell, Pmax=20W <-> 43dBm
+% ήδη ίδιο με το TxPower του σεναρίου).
+simParameters.Power.NumTrx = 1;      % Αριθμός TRX ανά BS (μονο-sector μοντέλο)
+simParameters.Power.P0     = 130;    % W, σταθερή κατανάλωση σε ενεργή λειτουργία
+simParameters.Power.DeltaP = 4.7;    % κλίση κατανάλωσης ισχύος ως προς Pout
+simParameters.Power.Psleep = 75;     % W, κατανάλωση σε αδράνεια (δεν χρησιμοποιείται ακόμα
+                                      % στο per-user proxy - προορίζεται για μελλοντικό
+                                      % network-wide accounting αδρανών κόμβων)
+
+% Γραμμικό μοντέλο ενισχυτή ισχύος (PA) για τον δορυφόρο: P = Pfix + Pout/EtaPA
+satParameters.Power.Pfix  = 0;       % W, σταθερή κατανάλωση εκτός ενισχυτή (μη τυποποιημένη
+                                      % τιμή για payload - συντηρητική προσέγγιση 0)
+satParameters.Power.EtaPA = 0.4;     % Απόδοση ενισχυτή ισχύος (τυπικό εύρος 0.35-0.5 SSPA/TWTA)
+
 %% ------------------ Εκτέλεση σεναρίου (επιλογή κόμβου + χωρητικότητα) ------------------
 [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
-    bestSnrDbVec, capacityMbpsVec, bestElevationDegVec] = ...
+    bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
+    nodePowerWattsVec, energyPerBitUJVec] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters);
 
 % Συνάρτηση για εμφάνιση του πίνακα (custom συνάρτηση χρήστη).
-array(numUsers, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, bestSnrDbVec, capacityMbpsVec, bestElevationDegVec)
+array(numUsers, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec)
 
 % Call the visualization
 visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeVec, bestNodeVec)

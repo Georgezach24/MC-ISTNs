@@ -13,7 +13,8 @@ For a fixed set of geographic positions (base stations, users, one satellite):
 3. Derives SNR for every candidate link (BS and satellite) from fixed transmit power / EIRP and thermal noise.
 4. Selects each user's serving node as the candidate with the **highest SNR** (single-connectivity, per-user greedy selection).
 5. Splits each node's bandwidth equally among the users it serves, and computes per-user Shannon capacity.
-6. Prints a results table and renders a 3D plot of the network topology and serving links.
+6. Computes an energy-per-bit proxy per user: node power draw (EARTH linear power model for the BS, a linear power-amplifier-efficiency model for the satellite) split equally across served users and divided by each user's bit rate.
+7. Prints a results table and renders a 3D plot of the network topology and serving links.
 
 ## Requirements
 
@@ -59,6 +60,7 @@ Plots/
 - Best-node selection is a greedy, per-user SNR comparison, not a joint network-wide optimization and not true dual/multi-connectivity (each user attaches to exactly one node).
 - No inter-cell interference — SNR is noise-limited only.
 - No batch/Monte-Carlo driver yet — this repo does not currently generate a dataset, only a single labeled scenario per run.
+- Energy-per-bit is a modeled proxy (EARTH power model / PA-efficiency model, not a hardware measurement), and only accounts for nodes actively serving at least one user — idle-node power is not yet tracked.
 
 ## Roadmap
 

@@ -1,5 +1,6 @@
 function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
-    bestSnrDbVec, capacityMbpsVec, bestElevationDegVec] = ...
+    bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
+    nodePowerWattsVec, energyPerBitUJVec] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters)
 % Υπολογίζει, για κάθε χρήστη, τον καλύτερο κόμβο εξυπηρέτησης (BS ή δορυφόρο)
 % βάσει SNR και την επιτευχθείσα χωρητικότητα Shannon μετά την κατανομή
@@ -28,6 +29,8 @@ bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
 bestSnrDbVec        = nan(numUsers,1);
 capacityMbpsVec     = nan(numUsers,1);
+nodePowerWattsVec   = nan(numUsers,1);
+energyPerBitUJVec   = nan(numUsers,1);
 bestElevationDegVec = nan(numUsers,1);
 
 % Διαγνωστικοί πίνακες
@@ -139,18 +142,25 @@ for u = 1:numUsers
     bestElevationDegVec(u) = userBestElevation;
 end
 
-%% ------------------ Υπολογισμός Χωρητικότητας (Κατανομή Πόρων) ------------------
+%% ------------------ Υπολογισμός Χωρητικότητας & Ενέργειας (Κατανομή Πόρων) ------------------
 for u = 1:numUsers
     servingNode = bestNodeVec(u);
 
     % Πόσοι χρήστες συνολικά εξυπηρετούνται από τον ΙΔΙΟ κόμβο
     usersOnThisNode = sum(bestNodeVec == servingNode);
 
-    % Επιλέγουμε το συνολικό Bandwidth του κόμβου
+    % Επιλέγουμε το συνολικό Bandwidth του κόμβου και την κατανάλωση ισχύος του
+    % (μοντέλο EARTH για BS, γραμμικό μοντέλο ενισχυτή ισχύος για δορυφόρο -
+    % βλ. CLAUDE.md § Standards & scientific grounding)
     if bestNodeTypeVec(u) == "Terrestrial"
         nodeBW = BW_bs;
+        pOutW  = 10^((simParameters.TxPower - 30)/10);
+        nodePowerW = simParameters.Power.NumTrx * ...
+            (simParameters.Power.P0 + simParameters.Power.DeltaP * pOutW);
     else
         nodeBW = satParameters.Bandwidth;
+        pOutW  = 10^((satParameters.TxPower - 30)/10);
+        nodePowerW = satParameters.Power.Pfix + pOutW / satParameters.Power.EtaPA;
     end
 
     % Κατανομή πόρων (B_user = BW_grid / N_users)
@@ -161,6 +171,11 @@ for u = 1:numUsers
     capacity = B_user * log2(1 + snr_lin);   % bits/s
 
     capacityMbpsVec(u) = capacity * 1e-6;    % Mbps
+
+    % Ενεργειακό proxy: ισομερής κατανομή ισχύος κόμβου ανά χρήστη (ίδια λογική
+    % με το bandwidth split), διαιρεμένη με τον ρυθμό bit του χρήστη -> µJ/bit
+    nodePowerWattsVec(u) = nodePowerW;
+    energyPerBitUJVec(u) = (nodePowerW / usersOnThisNode) / capacity * 1e6;
 end
 
 end
