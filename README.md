@@ -48,7 +48,11 @@ monteCarloDriver()          % 200 randomized scenarios -> Dataset/dataset.csv
 monteCarloDriver(1000)      % 1000 scenarios -> Dataset/dataset.csv
 ```
 
-Radio configuration (transmit power, bandwidth, power models) stays fixed — identical to `test_simulation.m` — only topology and satellite geometry are randomized, so results stay comparable to the single-run reference scenario. Output is one CSV row per user per scenario, with columns for scenario metadata (`ScenarioID`, `NumBS`, `NumUsers`, `ScenarioType`), geometry, and the same per-user metrics as the single-run table plus `NodeLoad` (how many users share the assigned node). `Dataset/` is gitignored since it's generated output, not source.
+Radio configuration (transmit power, bandwidth, power models) stays fixed — identical to `test_simulation.m` — only topology and satellite geometry are randomized, so results stay comparable to the single-run reference scenario. Output is one CSV row per user per scenario, with columns for scenario metadata (`ScenarioID`, `NumBS`, `NumUsers`, `ScenarioType`), geometry, the same per-user metrics as the single-run table, `NodeLoad` (how many users share the assigned node), and per-candidate diagnostics (`CandBS_*`/`CandSat_*`: best-BS and satellite SNR/distance/elevation/path-loss, independent of which one wins) so a model can learn the comparison rather than just read off the winner. `Dataset/` is gitignored since it's generated output, not source.
+
+### Testing a model (Part 2, early proof-of-concept)
+
+`Model/train_model.py` trains classifiers on the generated dataset to predict `ServingType` (Terrestrial vs Satellite) from the candidate-level features. See `Model/README.md` for setup, current metrics, and honest caveats about what this first pass does and doesn't prove.
 
 ## Project structure
 
@@ -66,6 +70,10 @@ Plots/
   ...                  Saved figure exports from previous simulation runs
 Dataset/
   ...                  CSV output from monteCarloDriver.m (generated, gitignored)
+Model/
+  train_model.py       Part 2 proof-of-concept: trains/evaluates classifiers on Dataset/dataset.csv
+  requirements.txt     Python dependencies (pandas, scikit-learn, numpy, matplotlib)
+  results/             Saved metrics.json and plots from the last training run
 ```
 
 ## Current limitations / scope

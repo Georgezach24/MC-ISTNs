@@ -1,11 +1,18 @@
 function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
     bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
-    nodePowerWattsVec, energyPerBitUJVec] = ...
+    nodePowerWattsVec, energyPerBitUJVec, ...
+    bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
+    satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters)
 % Υπολογίζει, για κάθε χρήστη, τον καλύτερο κόμβο εξυπηρέτησης (BS ή δορυφόρο)
 % βάσει SNR και την επιτευχθείσα χωρητικότητα Shannon μετά την κατανομή
 % εύρους ζώνης. Εξάγει το βασικό μονοπάτι υπολογισμού από το test_simulation.m
 % ώστε να μπορεί να κληθεί επανειλημμένα (π.χ. από έναν Monte-Carlo driver).
+%
+% Πέρα από τον τελικό (νικητή) κόμβο, επιστρέφει και τα per-candidate
+% διαγνωστικά (καλύτερο BS ανεξάρτητα από το αν κέρδισε, και δορυφόρος)
+% ώστε ένα μελλοντικό μοντέλο ML (Part 2) να μπορεί να εκπαιδευτεί στη
+% σύγκριση των δύο υποψήφιων ζεύξεων αντί να διαβάζει απευθείας τον νικητή.
 
 numUsers = size(user_geo,1);
 numBs    = size(bs_geo,1);
@@ -32,6 +39,9 @@ capacityMbpsVec     = nan(numUsers,1);
 nodePowerWattsVec   = nan(numUsers,1);
 energyPerBitUJVec   = nan(numUsers,1);
 bestElevationDegVec = nan(numUsers,1);
+bestBsSnrDbVec      = nan(numUsers,1);
+bestBsDistanceVec   = nan(numUsers,1);
+bestBsPathLossVec   = nan(numUsers,1);
 
 % Διαγνωστικοί πίνακες
 groundDistanceMat = nan(numUsers,numBs);
@@ -103,6 +113,13 @@ for u = 1:numUsers
             userBestElevation = NaN;
         end
     end
+
+    % Στιγμιότυπο του καλύτερου υποψήφιου BS πριν συγκριθεί με τον δορυφόρο
+    % (per-candidate διαγνωστικό, ανεξάρτητο από τον τελικό νικητή - βλ.
+    % bestBsSnrDbVec/bestBsDistanceVec/bestBsPathLossVec στην έξοδο).
+    bestBsSnrDbVec(u)   = userBestSNR;
+    bestBsDistanceVec(u) = userBestDistance;
+    bestBsPathLossVec(u) = userBestPathLoss;
 
     %% ===== Satellite candidate =====
     [azSat, elevSat, slantRangeSat] = geodetic2aer( ...
