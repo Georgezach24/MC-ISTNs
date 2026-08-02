@@ -39,19 +39,33 @@ matlab -batch "run('PROD/test_simulation.m')"
 
 The script prints a per-user results table (serving node, distance, path loss, SNR, capacity, satellite elevation) and opens a 3D visualization figure.
 
+### Generating a dataset (Monte-Carlo batch driver)
+
+To generate a labeled dataset by running the same per-user link budget over many randomized topologies (BS/user counts and positions, satellite geometry, UMa/UMi mix), use `monteCarloDriver.m`:
+
+```matlab
+monteCarloDriver()          % 200 randomized scenarios -> Dataset/dataset.csv
+monteCarloDriver(1000)      % 1000 scenarios -> Dataset/dataset.csv
+```
+
+Radio configuration (transmit power, bandwidth, power models) stays fixed — identical to `test_simulation.m` — only topology and satellite geometry are randomized, so results stay comparable to the single-run reference scenario. Output is one CSV row per user per scenario, with columns for scenario metadata (`ScenarioID`, `NumBS`, `NumUsers`, `ScenarioType`), geometry, and the same per-user metrics as the single-run table plus `NodeLoad` (how many users share the assigned node). `Dataset/` is gitignored since it's generated output, not source.
+
 ## Project structure
 
 ```
 PROD/
-  test_simulation.m   Entry point — scenario definition, calls simulateScenario, then reporting
+  test_simulation.m    Entry point — scenario definition, calls simulateScenario, then reporting
   simulateScenario.m   Per-user link budget: LOS draw, shadow fading, SNR, node selection, capacity
+  monteCarloDriver.m   Batch driver — runs simulateScenario over randomized topologies, writes a labeled CSV
   array.m              Formats and prints the per-user results table
-  visual.m             3D plot of base stations, users, satellite, and serving links
+  visual.m              3D plot of base stations, users, satellite, and serving links
   istn.zip             Archived snapshot of an earlier version
 Βοηθητικά Έργαλεία/
   graph.m              Standalone plot of measured RX power vs. distance (not part of the simulation pipeline)
 Plots/
   ...                  Saved figure exports from previous simulation runs
+Dataset/
+  ...                  CSV output from monteCarloDriver.m (generated, gitignored)
 ```
 
 ## Current limitations / scope
@@ -59,12 +73,11 @@ Plots/
 - Single static topology per run — no user mobility or satellite motion (elevation is fixed, not propagated over time).
 - Best-node selection is a greedy, per-user SNR comparison, not a joint network-wide optimization and not true dual/multi-connectivity (each user attaches to exactly one node).
 - No inter-cell interference — SNR is noise-limited only.
-- No batch/Monte-Carlo driver yet — this repo does not currently generate a dataset, only a single labeled scenario per run.
+- The Monte-Carlo driver randomizes topology and satellite geometry per scenario, but not radio configuration (power, bandwidth) or user mobility within a scenario — each generated row is still a static single-snapshot link budget.
 - Energy-per-bit is a modeled proxy (EARTH power model / PA-efficiency model, not a hardware measurement), and only accounts for nodes actively serving at least one user — idle-node power is not yet tracked.
 
 ## Roadmap
 
-- Add a Monte-Carlo batch driver on top of `simulateScenario.m` to generate a labeled dataset (varied topologies, load, and satellite geometry) as CSV/Parquet.
 - Add atmospheric/scintillation loss to the satellite link (TR 38.821 §6.1) and antenna gain modeling on the terrestrial side (TR 38.901 §7.3), so terrestrial and satellite links are on equal footing.
 - Cap capacity to standard MCS/CQI spectral efficiency (TS 38.214) instead of unbounded Shannon capacity.
 - Add satellite pass dynamics (time-varying elevation).
