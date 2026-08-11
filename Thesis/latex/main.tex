@@ -9,8 +9,7 @@
 %     xelatex main.tex
 %     xelatex main.tex
 %
-%  On Overleaf: set "TeX Live version" as usual and the compiler to
-%  XeLaTeX in the project menu (Menu -> Compiler -> XeLaTeX).
+%  On Overleaf: set the compiler to XeLaTeX (Menu -> Compiler -> XeLaTeX).
 % =============================================================
 \documentclass[12pt,a4paper,oneside]{book}
 
@@ -25,8 +24,12 @@
 % και θέλετε να χρησιμοποιήσετε την ίδια γραμματοσειρά με το πρότυπο .doc
 % (Times New Roman), αντικαταστήστε τα δύο ονόματα παρακάτω με
 % "Times New Roman".
-\setmainfont{TeX Gyre Termes}
-\newfontfamily\greekfont{TeX Gyre Termes}
+\setmainfont{Times New Roman}
+\newfontfamily\greekfont{Times New Roman}
+% Μονόχωρη γραμματοσειρά για τα listings κώδικα του Παραρτήματος (τα
+% σχόλια στον κώδικα είναι ούτως ή άλλως σε λατινικούς χαρακτήρες/greeklish
+% για μέγιστη συμβατότητα).
+\setmonofont{Consolas}
 
 % ---------- Σελίδα / περιθώρια (όπως στο πρότυπο .doc: A4, ~2/2.25/2.5cm) ----------
 \usepackage[a4paper,left=2cm,right=2.25cm,top=2.5cm,bottom=2.5cm]{geometry}
@@ -39,6 +42,7 @@
 \usepackage{longtable}
 \usepackage{array}
 \usepackage{amsmath,amssymb}
+\DeclareMathOperator*{\argmax}{arg\,max}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{xcolor}
@@ -61,6 +65,7 @@
 \fancyhead[R]{\small\thepage}
 \fancyhead[L]{\small\leftmark}
 \renewcommand{\headrulewidth}{0.4pt}
+\setlength{\headheight}{14pt}
 
 % ---------- Ρυθμίσεις listings για τμήματα κώδικα (MATLAB / Python) ----------
 \lstdefinestyle{code}{

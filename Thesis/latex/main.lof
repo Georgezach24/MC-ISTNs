@@ -1,0 +1,15 @@
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {5.1}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή throughput (Mbps) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{20}{figure.caption.10}%
+\contentsline {figure}{\numberline {5.2}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή ενέργειας ανά bit (\textmu J/bit) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{20}{figure.caption.11}%
+\contentsline {figure}{\numberline {5.3}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή SNR (dB) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{21}{figure.caption.12}%
+\contentsline {figure}{\numberline {5.4}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Γωνία ανύψωσης δορυφόρου ανά χρήστη κατά τη διάρκεια του πάσσου (93 βήματα, $\Delta t = 5$~s).}}{22}{figure.caption.13}%
+\contentsline {figure}{\numberline {5.5}{\ignorespaces \xpg@aux {}{greek}\ignorespaces SNR του νικητή κόμβου ανά χρήστη κατά τη διάρκεια του πάσσου. Η απότομη πτώση στο τέλος (χρήστες 5, 6) αντιστοιχεί στο φαινόμενο outage που περιγράφεται στο κείμενο.}}{22}{figure.caption.14}%
+\contentsline {figure}{\numberline {5.6}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Καμπύλες ROC για τα δύο μοντέλα (πρόβλεψη Satellite έναντι Terrestrial).}}{24}{figure.caption.17}%
+\contentsline {figure}{\numberline {5.7}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Σπουδαιότητα χαρακτηριστικών (Random Forest). Τα δύο υποψήφια SNR κυριαρχούν, όπως αναμενόταν από τον κανόνα $\argmax (\text {SNR}_{\text {BS}}, \text {SNR}_{\text {sat}})$.}}{25}{figure.caption.18}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }

@@ -1,0 +1,99 @@
+\chapter{Υλοποίηση}
+\label{ch:implementation}
+
+\section{Εργαλεία και τεχνολογίες}
+\label{sec:impl-tools}
+
+Η προσομοίωση link-budget υλοποιείται εξ ολοκλήρου σε MATLAB, αξιοποιώντας
+τρία πακέτα εργαλείων (toolboxes):
+
+\begin{itemize}
+  \item Το \textbf{5G Toolbox}~\cite{matlab5gtoolbox} (\texttt{nrCarrierConfig},
+    \texttt{nrPathLossConfig}, \texttt{nrPathLoss}), για τη διαμόρφωση του
+    φέροντος NR και τον υπολογισμό path loss κατά TR~38.901.
+  \item Το \textbf{Mapping Toolbox} (\texttt{wgs84Ellipsoid},
+    \texttt{geodetic2enu}, \texttt{geodetic2aer}, \texttt{distance}), για
+    γεωδαιτικούς υπολογισμούς (μετατροπές συντεταγμένων, αποστάσεις, γωνία
+    ανύψωσης).
+  \item Το \textbf{Communications/Phased Array Toolbox}
+    (\texttt{fspl}, \texttt{physconst}), για τον υπολογισμό απωλειών
+    ελεύθερου χώρου και φυσικών σταθερών (ταχύτητα φωτός, σταθερά Boltzmann).
+\end{itemize}
+
+Το δεύτερο, μεταγενέστερο σκέλος -- η δοκιμή μηχανικής μάθησης -- υλοποιείται
+σε Python, με τις βιβλιοθήκες pandas (διαχείριση δεδομένων),
+scikit-learn~\cite{pedregosa2011sklearn} (ταξινομητές, προεπεξεργασία,
+μετρικές αξιολόγησης), και matplotlib (γραφήματα).
+
+\section{Δομή λογισμικού}
+\label{sec:impl-structure}
+
+Ο κώδικας οργανώνεται σε δύο κύριους φακέλους:
+
+\begin{description}
+  \item[\texttt{PROD/}] Ο πυρήνας της προσομοίωσης και οι driver scripts.
+  \begin{description}
+    \item[\texttt{simulateScenario.m}] Ο πυρήνας υπολογισμού: δέχεται
+      γεωμετρία (θέσεις BS/χρηστών/δορυφόρου) και ραδιο-παραμέτρους,
+      επιστρέφει per-user KPI και per-candidate διαγνωστικά. Καλείται από
+      όλα τα υπόλοιπα scripts -- είναι η μοναδική υλοποίηση του link-budget,
+      ώστε στατικό σενάριο, Monte Carlo dataset, στατιστική ανάλυση, και
+      χρονική προσομοίωση να χρησιμοποιούν \emph{ακριβώς} το ίδιο μοντέλο
+      καναλιού.
+    \item[\texttt{test\_simulation.m}] Το σενάριο αναφοράς: ορίζει τη
+      στατική τοπολογία και τις ραδιο-παραμέτρους, καλεί μία φορά τη
+      \texttt{simulateScenario}, και εμφανίζει πίνακα αποτελεσμάτων
+      (\texttt{array.m}) και τρισδιάστατη οπτικοποίηση (\texttt{visual.m}).
+    \item[\texttt{monteCarloDriver.m}] Παράγει το ετικετοποιημένο σύνολο
+      δεδομένων για το Μέρος~2 (μηχανική μάθηση), καλώντας τη
+      \texttt{simulateScenario} πάνω σε τυχαιοποιημένες τοπολογίες
+      (Ενότητα~\ref{sec:meth-montecarlo}).
+    \item[\texttt{kpiRepeatedRuns.m}] Επαναλαμβάνει το \emph{ίδιο} στατικό
+      σενάριο με διαφορετικό RNG seed ανά εκτέλεση, ώστε να ποσοτικοποιηθεί
+      η διακύμανση KPI λόγω στοχαστικότητας καναλιού
+      (Ενότητα~\ref{sec:results-repeated}).
+    \item[\texttt{temporalPassSimulation.m}] Η χρονική προσομοίωση πάσσου
+      LEO (Ενότητα~\ref{sec:meth-temporal}, αποτελέσματα στην
+      Ενότητα~\ref{sec:results-temporal}).
+  \end{description}
+  \item[\texttt{Model/}] Το δεύτερο σκέλος (Python).
+  \begin{description}
+    \item[\texttt{train\_model.py}] Φορτώνει το CSV που παράγει ο
+      \texttt{monteCarloDriver.m}, εκπαιδεύει τους δύο ταξινομητές
+      (Ενότητα~\ref{sec:meth-ml}), και αποθηκεύει μετρικές/γραφήματα.
+  \end{description}
+\end{description}
+
+\section{Ροή δεδομένων}
+\label{sec:impl-dataflow}
+
+Η συνολική ροή δεδομένων του pipeline απεικονίζεται σχηματικά ως εξής:
+
+\begin{center}
+\small
+\texttt{γεωγραφικές συντεταγμένες + ραδιο-παράμετροι}
+$\rightarrow$ \texttt{simulateScenario.m}
+$\rightarrow$ \texttt{per-user KPI (MATLAB table)}
+$\rightarrow$ \texttt{CSV (writetable)}
+$\rightarrow$ \texttt{pandas DataFrame}
+$\rightarrow$ \texttt{scikit-learn pipeline}
+$\rightarrow$ \texttt{μετρικές (JSON) + γραφήματα (PNG)}
+\end{center}
+
+Η ενδιάμεση αποθήκευση σε CSV -- αντί, π.χ., για απευθείας κλήση Python
+μέσα από τη MATLAB -- κρατά τα δύο σκέλη (προσομοίωση link-budget σε
+MATLAB, εκπαίδευση μοντέλου σε Python) πλήρως ανεξάρτητα και εύκολα
+ελέγξιμα το καθένα ξεχωριστά, με το CSV να λειτουργεί ως σαφές,
+ανθρωπίνως αναγνώσιμο συμβόλαιο μεταξύ τους.
+
+\section{Αναπαραγωγιμότητα}
+\label{sec:impl-reproducibility}
+
+Όλα τα scripts καλούν \texttt{rng(seed)} με ρητή τιμή σπόρου πριν από κάθε
+στοχαστική εκτέλεση: σταθερό seed (\texttt{rng(42)}) για το στατικό
+σενάριο αναφοράς και τον Monte Carlo dataset generator, και διαφορετικό,
+αλλά ντετερμινιστικά καθορισμένο seed ανά επανάληψη (\texttt{rng(r)} για
+το $r$-οστό run, \texttt{rng(step+1)} για το $\text{step}$-οστό χρονικό
+βήμα) στα \texttt{kpiRepeatedRuns.m} και \texttt{temporalPassSimulation.m}
+αντίστοιχα. Αυτό εξασφαλίζει ότι κάθε αριθμητικό αποτέλεσμα που
+παρουσιάζεται στο Κεφάλαιο~\ref{ch:results} είναι πλήρως αναπαραγώγιμο.

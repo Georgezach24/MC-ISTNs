@@ -1,0 +1,142 @@
+\chapter{Επιλεγμένα Τμήματα Κώδικα}
+\label{ch:appendix-code}
+
+Ο πλήρης πηγαίος κώδικας της προσομοίωσης βρίσκεται στο αποθετήριο του
+έργου, στους φακέλους \texttt{PROD/} (MATLAB) και \texttt{Model/}
+(Python). Παρακάτω παρατίθενται τα πιο αντιπροσωπευτικά τμήματα, όπως
+αναφέρονται στα Κεφάλαια~\ref{ch:methodology} και~\ref{ch:implementation}.
+
+\section{Πυρήνας επιλογής κόμβου (\texttt{simulateScenario.m})}
+\label{sec:appendix-simulatescenario}
+
+Το παρακάτω απόσπασμα υλοποιεί τον κανόνα επιλογής κόμβου
+(εξίσωση~\eqref{eq:node-selection}): για κάθε χρήστη, υπολογίζεται το SNR
+προς κάθε υποψήφιο σταθμό βάσης (με στοχαστικό LOS draw και shadow fading,
+εξισώσεις~\eqref{eq:los-prob-uma}-\eqref{eq:snr-bs}), κρατείται ο
+καλύτερος υποψήφιος BS, και στη συνέχεια συγκρίνεται με τον δορυφόρο.
+
+\begin{lstlisting}[language=Matlab, caption={Απόσπασμα από \texttt{PROD/simulateScenario.m}: επιλογή κόμβου ανά χρήστη.}]
+for u = 1:numUsers
+    userBestSNR  = -Inf;
+    userBestNode = "";
+    userBestType = "";
+
+    %% ===== Terrestrial BS candidates =====
+    for b = 1:numBs
+        % ... geodetic2enu, groundDistance, d3d ...
+
+        % LOS probability kata TR 38.901 Sec. 7.4.2, oxi statheri global timi
+        pLos  = losProbability38901(groundDistance, user_geo(u,3), ...
+                                     simParameters.PathLoss.Scenario);
+        isLos = rand() < pLos;
+
+        [pathLoss, sigmaSF] = nrPathLoss(simParameters.PathLoss, ...
+                              simParameters.CarrierFrequency, isLos, ...
+                              txPosition, rxPosition);
+
+        % Shadow fading: log-normal deigma me tipiki apoklisi sigmaSF
+        pathLoss = pathLoss + sigmaSF * randn();
+
+        snr_db = (simParameters.TxPower - 30) - pathLoss - noisePowerBS_dBW;
+
+        if snr_db > userBestSNR
+            userBestSNR  = snr_db;
+            userBestNode = "BS" + string(b);
+            userBestType = "Terrestrial";
+        end
+    end
+
+    %% ===== Satellite candidate =====
+    [azSat, elevSat, slantRangeSat] = geodetic2aer( ...
+        sat_geo(1), sat_geo(2), sat_geo(3), ...
+        user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
+
+    if elevSat >= satParameters.MinElevationDeg
+        lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency;
+        satPathLoss = fspl(slantRangeSat, lambdaSat);
+        satSnrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
+    else
+        satPathLoss = inf;
+        satSnrDb = -Inf;
+    end
+
+    if satSnrDb > userBestSNR
+        userBestSNR  = satSnrDb;
+        userBestNode = "SAT-1";
+        userBestType = "Satellite";
+    end
+
+    bestNodeVec(u)     = userBestNode;
+    bestNodeTypeVec(u) = userBestType;
+    bestSnrDbVec(u)    = userBestSNR;
+end
+\end{lstlisting}
+
+\section{Μοντέλο κίνησης LEO (\texttt{temporalPassSimulation.m})}
+\label{sec:appendix-temporal}
+
+Το παρακάτω απόσπασμα υπολοποιεί τις εξισώσεις~\eqref{eq:orbital-period}-\eqref{eq:ground-track}:
+τον υπολογισμό της Κεπλεριανής τροχιακής περιόδου/ταχύτητας ίχνους εδάφους,
+και τον χρονικό βρόχο που μετακινεί το υποδορυφορικό σημείο και καλεί εκ
+νέου τη \texttt{simulateScenario} σε κάθε βήμα.
+
+\begin{lstlisting}[language=Matlab, caption={Απόσπασμα από \texttt{PROD/temporalPassSimulation.m}: ταχύτητα ίχνους εδάφους και χρονικός βρόχος.}]
+muEarth = 3.986004418e14;  % m^3/s^2, varitiki parametros Gis
+Re      = 6371e3;          % m, mesi aktina Gis
+a       = Re + satAltitude;
+orbitalPeriodS  = 2*pi*sqrt(a^3/muEarth);      % Kepleriani periodos (s)
+groundSpeedMps  = (2*pi/orbitalPeriodS) * Re;  % taxytita ixnous edafous (m/s)
+
+while step < maxSteps
+    offsetKm = startOffsetKm + groundSpeedMps * t / 1000;
+    subLon = centerLon + offsetKm / (111.320*cosd(centerLat));
+    sat_geo = [centerLat, subLon, satAltitude];
+
+    rng(step + 1); % neo LOS/shadow-fading draw ana xroniko vima
+
+    [bestNodeVec, bestNodeTypeVec, ~, ~, bestSnrDbVec, capacityMbpsVec, ...
+        ~, ~, energyPerBitUJVec, ~, ~, ~, ~, satElevationVec, ~, ~] = ...
+        simulateScenario(bs_geo, user_geo, sat_geo, wgs84, ...
+                          simParameters, satParameters);
+
+    % ... katagrafi apotelesmaton ana xristi ...
+
+    refElev = max(satElevationVec);
+    if refElev >= satParameters.MinElevationDeg
+        wasVisible = true;
+    elseif wasVisible
+        break; % o passos elixe
+    end
+
+    t = t + dtSeconds;
+    step = step + 1;
+end
+\end{lstlisting}
+
+\section{Χαρακτηριστικά και προεπεξεργασία μοντέλου μηχανικής μάθησης (\texttt{train\_model.py})}
+\label{sec:appendix-train-model}
+
+Το παρακάτω απόσπασμα ορίζει τα χαρακτηριστικά εισόδου (μόνο per-candidate
+διαγνωστικά, όχι τα χαρακτηριστικά του ήδη-επιλεγμένου νικητή κόμβου -- βλ.
+Ενότητα~\ref{sec:meth-ml}) και τον διαχωρισμό εκπαίδευσης/ελέγχου ανά σενάριο.
+
+\begin{lstlisting}[language=Python, caption={Απόσπασμα από \texttt{Model/train\_model.py}: χαρακτηριστικά και grouped train/test split.}]
+FEATURE_COLUMNS_NUMERIC = [
+    # NodeLoad exclude skopima: einai sinepia tou ServingType, oxi
+    # anexartitos provlepsis (kyklikos, oxi genikos, predictor).
+    "NumBS", "NumUsers",
+    "CandBS_SNR_dB", "CandBS_Distance_m", "CandBS_PathLoss_dB",
+    "CandSat_SNR_dB", "CandSat_Elevation_deg", "CandSat_SlantRange_m",
+    "CandSat_PathLoss_dB",
+]
+TARGET_COLUMN = "ServingType"
+
+def group_train_test_split(df, test_size=0.25, seed=42):
+    # Split ana ScenarioID (oxi ana grammi): xristes tou idiou senariou
+    # moirazontai tin idia geometria BS/doryforou, ara ena row-level split
+    # tha eferne diarroi geometrias senariou anamesa se train/test.
+    splitter = GroupShuffleSplit(n_splits=1, test_size=test_size,
+                                  random_state=seed)
+    train_idx, test_idx = next(splitter.split(df, groups=df["ScenarioID"]))
+    return df.iloc[train_idx], df.iloc[test_idx]
+\end{lstlisting}

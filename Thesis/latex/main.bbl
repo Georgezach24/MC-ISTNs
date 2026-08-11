@@ -1,0 +1,561 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.3 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{none/global//global/global/global}
+    \entry{tr38821}{report}{}{}
+      \name{author}{1}{}{%
+        {{hash=49952770ed51bcb32792566644a0032e}{%
+           family={{3GPP}},
+           familyi={3\bibinitperiod}}}%
+      }
+      \list{institution}{1}{%
+        {3GPP}%
+      }
+      \strng{namehash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhashraw}{49952770ed51bcb32792566644a0032e}
+      \strng{bibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorbibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authornamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhashraw}{49952770ed51bcb32792566644a0032e}
+      \field{extraname}{1}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{version 16.1.0}
+      \field{number}{TR 38.821}
+      \field{title}{Solutions for {NR} to Support Non-Terrestrial Networks ({NTN})}
+      \field{type}{techreport}
+      \field{year}{2021}
+    \endentry
+    \entry{li2025advancing}{article}{}{}
+      \name{author}{2}{}{%
+        {{hash=fc2923cf2bb4bae12a09ae4d9cd20967}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Xiangyu},
+           giveni={X\bibinitperiod}}}%
+        {{hash=687aeb173d6a961daae391a692a765f2}{%
+           family={Shang},
+           familyi={S\bibinitperiod},
+           given={Bodong},
+           giveni={B\bibinitperiod}}}%
+      }
+      \strng{namehash}{52df846c9596b85f8d2e924328f8fe2b}
+      \strng{fullhash}{52df846c9596b85f8d2e924328f8fe2b}
+      \strng{fullhashraw}{52df846c9596b85f8d2e924328f8fe2b}
+      \strng{bibnamehash}{52df846c9596b85f8d2e924328f8fe2b}
+      \strng{authorbibnamehash}{52df846c9596b85f8d2e924328f8fe2b}
+      \strng{authornamehash}{52df846c9596b85f8d2e924328f8fe2b}
+      \strng{authorfullhash}{52df846c9596b85f8d2e924328f8fe2b}
+      \strng{authorfullhashraw}{52df846c9596b85f8d2e924328f8fe2b}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:2411.04675}
+      \field{note}{v2, Feb. 2025}
+      \field{title}{Advancing Multi-Connectivity in Satellite-Terrestrial Integrated Networks: Architectures, Challenges, and Applications}
+      \field{year}{2025}
+    \endentry
+    \entry{noh2024tnntn}{inproceedings}{}{}
+      \name{author}{3}{}{%
+        {{hash=ba06e34e160407efc1e869432a8bc2a2}{%
+           family={Noh},
+           familyi={N\bibinitperiod},
+           given={Hoondong},
+           giveni={H\bibinitperiod}}}%
+        {{hash=b135e1001ee8ffe77a3f52f6339dc6fe}{%
+           family={Jung},
+           familyi={J\bibinitperiod},
+           given={Haejoon},
+           giveni={H\bibinitperiod}}}%
+        {{hash=af72f926db867d45ae6961bd2a949feb}{%
+           family={Lee},
+           familyi={L\bibinitperiod},
+           given={Junhwan},
+           giveni={J\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {IEEE}%
+      }
+      \strng{namehash}{cb362f0293b5360080aaafe8ae547c85}
+      \strng{fullhash}{afa257d57ed8946360719c2447bf6d65}
+      \strng{fullhashraw}{afa257d57ed8946360719c2447bf6d65}
+      \strng{bibnamehash}{afa257d57ed8946360719c2447bf6d65}
+      \strng{authorbibnamehash}{afa257d57ed8946360719c2447bf6d65}
+      \strng{authornamehash}{cb362f0293b5360080aaafe8ae547c85}
+      \strng{authorfullhash}{afa257d57ed8946360719c2447bf6d65}
+      \strng{authorfullhashraw}{afa257d57ed8946360719c2447bf6d65}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{2024 15th International Conference on Information and Communication Technology Convergence (ICTC)}
+      \field{title}{{TN-NTN} Aggregation and Unification in {6G}}
+      \field{year}{2024}
+      \field{pages}{1439\bibrangedash 1440}
+      \range{pages}{2}
+      \verb{doi}
+      \verb 10.1109/ICTC62082.2024.10827147
+      \endverb
+    \endentry
+    \entry{majamaa2024toward}{article}{}{}
+      \name{author}{1}{}{%
+        {{hash=8c6179f1930f9b2474aaf3b4710a2431}{%
+           family={Majamaa},
+           familyi={M\bibinitperiod},
+           given={Mikko},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{8c6179f1930f9b2474aaf3b4710a2431}
+      \strng{fullhash}{8c6179f1930f9b2474aaf3b4710a2431}
+      \strng{fullhashraw}{8c6179f1930f9b2474aaf3b4710a2431}
+      \strng{bibnamehash}{8c6179f1930f9b2474aaf3b4710a2431}
+      \strng{authorbibnamehash}{8c6179f1930f9b2474aaf3b4710a2431}
+      \strng{authornamehash}{8c6179f1930f9b2474aaf3b4710a2431}
+      \strng{authorfullhash}{8c6179f1930f9b2474aaf3b4710a2431}
+      \strng{authorfullhashraw}{8c6179f1930f9b2474aaf3b4710a2431}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Communications Magazine}
+      \field{number}{11}
+      \field{title}{Toward Multi-Connectivity in Beyond {5G} Non-Terrestrial Networks: Challenges and Possible Solutions}
+      \field{volume}{62}
+      \field{year}{2024}
+      \field{pages}{144\bibrangedash 150}
+      \range{pages}{7}
+      \verb{doi}
+      \verb 10.1109/MCOM.001.2300581
+      \endverb
+    \endentry
+    \entry{pupiales2021multiconnectivity}{article}{}{}
+      \name{author}{5}{}{%
+        {{hash=c2acf18044f35e54efa47bdba5081605}{%
+           family={Pupiales},
+           familyi={P\bibinitperiod},
+           given={Cristhian},
+           giveni={C\bibinitperiod}}}%
+        {{hash=dbfdfac1c5325b0ffb6cf5b89323c704}{%
+           family={Laselva},
+           familyi={L\bibinitperiod},
+           given={Danlan},
+           giveni={D\bibinitperiod}}}%
+        {{hash=413d47deb62d875e95ba95694f81387e}{%
+           family={Coninck},
+           familyi={C\bibinitperiod},
+           given={Quentin\bibnamedelima De},
+           giveni={Q\bibinitperiod\bibinitdelim D\bibinitperiod}}}%
+        {{hash=ec8e535a38d27cb06ccf8a62245c15f1}{%
+           family={Jain},
+           familyi={J\bibinitperiod},
+           given={Ashish},
+           giveni={A\bibinitperiod}}}%
+        {{hash=45bee2f045df93327dc9291e0b110269}{%
+           family={Demirkol},
+           familyi={D\bibinitperiod},
+           given={Ilker},
+           giveni={I\bibinitperiod}}}%
+      }
+      \strng{namehash}{e8d5f2495e7ab0a6ec667ac78ec50e9a}
+      \strng{fullhash}{b496216df5e99775935e0b9a48ec4809}
+      \strng{fullhashraw}{b496216df5e99775935e0b9a48ec4809}
+      \strng{bibnamehash}{b496216df5e99775935e0b9a48ec4809}
+      \strng{authorbibnamehash}{b496216df5e99775935e0b9a48ec4809}
+      \strng{authornamehash}{e8d5f2495e7ab0a6ec667ac78ec50e9a}
+      \strng{authorfullhash}{b496216df5e99775935e0b9a48ec4809}
+      \strng{authorfullhashraw}{b496216df5e99775935e0b9a48ec4809}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Communications Magazine}
+      \field{number}{11}
+      \field{title}{Multi-Connectivity in Mobile Networks: Challenges and Benefits}
+      \field{volume}{59}
+      \field{year}{2021}
+      \field{pages}{116\bibrangedash 122}
+      \range{pages}{7}
+    \endentry
+    \entry{shang2024multiconnectivity}{article}{}{}
+      \name{author}{6}{}{%
+        {{hash=687aeb173d6a961daae391a692a765f2}{%
+           family={Shang},
+           familyi={S\bibinitperiod},
+           given={Bodong},
+           giveni={B\bibinitperiod}}}%
+        {{hash=fc2923cf2bb4bae12a09ae4d9cd20967}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Xiangyu},
+           giveni={X\bibinitperiod}}}%
+        {{hash=1016f45114ced473595a89e1864b0333}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Zhi},
+           giveni={Z\bibinitperiod}}}%
+        {{hash=2dadb7c2e1ece0eaae06ee7028b42845}{%
+           family={Ma},
+           familyi={M\bibinitperiod},
+           given={Jingyu},
+           giveni={J\bibinitperiod}}}%
+        {{hash=fdbaf10330d050ab42d8f94403968c80}{%
+           family={Chu},
+           familyi={C\bibinitperiod},
+           given={Xiaoli},
+           giveni={X\bibinitperiod}}}%
+        {{hash=58288c18c2666bf4c58c62d7be543374}{%
+           family={Fan},
+           familyi={F\bibinitperiod},
+           given={Pingzhi},
+           giveni={P\bibinitperiod}}}%
+      }
+      \strng{namehash}{fab8967b9e3f11205e32046ea55971de}
+      \strng{fullhash}{6fd76b7720e1d6db5e0ec96a209fc7b7}
+      \strng{fullhashraw}{6fd76b7720e1d6db5e0ec96a209fc7b7}
+      \strng{bibnamehash}{6fd76b7720e1d6db5e0ec96a209fc7b7}
+      \strng{authorbibnamehash}{6fd76b7720e1d6db5e0ec96a209fc7b7}
+      \strng{authornamehash}{fab8967b9e3f11205e32046ea55971de}
+      \strng{authorfullhash}{6fd76b7720e1d6db5e0ec96a209fc7b7}
+      \strng{authorfullhashraw}{6fd76b7720e1d6db5e0ec96a209fc7b7}
+      \field{extraname}{1}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Open Journal of the Communications Society}
+      \field{title}{Multi-Connectivity Between Terrestrial and Non-Terrestrial {MIMO} Systems}
+      \field{volume}{5}
+      \field{year}{2024}
+      \field{pages}{3245\bibrangedash 3262}
+      \range{pages}{18}
+    \endentry
+    \entry{tr38901}{report}{}{}
+      \name{author}{1}{}{%
+        {{hash=49952770ed51bcb32792566644a0032e}{%
+           family={{3GPP}},
+           familyi={3\bibinitperiod}}}%
+      }
+      \list{institution}{1}{%
+        {3rd Generation Partnership Project (3GPP)}%
+      }
+      \strng{namehash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhashraw}{49952770ed51bcb32792566644a0032e}
+      \strng{bibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorbibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authornamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhashraw}{49952770ed51bcb32792566644a0032e}
+      \field{extraname}{2}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{version 16.1.0}
+      \field{number}{TR 38.901}
+      \field{title}{Study on Channel Model for Frequencies from 0.5 to 100 {GHz}}
+      \field{type}{techreport}
+      \field{year}{2020}
+    \endentry
+    \entry{auer2011earth}{article}{}{}
+      \name{author}{11}{}{%
+        {{hash=b8b40fe984c91784ba3ac8e5eb49a569}{%
+           family={Auer},
+           familyi={A\bibinitperiod},
+           given={Gunther},
+           giveni={G\bibinitperiod}}}%
+        {{hash=1a7ebbd1b84fdb768d793f8796000b22}{%
+           family={Giannini},
+           familyi={G\bibinitperiod},
+           given={Vito},
+           giveni={V\bibinitperiod}}}%
+        {{hash=df2b86d8abae898ac464b9126fb634e9}{%
+           family={Desset},
+           familyi={D\bibinitperiod},
+           given={Claude},
+           giveni={C\bibinitperiod}}}%
+        {{hash=77e2de3ebbd12e42099f9eb3dc812eff}{%
+           family={Godor},
+           familyi={G\bibinitperiod},
+           given={Istvan},
+           giveni={I\bibinitperiod}}}%
+        {{hash=3a3311f95a01ada25e4255a588919434}{%
+           family={Skillermark},
+           familyi={S\bibinitperiod},
+           given={Per},
+           giveni={P\bibinitperiod}}}%
+        {{hash=f722c595cb934bf7b41c3450ade66089}{%
+           family={Olsson},
+           familyi={O\bibinitperiod},
+           given={Magnus},
+           giveni={M\bibinitperiod}}}%
+        {{hash=f2769d972335f7e4b819e5f58619b9c5}{%
+           family={Imran},
+           familyi={I\bibinitperiod},
+           given={Muhammad\bibnamedelima Ali},
+           giveni={M\bibinitperiod\bibinitdelim A\bibinitperiod}}}%
+        {{hash=2c86381b5e6d810fa9096326f3e66646}{%
+           family={Sabella},
+           familyi={S\bibinitperiod},
+           given={Dario},
+           giveni={D\bibinitperiod}}}%
+        {{hash=3404bdc532727170c1a617df7a996f5e}{%
+           family={Gonzalez},
+           familyi={G\bibinitperiod},
+           given={Manuel\bibnamedelima J.},
+           giveni={M\bibinitperiod\bibinitdelim J\bibinitperiod}}}%
+        {{hash=530bc6263269740d5beba7e8808628da}{%
+           family={Blume},
+           familyi={B\bibinitperiod},
+           given={Oliver},
+           giveni={O\bibinitperiod}}}%
+        {{hash=01a7245b73451c23215c7e1dd632fbd5}{%
+           family={Fehske},
+           familyi={F\bibinitperiod},
+           given={Anna},
+           giveni={A\bibinitperiod}}}%
+      }
+      \strng{namehash}{c4fd4a545e69a23884db1dc46ae98a0b}
+      \strng{fullhash}{3e45abd5ff58006fbe1f78ed2e4fc009}
+      \strng{fullhashraw}{3e45abd5ff58006fbe1f78ed2e4fc009}
+      \strng{bibnamehash}{c4fd4a545e69a23884db1dc46ae98a0b}
+      \strng{authorbibnamehash}{c4fd4a545e69a23884db1dc46ae98a0b}
+      \strng{authornamehash}{c4fd4a545e69a23884db1dc46ae98a0b}
+      \strng{authorfullhash}{3e45abd5ff58006fbe1f78ed2e4fc009}
+      \strng{authorfullhashraw}{3e45abd5ff58006fbe1f78ed2e4fc009}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Wireless Communications}
+      \field{number}{5}
+      \field{title}{How Much Energy is Needed to Run a Wireless Network?}
+      \field{volume}{18}
+      \field{year}{2011}
+      \field{pages}{40\bibrangedash 49}
+      \range{pages}{10}
+      \verb{doi}
+      \verb 10.1109/MWC.2011.6056691
+      \endverb
+    \endentry
+    \entry{shang2023coverage}{article}{}{}
+      \name{author}{4}{}{%
+        {{hash=687aeb173d6a961daae391a692a765f2}{%
+           family={Shang},
+           familyi={S\bibinitperiod},
+           given={Bodong},
+           giveni={B\bibinitperiod}}}%
+        {{hash=fc2923cf2bb4bae12a09ae4d9cd20967}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Xiangyu},
+           giveni={X\bibinitperiod}}}%
+        {{hash=db64f5cd260cb71286bc6e44b6fe32da}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Chenxi},
+           giveni={C\bibinitperiod}}}%
+        {{hash=1016f45114ced473595a89e1864b0333}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Zhi},
+           giveni={Z\bibinitperiod}}}%
+      }
+      \strng{namehash}{fab8967b9e3f11205e32046ea55971de}
+      \strng{fullhash}{3256f280be801baa9f7c808ae532e358}
+      \strng{fullhashraw}{3256f280be801baa9f7c808ae532e358}
+      \strng{bibnamehash}{3256f280be801baa9f7c808ae532e358}
+      \strng{authorbibnamehash}{3256f280be801baa9f7c808ae532e358}
+      \strng{authornamehash}{fab8967b9e3f11205e32046ea55971de}
+      \strng{authorfullhash}{3256f280be801baa9f7c808ae532e358}
+      \strng{authorfullhashraw}{3256f280be801baa9f7c808ae532e358}
+      \field{extraname}{2}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Journal of Communications and Information Networks}
+      \field{number}{4}
+      \field{title}{Coverage in Cooperative {LEO} Satellite Networks}
+      \field{volume}{8}
+      \field{year}{2023}
+      \field{pages}{329\bibrangedash 340}
+      \range{pages}{12}
+    \endentry
+    \entry{pedregosa2011sklearn}{article}{}{}
+      \name{author}{16}{}{%
+        {{hash=bab4e5caee2d67831e464ce575022b37}{%
+           family={Pedregosa},
+           familyi={P\bibinitperiod},
+           given={Fabian},
+           giveni={F\bibinitperiod}}}%
+        {{hash=cfa3239dded54488f9a82a5718d5b927}{%
+           family={Varoquaux},
+           familyi={V\bibinitperiod},
+           given={Gaël},
+           giveni={G\bibinitperiod}}}%
+        {{hash=12ebe424e1c87de156c57e8fa7683f46}{%
+           family={Gramfort},
+           familyi={G\bibinitperiod},
+           given={Alexandre},
+           giveni={A\bibinitperiod}}}%
+        {{hash=504ea1986689f1047a6f0beda2cb3822}{%
+           family={Michel},
+           familyi={M\bibinitperiod},
+           given={Vincent},
+           giveni={V\bibinitperiod}}}%
+        {{hash=0f3fc06fb9fcbb01b9cc0985eaf0a71c}{%
+           family={Thirion},
+           familyi={T\bibinitperiod},
+           given={Bertrand},
+           giveni={B\bibinitperiod}}}%
+        {{hash=721be0317527f44db425f7a97dcab15e}{%
+           family={Grisel},
+           familyi={G\bibinitperiod},
+           given={Olivier},
+           giveni={O\bibinitperiod}}}%
+        {{hash=d3b6c8582cea4e8b6576137b6a72cadc}{%
+           family={Blondel},
+           familyi={B\bibinitperiod},
+           given={Mathieu},
+           giveni={M\bibinitperiod}}}%
+        {{hash=86e647e5c801f3ce733927f75f029463}{%
+           family={Prettenhofer},
+           familyi={P\bibinitperiod},
+           given={Peter},
+           giveni={P\bibinitperiod}}}%
+        {{hash=89d698773eaf2fae761ff0008031c7be}{%
+           family={Weiss},
+           familyi={W\bibinitperiod},
+           given={Ron},
+           giveni={R\bibinitperiod}}}%
+        {{hash=b255e99d411f28c789a231829f765c64}{%
+           family={Dubourg},
+           familyi={D\bibinitperiod},
+           given={Vincent},
+           giveni={V\bibinitperiod}}}%
+        {{hash=a08a00cf90823600b731a138afc28949}{%
+           family={Vanderplas},
+           familyi={V\bibinitperiod},
+           given={Jake},
+           giveni={J\bibinitperiod}}}%
+        {{hash=afb9a37bec11b531f1f0f33793a7f1fe}{%
+           family={Passos},
+           familyi={P\bibinitperiod},
+           given={Alexandre},
+           giveni={A\bibinitperiod}}}%
+        {{hash=9fd9ed8466bbb96364ae008f2a665e6e}{%
+           family={Cournapeau},
+           familyi={C\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=281ac3097ec8447c2d26e9f3cfde6082}{%
+           family={Brucher},
+           familyi={B\bibinitperiod},
+           given={Matthieu},
+           giveni={M\bibinitperiod}}}%
+        {{hash=23403cde972dddbdb48efe2bcc07dc3c}{%
+           family={Perrot},
+           familyi={P\bibinitperiod},
+           given={Matthieu},
+           giveni={M\bibinitperiod}}}%
+        {{hash=e2f7a458c7c1f0d13cbcaad5c415ad54}{%
+           family={Duchesnay},
+           familyi={D\bibinitperiod},
+           given={Édouard},
+           giveni={É\bibinitperiod}}}%
+      }
+      \strng{namehash}{9ec95d747bac3417f92265a9a44f8bb4}
+      \strng{fullhash}{490c08d091505100c571bcba89f8c65d}
+      \strng{fullhashraw}{490c08d091505100c571bcba89f8c65d}
+      \strng{bibnamehash}{9ec95d747bac3417f92265a9a44f8bb4}
+      \strng{authorbibnamehash}{9ec95d747bac3417f92265a9a44f8bb4}
+      \strng{authornamehash}{9ec95d747bac3417f92265a9a44f8bb4}
+      \strng{authorfullhash}{490c08d091505100c571bcba89f8c65d}
+      \strng{authorfullhashraw}{490c08d091505100c571bcba89f8c65d}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Journal of Machine Learning Research}
+      \field{title}{Scikit-learn: Machine Learning in {Python}}
+      \field{volume}{12}
+      \field{year}{2011}
+      \field{pages}{2825\bibrangedash 2830}
+      \range{pages}{6}
+    \endentry
+    \entry{ts38214}{report}{}{}
+      \name{author}{1}{}{%
+        {{hash=49952770ed51bcb32792566644a0032e}{%
+           family={{3GPP}},
+           familyi={3\bibinitperiod}}}%
+      }
+      \list{institution}{1}{%
+        {3GPP}%
+      }
+      \strng{namehash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhashraw}{49952770ed51bcb32792566644a0032e}
+      \strng{bibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorbibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authornamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhashraw}{49952770ed51bcb32792566644a0032e}
+      \field{extraname}{3}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{number}{TS 38.214}
+      \field{title}{{NR}; Physical Layer Procedures for Data}
+      \field{type}{techreport}
+      \field{year}{2023}
+    \endentry
+    \entry{matlab5gtoolbox}{misc}{}{}
+      \name{author}{1}{}{%
+        {{hash=8687eae34a3830fc0c113d9d65382e90}{%
+           family={{The MathWorks Inc.}},
+           familyi={T\bibinitperiod}}}%
+      }
+      \strng{namehash}{8687eae34a3830fc0c113d9d65382e90}
+      \strng{fullhash}{8687eae34a3830fc0c113d9d65382e90}
+      \strng{fullhashraw}{8687eae34a3830fc0c113d9d65382e90}
+      \strng{bibnamehash}{8687eae34a3830fc0c113d9d65382e90}
+      \strng{authorbibnamehash}{8687eae34a3830fc0c113d9d65382e90}
+      \strng{authornamehash}{8687eae34a3830fc0c113d9d65382e90}
+      \strng{authorfullhash}{8687eae34a3830fc0c113d9d65382e90}
+      \strng{authorfullhashraw}{8687eae34a3830fc0c113d9d65382e90}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{MATLAB Toolbox, R2024x}
+      \field{title}{{5G Toolbox}}
+      \field{year}{2024}
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+

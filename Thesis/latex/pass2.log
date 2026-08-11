@@ -1,0 +1,327 @@
+﻿This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex.fmt)
+ restricted \write18 enabled.
+entering extended mode
+(main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2025-12-24>
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/base\book.cls
+Document Class: book 2025/01/22 v1.4n Standard LaTeX document class
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/base\bk12.clo))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/fontspec\fontspec.st
+y
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/l3packages/xparse\xp
+arse.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/l3kernel\expl3.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3backend-
+xetex.def)))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/fontspec\fontspec-xe
+tex.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/base\fontenc.sty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/fontspec\fontspec.cf
+g)))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/polyglossia\polyglos
+sia.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/etoolbox\etoolbox.st
+y) (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/iftex\iftex.sty
+)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/polyglossia\gloss-la
+tex.ldf))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/polyglossia\gloss-gr
+eek.ldf
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/polyglossia\xgreek-f
+ixes.def))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/polyglossia\gloss-en
+glish.ldf)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/geometry\geometry.st
+y
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics\keyval.sty)
+ (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/iftex\ifvtex.sty)
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/geometry\geometry.cf
+g))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/setspace\setspace.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics\graphicx.st
+y
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics\graphics.st
+y (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics\trig.sty)
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics-cfg\graphic
+s.cfg)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics-def\xetex.d
+ef)))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/booktabs\booktabs.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/tools\longtable.sty)
+ (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/tools\array.sty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsmath.sty
+For additional information on amsmath, use the `?' option.
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amstext.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsgen.sty))
+ (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsbsy.sty)
+ (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsopn.sty)
+)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\amssymb.sty
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\amsfonts.st
+y))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/caption\caption.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/caption\caption3.sty
+)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/caption\ltcaption.st
+y))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/caption\subcaption.s
+ty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/xcolor\xcolor.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics-cfg\color.c
+fg)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/graphics\mathcolor.l
+tx))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\listings.st
+y
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstpatch.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstmisc.sty
+)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\listings.cf
+g))
+==> First Aid for listings.sty no longer applied!
+    Expected:
+        2024/09/23 1.10c (Carsten Heinz)
+    but found:
+        2025/11/14 1.11b (Carsten Heinz)
+    so I'm assuming it got fixed.
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/fancyhdr\fancyhdr.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/titlesec\titlesec.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\hyperref.st
+y
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/kvsetkeys\kvsetkeys.
+sty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/kvdefinekeys\kvdef
+inekeys.sty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/pdfescape\pdfescap
+e.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/ltxcmds\ltxcmds.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/pdftexcmds\pdftexc
+mds.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/infwarerr\infwarer
+r.sty)))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/hycolor\hycolor.sty)
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\nameref.sty
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/refcount\refcount.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/gettitlestring\get
+titlestring.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/kvoptions\kvoptions.
+sty)))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/stringenc\stringen
+c.sty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\pd1enc.def)
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/intcalc\intcalc.st
+y)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\puenc.def)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/url\url.sty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/bitset\bitset.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/bigintcalc\bigintc
+alc.sty)))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\hxetex.def
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/rerunfilecheck\rerun
+filecheck.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/generic/uniquecounter\uniq
+uecounter.sty)))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\biblatex.st
+y (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/logreq\logreq.sty
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/logreq\logreq.def))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/base\ifthen.sty)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-dm.def)
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-unicode
+.def)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-compat.
+def)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\biblatex.de
+f)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex-ieee\ieee.b
+bx
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/bbx\numeric
+-comp.bbx
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/bbx\numeric
+.bbx
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/bbx\standar
+d.bbx))))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex-ieee\ieee.c
+bx
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/cbx\numeric
+-verb.cbx))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\biblatex.cf
+g)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-case-ex
+pl3.sty)) (main.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: xetex
+(main.out) (main.out)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/lbx\america
+n.lbx
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/lbx\english
+.lbx)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/lbx\english
+.lbx))
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/lbx\greek.l
+bx) (main.bbl) (front/titlepage.tex
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd)
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd)
+[1] [2]) (front/blankpage.tex [1]) (front/preface.tex) (front/copyright.tex
+[2]) (front/blankpage.tex [3] [4]) (main.toc [1]
+Overfull \hbox (11.41327pt too wide) in paragraph at lines 59--59
+ [][] [][]\TU/TimesNewRoman(1)/m/n/12 Χαρακτηριστικά και προεπεξεργασία μοντέλο
+υ μηχανικής μάθησης (\TU/Consolas(1)/m/n/12 train_model.py\TU/TimesNewRoman(1)/
+m/n/12 )[] [][]  
+) [2] (main.lof) [3] (main.lot) (front/acronyms.tex [4] [5])
+(front/abstract_gr.tex [6] [7]) (front/abstract_en.tex [8] [9]) [10]
+(chapters/ch1_introduction.tex
+Κεφάλαιο 1.
+
+Overfull \hbox (12.58191pt too wide) in paragraph at lines 4--4
+|[]\TU/TimesNewRoman(1)/b/n/17.28 Το πλαίσιο: Ολοκληρωμένα Δορυφορικά-Επίγεια Δ
+ίκτυα στην
+[1]
+Overfull \hbox (19.25713pt too wide) in paragraph at lines 59--65
+[]\TU/TimesNewRoman(1)/m/n/12 Η παρούσα διπλωματική εργασία αναπτύσσει και αξιο
+λογεί ένα πλαίσιο προσομοίωσης σε MATLAB
+
+Overfull \hbox (19.37236pt too wide) in paragraph at lines 67--72
+[]\TU/TimesNewRoman(1)/m/n/12 Μοντελοποιεί το επίγειο κανάλι σύμφωνα με το πρότ
+υπο 3GPP TR 38.901 [[]7[]] (σενάρια UMa/UMi,
+[2]
+Overfull \hbox (0.474pt too wide) in paragraph at lines 138--141
+[]\TU/TimesNewRoman(1)/m/n/12 Ένα πρώτο, αποδεικτικό της ορθότητας του συνολικο
+ύ pipeline (MATLAB $\OMS/cmsy/m/n/12 !$ \TU/TimesNewRoman(1)/m/n/12 CSV $\OMS/c
+msy/m/n/12 !$ \TU/TimesNewRoman(1)/m/n/12 Python)
+[3]) (chapters/ch2_background.tex [4]
+Κεφάλαιο 2.
+
+Overfull \hbox (1.54814pt too wide) in paragraph at lines 27--38
+[]\TU/TimesNewRoman(1)/m/n/12 Ένα πρακτικό εμπόδιο για την ταυτόχρονη λειτουργί
+α TN-NTN που αναδεικνύουν οι Noh κ.ά. [[]3[]]
+
+Overfull \hbox (5.9485pt too wide) in paragraph at lines 39--39
+|[]\TU/TimesNewRoman(1)/b/n/17.28 Πολυσυνδεσιμότητα σε Ολοκληρωμένα Δορυφορικά-
+Επίγεια
+[5] [6]
+Overfull \hbox (57.2943pt too wide) in paragraph at lines 106--112
+[]\TU/TimesNewRoman(1)/b/n/12 Κινητικότητα\TU/TimesNewRoman(1)/m/n/12 : Η υψηλή
+ ταχύτητα των δορυφόρων LEO προκαλεί συχνές αλλαγές/προσθήκες/αφαιρέσεις
+
+Overfull \hbox (24.67125pt too wide) in paragraph at lines 130--139
+[]\TU/TimesNewRoman(1)/m/n/12 Η βιβλιογραφία που παρουσιάστηκε παραπάνω είναι, 
+ως επί το πλείστον, αρχιτεκτονική/επισκοπητική
+[7] [8]) (chapters/ch3_methodology.tex [9]
+Κεφάλαιο 3.
+
+Overfull \hbox (31.60577pt too wide) in paragraph at lines 20--30
+\TU/TimesNewRoman(1)/m/n/12 με την ίδια τοπολογία αλλά διαφορετικό στοχαστικό π
+ραγματοποιήσεις καναλιού (\TU/Consolas(1)/m/n/12 kpiRepeatedRuns.m\TU/TimesNewR
+oman(1)/m/n/12 ),
+[10]
+Overfull \hbox (5.03156pt too wide) in paragraph at lines 96--103
+\TU/TimesNewRoman(1)/m/n/12 range απόσταση μέσω μετατροπής γεωδαιτικών συντεταγ
+μένων σε Azimuth-Elevation-Range (AER).
+[11]
+Overfull \hbox (13.28651pt too wide) in paragraph at lines 122--133
+[]\TU/TimesNewRoman(1)/m/n/12 Το μοντέλο αυτό είναι μια συνειδητή απλοποίηση: δ
+εν περιλαμβάνει ατμοσφαιρικές/σπινθηριστικές
+[12] [13] [14] [15]) (chapters/ch4_implementation.tex
+Overfull \hbox (42.66562pt too wide) in paragraph at lines 322--1
+[]\TU/TimesNewRoman(1)/m/n/12 Όπως συζητείται αναλυτικά στην Ενότητα []5.4[], ε
+πειδή η ετικέτα είναι ουσιαστικά $[]\OT1/cmr/m/n/12 ([][]\OML/cmm/m/it/12 ; [][
+]\OT1/cmr/m/n/12 )$
+[16]
+Κεφάλαιο 4.
+
+Overfull \hbox (47.5863pt too wide) in paragraph at lines 36--43
+[]\TU/TimesNewRoman(1)/m/n/12 Ο πυρήνας υπολογισμού: δέχεται γεωμετρία (θέσεις 
+BS/χρηστών/δορυφόρου)
+[17]
+Overfull \hbox (7.06088pt too wide) in paragraph at lines 83--88
+[]\TU/TimesNewRoman(1)/m/n/12 Η ενδιάμεση αποθήκευση σε CSV -- αντί, π.χ., για 
+απευθείας κλήση Python μέσα από τη MATLAB
+) (chapters/ch5_results.tex
+Overfull \hbox (77.68686pt too wide) in paragraph at lines 92--1
+\TU/TimesNewRoman(1)/m/n/12 run, \TU/Consolas(1)/m/n/12 rng(step+1) \TU/TimesNe
+wRoman(1)/m/n/12 για το $[]$-οστό χρονικό βήμα) στα \TU/Consolas(1)/m/n/12 kpiR
+epeatedRuns.m \TU/TimesNewRoman(1)/m/n/12 και \TU/Consolas(1)/m/n/12 temporalPa
+ssSimulation.m
+[18]
+Κεφάλαιο 5.
+[19] [20] [21] [22] [23]) (chapters/ch6_discussion_future_work.tex [24]
+[25]
+Κεφάλαιο 6.
+
+Overfull \hbox (5.42023pt too wide) in paragraph at lines 7--9
+[]\TU/TimesNewRoman(1)/m/n/12 Τα αποτελέσματα του Κεφαλαίου []5[] απαντούν στα 
+τρία ερευνητικά ερωτήματα της Ενότητας []1.2.1[]: 
+
+Overfull \hbox (12.34502pt too wide) in paragraph at lines 11--18
+[]\TU/TimesNewRoman(1)/m/n/12 Η επίγεια και η δορυφορική εξυπηρέτηση διαφέρουν 
+ριζικά και συστηματικά ως προς throughput,
+[26] [27]
+Overfull \hbox (6.99551pt too wide) in paragraph at lines 100--106
+[]\TU/TimesNewRoman(1)/b/n/12 Ίσο επίπεδο μοντελοποίησης TN/NTN καναλιού. \TU/T
+imesNewRoman(1)/m/n/12 Προσθήκη ατμοσφαιρικών/σπινθηριστικών
+
+Overfull \hbox (6.74065pt too wide) in paragraph at lines 106--111
+[]\TU/TimesNewRoman(1)/b/n/12 Πραγματική πολυσυνδεσιμότητα. \TU/TimesNewRoman(1
+)/m/n/12 Επέκταση του κανόνα επιλογής κόμβου πέρα από το single-
+
+Overfull \hbox (45.59506pt too wide) in paragraph at lines 111--115
+\TU/TimesNewRoman(1)/m/n/12 Shannon (εξίσωση []) με τα πραγματικά, διακριτά επί
+πεδα φασματικής απόδοσης του TS 38.214 [[]11[]]. 
+) (chapters/ch7_conclusions.tex [28]
+Κεφάλαιο 7.
+) [29]
+Overfull \hbox (10.92528pt too wide) in paragraph at lines 121--121
+[]\TU/TimesNewRoman(1)/m/n/12 X. Li []και []B. Shang, ``Advancing Multi-Connect
+ivity in Satellite-Terrestrial Integrated Networks:
+
+Overfull \hbox (9.01593pt too wide) in paragraph at lines 121--121
+\TU/TimesNewRoman(1)/m/it/12 International Conference on Information and Commun
+ication Technology Convergence (ICTC)\TU/TimesNewRoman(1)/m/n/12 ,
+
+Overfull \hbox (10.29936pt too wide) in paragraph at lines 121--121
+[]\TU/TimesNewRoman(1)/m/n/12 M. Majamaa, ``Toward Multi-Connectivity in Beyond
+ 5G Non-Terrestrial Networks: Challenges
+
+Overfull \hbox (14.95776pt too wide) in paragraph at lines 121--121
+\TU/TimesNewRoman(1)/m/n/12 Mobile Networks: Challenges and Benefits'', \TU/Tim
+esNewRoman(1)/m/it/12 IEEE Communications Magazine\TU/TimesNewRoman(1)/m/n/12 ,
+ []τόμ. []59, []αρθμ. []11,
+
+Overfull \hbox (4.8394pt too wide) in paragraph at lines 121--121
+\TU/TimesNewRoman(1)/m/n/12 Partnership Project (3GPP), []αδημοσίευτη ερευνητικ
+ή εργασία []TR 38.901, 2020, version 16.1.0. 
+(appendix/appendixA_code.tex [30]
+Παράρτημα \Greeknumeral {1}.
+
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
+y) [31] [32]
+(C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
+xelatex.exe : miktex-dvipdfmx: major issue: So far, you have not checked for MiKTeX updates.
+At line:5 char:1
++ & "$mik\xelatex.exe" -interaction=nonstopmode -halt-on-error main.tex ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (miktex-dvipdfmx...MiKTeX updates.:String) [], RemoteExc 
+   eption
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+y) [33]) [34] (main.aux) )
+(see the transcript file for additional information)
+Output written on main.pdf (50 pages).
+Transcript written on main.log.
+xelatex: major issue: So far, you have not checked for MiKTeX updates.
