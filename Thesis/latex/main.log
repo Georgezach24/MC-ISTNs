@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  11 AUG 2026 11:48
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  11 AUG 2026 13:33
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1137,25 +1137,18 @@ Overfull \hbox (12.58191pt too wide) in paragraph at lines 4--4
 
 
 ]
-Overfull \hbox (19.25713pt too wide) in paragraph at lines 59--65
+Overfull \hbox (19.25713pt too wide) in paragraph at lines 63--69
 []\TU/TimesNewRoman(1)/m/n/12 Η παρούσα διπλωματική εργασία αναπτύσσει και αξιο
 λογεί ένα πλαίσιο προσομοίωσης σε MATLAB
  []
 
 
-Overfull \hbox (19.37236pt too wide) in paragraph at lines 67--72
+Overfull \hbox (19.37236pt too wide) in paragraph at lines 71--76
 []\TU/TimesNewRoman(1)/m/n/12 Μοντελοποιεί το επίγειο κανάλι σύμφωνα με το πρότ
 υπο 3GPP TR 38.901 [[]7[]] (σενάρια UMa/UMi,
  []
 
-[2]
-Overfull \hbox (0.474pt too wide) in paragraph at lines 138--141
-[]\TU/TimesNewRoman(1)/m/n/12 Ένα πρώτο, αποδεικτικό της ορθότητας του συνολικο
-ύ pipeline (MATLAB $\OMS/cmsy/m/n/12 !$ \TU/TimesNewRoman(1)/m/n/12 CSV $\OMS/c
-msy/m/n/12 !$ \TU/TimesNewRoman(1)/m/n/12 Python)
- []
-
-[3]) (chapters/ch2_background.tex [4]
+[2] [3]) (chapters/ch2_background.tex [4]
 Κεφάλαιο 2.
 
 Overfull \hbox (1.54814pt too wide) in paragraph at lines 27--38
@@ -1201,13 +1194,13 @@ Overfull \hbox (5.03156pt too wide) in paragraph at lines 96--103
  []
 
 [11]
-Overfull \hbox (13.28651pt too wide) in paragraph at lines 122--133
+Overfull \hbox (13.28651pt too wide) in paragraph at lines 122--132
 []\TU/TimesNewRoman(1)/m/n/12 Το μοντέλο αυτό είναι μια συνειδητή απλοποίηση: δ
 εν περιλαμβάνει ατμοσφαιρικές/σπινθηριστικές
  []
 
 [12] [13] [14] [15]) (chapters/ch4_implementation.tex
-Overfull \hbox (42.66562pt too wide) in paragraph at lines 322--1
+Overfull \hbox (42.66562pt too wide) in paragraph at lines 321--1
 []\TU/TimesNewRoman(1)/m/n/12 Όπως συζητείται αναλυτικά στην Ενότητα []5.4[], ε
 πειδή η ετικέτα είναι ουσιαστικά $[]\OT1/cmr/m/n/12 ([][]\OML/cmm/m/it/12 ; [][
 ]\OT1/cmr/m/n/12 )$
@@ -1297,32 +1290,32 @@ Overfull \hbox (45.59506pt too wide) in paragraph at lines 111--115
 ) [29
 
 ]
-Overfull \hbox (10.92528pt too wide) in paragraph at lines 121--121
+Overfull \hbox (10.92528pt too wide) in paragraph at lines 126--126
 []\TU/TimesNewRoman(1)/m/n/12 X. Li []και []B. Shang, ``Advancing Multi-Connect
 ivity in Satellite-Terrestrial Integrated Networks:
  []
 
 
-Overfull \hbox (9.01593pt too wide) in paragraph at lines 121--121
+Overfull \hbox (9.01593pt too wide) in paragraph at lines 126--126
 \TU/TimesNewRoman(1)/m/it/12 International Conference on Information and Commun
 ication Technology Convergence (ICTC)\TU/TimesNewRoman(1)/m/n/12 ,
  []
 
 
-Overfull \hbox (10.29936pt too wide) in paragraph at lines 121--121
+Overfull \hbox (10.29936pt too wide) in paragraph at lines 126--126
 []\TU/TimesNewRoman(1)/m/n/12 M. Majamaa, ``Toward Multi-Connectivity in Beyond
  5G Non-Terrestrial Networks: Challenges
  []
 
 
-Overfull \hbox (14.95776pt too wide) in paragraph at lines 121--121
+Overfull \hbox (14.95776pt too wide) in paragraph at lines 126--126
 \TU/TimesNewRoman(1)/m/n/12 Mobile Networks: Challenges and Benefits'', \TU/Tim
 esNewRoman(1)/m/it/12 IEEE Communications Magazine\TU/TimesNewRoman(1)/m/n/12 ,
  []τόμ. []59, []αρθμ. []11,
  []
 
 
-Overfull \hbox (4.8394pt too wide) in paragraph at lines 121--121
+Overfull \hbox (4.8394pt too wide) in paragraph at lines 126--126
 \TU/TimesNewRoman(1)/m/n/12 Partnership Project (3GPP), []αδημοσίευτη ερευνητικ
 ή εργασία []TR 38.901, 2020, version 16.1.0. 
  []

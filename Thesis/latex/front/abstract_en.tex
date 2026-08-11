@@ -4,50 +4,46 @@
 
 The convergence of terrestrial 5G/6G networks (TN) with Low Earth Orbit
 (LEO) satellite networks into Satellite-Terrestrial Integrated Networks
-(STINs) is a core design goal of 6G, aiming to provide ubiquitous
-coverage beyond the limits of terrestrial infrastructure.
-Multi-Connectivity (MC) between terrestrial base stations and satellites
-has been proposed as a mechanism to improve reliability, coverage, and
-load management in such networks.
+(STINs) is a core design goal of 6G, aimed at extending coverage to areas
+where terrestrial infrastructure is limited or absent. Multi-Connectivity
+(MC) between base stations and satellites has been proposed as a way to
+improve reliability, coverage, and load management in such networks.
 
 This thesis develops a MATLAB simulation framework for a connectivity
 scenario consisting of two terrestrial base stations (5G NR, 3GPP TR
 38.901 UMa/UMi) and one LEO satellite, in which each user selects its
 serving node (terrestrial or satellite) based on the highest SNR (greedy
-single-connectivity selection). The model computes propagation loss based
-on 3GPP TR 38.901 (with a per-link stochastic LOS/NLOS draw and
-log-normal shadow fading) for the terrestrial link, and free-space path
-loss (FSPL) with a minimum-elevation visibility mask for the satellite
-link, and derives per-user key performance indicators (KPIs): Shannon
-capacity, and energy per bit based on a linear power model (the EARTH
+single-connectivity). The model computes propagation loss according to
+3GPP TR 38.901 (a per-link stochastic LOS/NLOS draw and log-normal shadow
+fading) for the terrestrial link, and free-space path loss (FSPL) under a
+minimum-elevation visibility mask for the satellite link, and derives
+per-user key performance indicators (KPIs): Shannon capacity and energy
+per bit, the latter based on a linear power-consumption model (the EARTH
 model for the base station, a power-amplifier efficiency model for the
 satellite).
 
-Beyond the static reference scenario, the thesis extends the simulation
-in two directions: (a) repeated runs of the same topology with different
-stochastic channel realizations, to characterize KPI variance, and (b)
-temporal evolution across multiple consecutive transmissions during a LEO
-satellite pass, where the sub-satellite point moves at its real
-ground-track speed (derived from the Keplerian orbital period), capturing
-how elevation, channel quality, and node handovers evolve over time.
-Additionally, a first Monte Carlo framework generates a labeled dataset
-over randomized topologies, used for an early proof-of-concept machine
-learning model (Logistic Regression, Random Forest) that predicts the
-serving node type (terrestrial/satellite) from candidate-link features.
+Beyond the static reference scenario, the simulation is extended in two
+directions: repeated runs of the same topology, redrawing the channel
+independently each time, to characterize KPI variance; and a simulation
+of multiple consecutive transmissions across a satellite pass, with the
+sub-satellite point moving at its real ground-track speed, derived from
+the Keplerian orbital period, to capture how elevation, channel quality,
+and handovers evolve over time. A first Monte Carlo framework further
+generates a labeled dataset over randomized topologies, used to train an
+early machine learning model (Logistic Regression, Random Forest) that
+predicts the serving node type from candidate-link features.
 
-Results show a clear differentiation between terrestrial and satellite
-service across the three KPIs examined (throughput, energy per bit, SNR),
-with the satellite link offering lower throughput but substantially
-better energy efficiency per bit. The temporal pass simulation reveals
-two limitations of the current node-selection model that were not
-observable in the static scenario: (i) artificially frequent handovers
-caused by uncorrelated (i.i.d.) per-timestep shadow fading, and (ii) the
-absence of an explicit outage state when no candidate node offers a
-usable SNR. These findings define the thesis's ongoing work: a
-temporally-correlated shadow-fading model, explicit outage handling, and
-extending the machine learning model beyond the current, largely
-deterministic argmax(SNR) prediction target toward more realistic
-prediction objectives.
+Results show a clear split between terrestrial and satellite service
+across the three KPIs examined: the satellite offers lower throughput but
+markedly better energy efficiency per bit. The pass simulation exposes
+two weaknesses of the node-selection model that the static scenario could
+not reveal: frequent, unrealistic node switching caused by independent
+(i.i.d.) per-step shadow fading, and the lack of an outage state when no
+candidate offers a practically usable SNR. These two findings set the
+direction for the next phase of the work: a temporally correlated
+shadow-fading model, explicit outage handling, and a harder, less
+predictable target for the machine learning model than today's
+$\argmax(\text{SNR})$.
 
 \vspace{1em}
 \noindent\textbf{Keywords:} multi-connectivity, satellite-terrestrial

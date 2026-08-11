@@ -32,9 +32,9 @@
 \contentsline {section}{\numberline {3.6}Ενεργειακό μοντέλο και ενέργεια ανά bit}{13}{section.3.6}%
 \contentsline {section}{\numberline {3.7}Μοντέλο κίνησης δορυφόρου LEO για τη χρονική προσομοίωση}{14}{section.3.7}%
 \contentsline {subsection}{\numberline {3.7.1}Ταχύτητα ίχνους εδάφους}{14}{subsection.3.7.1}%
-\contentsline {subsection}{\numberline {3.7.2}Ίχνος εδάφους και χρονικός βρόχος προσομοίωσης}{15}{subsection.3.7.2}%
+\contentsline {subsection}{\numberline {3.7.2}Ίχνος εδάφους και χρονικός βρόχος προσομοίωσης}{14}{subsection.3.7.2}%
 \contentsline {section}{\numberline {3.8}Monte Carlo generator τυχαιοποιημένων τοπολογιών}{15}{section.3.8}%
-\contentsline {section}{\numberline {3.9}Pipeline μηχανικής μάθησης (πρώτη προσέγγιση)}{16}{section.3.9}%
+\contentsline {section}{\numberline {3.9}Pipeline μηχανικής μάθησης (πρώτη προσέγγιση)}{15}{section.3.9}%
 \contentsline {chapter}{\numberline {4}Υλοποίηση}{17}{chapter.4}%
 \contentsline {section}{\numberline {4.1}Εργαλεία και τεχνολογίες}{17}{section.4.1}%
 \contentsline {section}{\numberline {4.2}Δομή λογισμικού}{17}{section.4.2}%
