@@ -1,0 +1,122 @@
+% =============================================================
+%  ΔΙΠΛΩΜΑΤΙΚΗ ΕΡΓΑΣΙΑ
+%  Πανεπιστήμιο Αιγαίου - Πολυτεχνική Σχολή
+%  Τμήμα Μηχανικών Πληροφοριακών και Επικοινωνιακών Συστημάτων
+%
+%  Compile with XeLaTeX (required for polyglossia/fontspec Greek support):
+%     xelatex main.tex
+%     biber main
+%     xelatex main.tex
+%     xelatex main.tex
+%
+%  On Overleaf: set "TeX Live version" as usual and the compiler to
+%  XeLaTeX in the project menu (Menu -> Compiler -> XeLaTeX).
+% =============================================================
+\documentclass[12pt,a4paper,oneside]{book}
+
+% ---------- Γλώσσα και γραμματοσειρά ----------
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{greek}
+\setotherlanguage{english}
+
+% TeX Gyre Termes: Times-συμβατή γραμματοσειρά με πλήρη κάλυψη ελληνικών
+% γλυφών, διαθέσιμη by default στο Overleaf/TeX Live. Αν συντάσσετε τοπικά
+% και θέλετε να χρησιμοποιήσετε την ίδια γραμματοσειρά με το πρότυπο .doc
+% (Times New Roman), αντικαταστήστε τα δύο ονόματα παρακάτω με
+% "Times New Roman".
+\setmainfont{TeX Gyre Termes}
+\newfontfamily\greekfont{TeX Gyre Termes}
+
+% ---------- Σελίδα / περιθώρια (όπως στο πρότυπο .doc: A4, ~2/2.25/2.5cm) ----------
+\usepackage[a4paper,left=2cm,right=2.25cm,top=2.5cm,bottom=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% ---------- Λοιπά πακέτα ----------
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{amsmath,amssymb}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage[backend=biber,style=ieee,sorting=none]{biblatex}
+\addbibresource{references.bib}
+
+% ---------- Ονόματα λιστών/ενοτήτων ώστε να ταιριάζουν ακριβώς με το πρότυπο ----------
+\renewcommand{\contentsname}{Πίνακας περιεχομένων}
+\renewcommand{\listfigurename}{Λίστα Σχημάτων}
+\renewcommand{\listtablename}{Λίστα Πινάκων}
+\renewcommand{\bibname}{Βιβλιογραφία}
+
+% ---------- Κεφαλίδες ----------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\small\thepage}
+\fancyhead[L]{\small\leftmark}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------- Ρυθμίσεις listings για τμήματα κώδικα (MATLAB / Python) ----------
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\footnotesize,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{green!40!black}\itshape,
+  stringstyle=\color{orange!70!black},
+  breaklines=true,
+  breakatwhitespace=false,
+  frame=single,
+  tabsize=2,
+  columns=flexible,
+  showstringspaces=false
+}
+\lstset{style=code}
+
+\graphicspath{{figures/}}
+
+\begin{document}
+
+% ================= ΕΞΩΦΥΛΛΟ / ΠΡΟΛΟΓΙΚΕΣ ΣΕΛΙΔΕΣ =================
+\frontmatter
+\pagenumbering{gobble}
+
+\input{front/titlepage}
+\input{front/blankpage}
+\input{front/preface}
+\input{front/copyright}
+\input{front/blankpage}
+
+\pagenumbering{roman}
+\tableofcontents
+\listoffigures
+\listoftables
+\input{front/acronyms}
+\input{front/abstract_gr}
+\input{front/abstract_en}
+
+% ================= ΚΥΡΙΟ ΣΩΜΑ =================
+\mainmatter
+
+\input{chapters/ch1_introduction}
+\input{chapters/ch2_background}
+\input{chapters/ch3_methodology}
+\input{chapters/ch4_implementation}
+\input{chapters/ch5_results}
+\input{chapters/ch6_discussion_future_work}
+\input{chapters/ch7_conclusions}
+
+% ================= ΒΙΒΛΙΟΓΡΑΦΙΑ =================
+\printbibliography[heading=bibintoc,title={Βιβλιογραφία}]
+
+% ================= ΠΑΡΑΡΤΗΜΑΤΑ =================
+\appendix
+\input{appendix/appendixA_code}
+
+\end{document}
