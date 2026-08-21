@@ -1,15 +1,15 @@
 [0] Config.pm:328> INFO - This is Biber 2.21
 [0] Config.pm:331> INFO - Logfile is 'main.blg'
-[415] biber-MSWIN64:342> INFO - === 
-[574] Biber.pm:421> INFO - Reading 'main.bcf'
-[691] Biber.pm:1002> INFO - Found 13 citekeys in bib section 0
-[705] Biber.pm:4487> INFO - Processing section 0
-[729] Biber.pm:4678> INFO - Looking for bibtex file 'references.bib' for section 0
-[890] bibtex.pm:1713> INFO - LaTeX decoding ...
-[925] bibtex.pm:1519> INFO - Found BibTeX data source 'references.bib'
-[1144] UCollate.pm:68> INFO - Overriding locale 'el-GR' defaults 'normalization = NFD' with 'normalization = prenormalized'
-[1144] UCollate.pm:68> INFO - Overriding locale 'el-GR' defaults 'variable = shifted' with 'variable = non-ignorable'
-[1144] Biber.pm:4307> INFO - Sorting list 'none/global//global/global/global' of type 'entry' with template 'none' and locale 'el-GR'
-[1144] Biber.pm:4313> INFO - No sort tailoring available for locale 'el-GR'
-[1151] bbl.pm:676> INFO - Writing 'main.bbl' with encoding 'UTF-8'
-[1159] bbl.pm:779> INFO - Output to main.bbl
+[110] biber-MSWIN64:342> INFO - === 
+[168] Biber.pm:421> INFO - Reading 'main.bcf'
+[282] Biber.pm:1002> INFO - Found 13 citekeys in bib section 0
+[295] Biber.pm:4487> INFO - Processing section 0
+[305] Biber.pm:4678> INFO - Looking for bibtex file 'references.bib' for section 0
+[380] bibtex.pm:1713> INFO - LaTeX decoding ...
+[400] bibtex.pm:1519> INFO - Found BibTeX data source 'references.bib'
+[501] UCollate.pm:68> INFO - Overriding locale 'el-GR' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[501] UCollate.pm:68> INFO - Overriding locale 'el-GR' defaults 'variable = shifted' with 'variable = non-ignorable'
+[501] Biber.pm:4307> INFO - Sorting list 'none/global//global/global/global' of type 'entry' with template 'none' and locale 'el-GR'
+[501] Biber.pm:4313> INFO - No sort tailoring available for locale 'el-GR'
+[513] bbl.pm:676> INFO - Writing 'main.bbl' with encoding 'UTF-8'
+[521] bbl.pm:779> INFO - Output to main.bbl

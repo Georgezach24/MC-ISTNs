@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  21 AUG 2026 13:04
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  21 AUG 2026 13:22
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1053,13 +1053,13 @@ Package biblatex Info: ... file 'main.bbl' found.
 Package biblatex Info: Reference section=0 on input line 89.
 Package biblatex Info: Reference segment=0 on input line 89.
  (front/titlepage.tex
-LaTeX Font Info:    Trying to load font information for U+msa on input line 26.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 22.
 
 
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 26.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 22.
 
 
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
@@ -1069,7 +1069,7 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 
 
 
-] [2]) (front/blankpage.tex [1]) (front/preface.tex) (front/copyright.tex
+]) (front/blankpage.tex [1]) (front/preface.tex) (front/copyright.tex
 [2
 
 ]) (front/blankpage.tex [3] [4]) (main.toc [1
@@ -1364,4 +1364,4 @@ Here is how much of TeX's memory you used:
  1348 hyphenation exceptions out of 8191
  73i,13n,101p,695b,5436s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (52 pages).
+Output written on main.xdv (51 pages, 899296 bytes).
