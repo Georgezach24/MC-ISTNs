@@ -75,10 +75,13 @@ end
 \section{Μοντέλο κίνησης LEO (\texttt{temporalPassSimulation.m})}
 \label{sec:appendix-temporal}
 
-Το παρακάτω απόσπασμα υπολοποιεί τις εξισώσεις~\eqref{eq:orbital-period}-\eqref{eq:ground-track}:
+Το παρακάτω απόσπασμα υλοποιεί τις εξισώσεις~\eqref{eq:orbital-period}-\eqref{eq:ground-track}:
 τον υπολογισμό της Κεπλεριανής τροχιακής περιόδου/ταχύτητας ίχνους εδάφους,
 και τον χρονικό βρόχο που μετακινεί το υποδορυφορικό σημείο και καλεί εκ
-νέου τη \texttt{simulateScenario} σε κάθε βήμα.
+νέου τη \texttt{simulateScenario} σε κάθε βήμα, περνώντας την κατάσταση
+καναλιού (\texttt{channelState}) από βήμα σε βήμα ώστε το shadow fading
+να είναι χωρικά συσχετισμένο κατά Gudmundson
+(εξίσωση~\eqref{eq:correlated-sf}) αντί να επαναδειγματίζεται ανεξάρτητα.
 
 \begin{lstlisting}[language=Matlab, caption={Απόσπασμα από \texttt{PROD/temporalPassSimulation.m}: ταχύτητα ίχνους εδάφους και χρονικός βρόχος.}]
 muEarth = 3.986004418e14;  % m^3/s^2, varitiki parametros Gis
@@ -87,17 +90,22 @@ a       = Re + satAltitude;
 orbitalPeriodS  = 2*pi*sqrt(a^3/muEarth);      % Kepleriani periodos (s)
 groundSpeedMps  = (2*pi/orbitalPeriodS) * Re;  % taxytita ixnous edafous (m/s)
 
+channelState = []; % kamia proigoumeni katastasi prin to proto vima
 while step < maxSteps
     offsetKm = startOffsetKm + groundSpeedMps * t / 1000;
     subLon = centerLon + offsetKm / (111.320*cosd(centerLat));
     sat_geo = [centerLat, subLon, satAltitude];
 
-    rng(step + 1); % neo LOS/shadow-fading draw ana xroniko vima
+    rng(step + 1);
 
+    % to channelState perna apo vima se vima (LOS/NLOS + shadow-fading
+    % deigma ana zeuxi BS-xristi), oste na einai xorika sysxetismeno me
+    % to proigoumeno vima (Gudmundson 1991 + 3GPP TR 38.901 Pinakas 7.5-6)
     [bestNodeVec, bestNodeTypeVec, ~, ~, bestSnrDbVec, capacityMbpsVec, ...
-        ~, ~, energyPerBitUJVec, ~, ~, ~, ~, satElevationVec, ~, ~] = ...
+        ~, ~, energyPerBitUJVec, ~, ~, ~, ~, satElevationVec, ~, ~, ...
+        channelState] = ...
         simulateScenario(bs_geo, user_geo, sat_geo, wgs84, ...
-                          simParameters, satParameters);
+                          simParameters, satParameters, channelState);
 
     % ... katagrafi apotelesmaton ana xristi ...
 
@@ -105,7 +113,7 @@ while step < maxSteps
     if refElev >= satParameters.MinElevationDeg
         wasVisible = true;
     elseif wasVisible
-        break; % o passos elixe
+        break; % i dielefsi elixe
     end
 
     t = t + dtSeconds;

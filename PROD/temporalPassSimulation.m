@@ -6,16 +6,18 @@ function T = temporalPassSimulation(dtSeconds, outputDir)
 % αποτυπωθεί η κίνηση του δορυφόρου και η μεταβολή του καναλιού
 % (elevation/path loss/SNR) προς κάθε χρήστη με τον χρόνο.
 %
-% Απλοποίηση γεωμετρίας πάσσου: το υποδορυφορικό σημείο κινείται σε
+% Απλοποίηση γεωμετρίας διέλευσης: το υποδορυφορικό σημείο κινείται σε
 % σταθερό γεωγραφικό πλάτος (=πλάτος του κέντρου του BS cluster) προς
 % ανατολάς, με σταθερή ταχύτητα ίση με την ταχύτητα εδάφους (ground-track
 % speed) μιας κυκλικής τροχιάς στο υψόμετρο του δορυφόρου (Κεπλεριανή
 % περίοδος, χωρίς αφαίρεση της περιστροφής της Γης). Δεν είναι πλήρης
 % ορβιτογράφος (SGP4 κτλ.) - αρκεί όμως για να παραχθεί ρεαλιστική
-% χρονική μεταβολή elevation/SNR κατά τη διάρκεια ενός πάσσου.
+% χρονική μεταβολή elevation/SNR κατά τη διάρκεια μίας διέλευσης.
 %
-% Σε κάθε χρονικό βήμα ξαναδιαλέγεται LOS + shadow fading (νέο RNG seed),
-% όπως θα συνέβαινε σε διαδοχικές πραγματικές μεταδόσεις.
+% Η κατάσταση καναλιού (LOS/NLOS + shadow fading ανά ζεύξη) περνάει από
+% βήμα σε βήμα και το νέο δείγμα σκίασης προκύπτει από το προηγούμενο μέσω
+% χωρικής αυτοσυσχέτισης (Gudmundson 1991), αντί να ξαναδειγματίζεται
+% ανεξάρτητα - βλ. correlatedLosState στο simulateScenario.m.
 %
 % Χρήση:
 %   T = temporalPassSimulation();          % dt = 5s -> ../Results
@@ -79,7 +81,7 @@ simParameters.Power.Psleep = 75;
 satParameters.Power.Pfix  = 0;
 satParameters.Power.EtaPA = 0.4;
 
-%% ------------------ Ground track του LEO (απλοποιημένο μοντέλο πάσσου) ------------------
+%% ------------------ Ground track του LEO (απλοποιημένο μοντέλο διέλευσης) ------------------
 muEarth = 3.986004418e14;  % m^3/s^2, βαρυτική παράμετρος Γης
 Re      = 6371e3;          % m, μέση ακτίνα Γης
 a       = Re + satAltitude;
@@ -89,7 +91,7 @@ groundSpeedMps  = (2*pi/orbitalPeriodS) * Re;  % ταχύτητα ίχνους �
 centerLat = mean(bs_geo(:,1));
 centerLon = mean(bs_geo(:,2));
 
-startOffsetKm = -1500;  % km ανατολικά του κέντρου, αρχή του πάσσου (δορυφόρος αόρατος)
+startOffsetKm = -1500;  % km ανατολικά του κέντρου, αρχή της διέλευσης (δορυφόρος αόρατος)
 maxSteps      = 2000;   % ασφαλιστικό όριο βημάτων
 
 %% ------------------ Χρονικός βρόχος ------------------
@@ -97,20 +99,27 @@ allRows = cell(maxSteps,1);
 wasVisible = false;
 step = 0;
 t = 0;
+channelState = []; % καμία προηγούμενη κατάσταση πριν το πρώτο βήμα -> πρώτο δείγμα ανεξάρτητο (i.i.d.)
 
 while step < maxSteps
     offsetKm = startOffsetKm + groundSpeedMps * t / 1000;
     subLon = centerLon + offsetKm / (111.320*cosd(centerLat));
     sat_geo = [centerLat, subLon, satAltitude];
 
-    rng(step + 1); % νέο LOS/shadow-fading draw ανά χρονικό βήμα (νέα μετάδοση)
+    rng(step + 1); % νέο RNG seed ανά χρονικό βήμα (νέα μετάδοση)
 
+    % channelState περνάει από βήμα σε βήμα ώστε το shadow fading (και η
+    % κατάσταση LOS/NLOS) κάθε ζεύξης BS-χρήστη να είναι χωρικά συσχετισμένο
+    % με το προηγούμενο βήμα (Gudmundson 1991 + 3GPP TR 38.901 Πίνακας
+    % 7.5-6), αντί να επαναδειγματίζεται ανεξάρτητα κάθε 5s παρόλο που οι
+    % χρήστες/BS είναι ακίνητοι - βλ. correlatedLosState στο simulateScenario.m.
     [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
         bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
         nodePowerWattsVec, energyPerBitUJVec, ...
         bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
-        satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec] = ...
-        simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters);
+        satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec, ...
+        channelState] = ...
+        simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, channelState);
 
     step = step + 1;
     userID = (1:numUsers)';
@@ -132,7 +141,7 @@ while step < maxSteps
     if refElev >= satParameters.MinElevationDeg
         wasVisible = true;
     elseif wasVisible
-        break; % ο πάσσος έληξε (ο δορυφόρος έγινε αόρατος σε όλους μετά από ορατότητα)
+        break; % η διέλευση έληξε (ο δορυφόρος έγινε αόρατος σε όλους μετά από ορατότητα)
     end
 
     t = t + dtSeconds;
@@ -172,7 +181,7 @@ for k = 1:numel(kpiList)
     xlabel('Χρόνος (s)');
     ylabel(kpiLabel{k});
     legend('Location','best');
-    title(sprintf('%s κατά τη διάρκεια πάσσου LEO', kpiList{k}), 'Interpreter','none');
+    title(sprintf('%s κατά τη διάρκεια διέλευσης LEO', kpiList{k}), 'Interpreter','none');
     saveas(fig, fullfile(outputDir, ['temporal_' kpiList{k} '.png']));
     close(fig);
 end

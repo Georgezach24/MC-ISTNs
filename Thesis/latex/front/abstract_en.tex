@@ -35,15 +35,16 @@ predicts the serving node type from candidate-link features.
 
 Results show a clear split between terrestrial and satellite service
 across the three KPIs examined: the satellite offers lower throughput but
-markedly better energy efficiency per bit. The pass simulation exposes
-two weaknesses of the node-selection model that the static scenario could
-not reveal: frequent, unrealistic node switching caused by independent
-(i.i.d.) per-step shadow fading, and the lack of an outage state when no
-candidate offers a practically usable SNR. These two findings set the
-direction for the next phase of the work: a temporally correlated
-shadow-fading model, explicit outage handling, and a harder, less
-predictable target for the machine learning model than today's
-$\argmax(\text{SNR})$.
+markedly better energy efficiency per bit. The pass simulation initially
+exposed frequent, unrealistic node switching caused by independent
+(i.i.d.) per-step shadow fading; this was subsequently addressed by
+adopting a spatially correlated shadow-fading model (Gudmundson, 1991),
+which brought handovers down to a physically plausible level. What
+remains open is the lack of an explicit outage state: when no candidate
+offers a practically usable SNR, the user is still assigned to whichever
+one is "least bad." This sets the immediate next priority for the work,
+together with moving the machine learning target to something harder and
+less predictable than today's $\argmax(\text{SNR})$.
 
 \vspace{1em}
 \noindent\textbf{Keywords:} multi-connectivity, satellite-terrestrial

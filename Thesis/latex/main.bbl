@@ -533,6 +533,37 @@
       \field{type}{techreport}
       \field{year}{2023}
     \endentry
+    \entry{gudmundson1991correlation}{article}{}{}
+      \name{author}{1}{}{%
+        {{hash=eec54d7d27ed950dc21299b248a0872c}{%
+           family={Gudmundson},
+           familyi={G\bibinitperiod},
+           given={Mikael},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{eec54d7d27ed950dc21299b248a0872c}
+      \strng{fullhash}{eec54d7d27ed950dc21299b248a0872c}
+      \strng{fullhashraw}{eec54d7d27ed950dc21299b248a0872c}
+      \strng{bibnamehash}{eec54d7d27ed950dc21299b248a0872c}
+      \strng{authorbibnamehash}{eec54d7d27ed950dc21299b248a0872c}
+      \strng{authornamehash}{eec54d7d27ed950dc21299b248a0872c}
+      \strng{authorfullhash}{eec54d7d27ed950dc21299b248a0872c}
+      \strng{authorfullhashraw}{eec54d7d27ed950dc21299b248a0872c}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Electronics Letters}
+      \field{number}{23}
+      \field{title}{Correlation Model for Shadow Fading in Mobile Radio Systems}
+      \field{volume}{27}
+      \field{year}{1991}
+      \field{pages}{2145\bibrangedash 2146}
+      \range{pages}{2}
+      \verb{doi}
+      \verb 10.1049/el:19911328
+      \endverb
+    \endentry
     \entry{matlab5gtoolbox}{misc}{}{}
       \name{author}{1}{}{%
         {{hash=8687eae34a3830fc0c113d9d65382e90}{%

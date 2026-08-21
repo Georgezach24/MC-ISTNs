@@ -2,8 +2,9 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
     bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
     nodePowerWattsVec, energyPerBitUJVec, ...
     bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
-    satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec] = ...
-    simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters)
+    satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec, ...
+    newChannelState] = ...
+    simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, prevChannelState)
 % Υπολογίζει, για κάθε χρήστη, τον καλύτερο κόμβο εξυπηρέτησης (BS ή δορυφόρο)
 % βάσει SNR και την επιτευχθείσα χωρητικότητα Shannon μετά την κατανομή
 % εύρους ζώνης. Εξάγει το βασικό μονοπάτι υπολογισμού από το test_simulation.m
@@ -13,6 +14,22 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 % διαγνωστικά (καλύτερο BS ανεξάρτητα από το αν κέρδισε, και δορυφόρος)
 % ώστε ένα μελλοντικό μοντέλο ML (Part 2) να μπορεί να εκπαιδευτεί στη
 % σύγκριση των δύο υποψήφιων ζεύξεων αντί να διαβάζει απευθείας τον νικητή.
+%
+% prevChannelState (προαιρετικό, 7ο όρισμα): αν δοθεί, η γεωμετρική
+% απόσταση μετακίνησης κάθε χρήστη από την προηγούμενη κλήση χρησιμοποιείται
+% ώστε το shadow fading (και η κατάσταση LOS/NLOS) της κάθε ζεύξης BS-χρήστη
+% να ΣΥΣΧΕΤΙΖΕΤΑΙ με την προηγούμενη τιμή αντί να επαναδειγματίζεται ανεξάρτητα
+% (βλ. τοπική συνάρτηση correlatedLosState παρακάτω για τα βιβλιογραφικά
+% θεμέλια). Αν παραλειφθεί, κάθε κλήση παράγει ανεξάρτητο δείγμα
+% καναλιού (i.i.d.) όπως πριν - η συμπεριφορά αυτή είναι η σωστή για callers
+% όπου κάθε κλήση αντιπροσωπεύει ένα νέο, ανεξάρτητο "drop" (π.χ.
+% kpiRepeatedRuns.m, monteCarloDriver.m, test_simulation.m). Μόνο callers που
+% προσομοιώνουν διαδοχικές μεταδόσεις της ΙΔΙΑΣ, ουσιαστικά ακίνητης τοπολογίας
+% (π.χ. temporalPassSimulation.m) πρέπει να περνάνε το newChannelState της
+% προηγούμενης κλήσης ως prevChannelState στην επόμενη.
+if nargin < 7
+    prevChannelState = [];
+end
 
 numUsers = size(user_geo,1);
 numBs    = size(bs_geo,1);
@@ -50,10 +67,14 @@ pathLossMat       = nan(numUsers,numBs);
 snrDbMat          = nan(numUsers,numBs);
 pLosMat           = nan(numUsers,numBs);
 losMat            = false(numUsers,numBs);
+sfMat             = nan(numUsers,numBs);
 satSlantRangeVec  = nan(numUsers,1);
 satElevationVec   = nan(numUsers,1);
 satPathLossVec    = nan(numUsers,1);
 satSnrDbVec       = nan(numUsers,1);
+
+hasPrevState = ~isempty(prevChannelState) && ...
+    isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
 
 %% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SNR) ------------------
 for u = 1:numUsers
@@ -64,6 +85,18 @@ for u = 1:numUsers
     userBestDistance  = NaN;
     userBestPathLoss  = NaN;
     userBestElevation = NaN;
+
+    % Απόσταση μετακίνησης του χρήστη από την προηγούμενη κλήση (0 αν ο
+    % χρήστης είναι ακίνητος μεταξύ διαδοχικών κλήσεων, όπως συμβαίνει σήμερα
+    % στο temporalPassSimulation.m - μόνο ο δορυφόρος κινείται εκεί). Καθορίζει
+    % πόσο "θυμάται" το shadow fading την προηγούμενη τιμή του (βλ. τοπική
+    % συνάρτηση correlatedLosAndShadowFading).
+    if hasPrevState
+        userMoveDistance = distance(prevChannelState.UserGeo(u,1), prevChannelState.UserGeo(u,2), ...
+                                     user_geo(u,1), user_geo(u,2), wgs84);
+    else
+        userMoveDistance = Inf; % καμία προηγούμενη κατάσταση -> ανεξάρτητο δείγμα, όπως πριν
+    end
 
     %% ===== Terrestrial BS candidates =====
     for b = 1:numBs
@@ -86,9 +119,21 @@ for u = 1:numUsers
         range3DMat(u,b)        = d3d;
 
         % LOS ανά ζεύξη βάσει πιθανότητας απόστασης (3GPP TR 38.901 §7.4.2,
-        % Πίνακας 7.4.2-1), αντί για μία σταθερή global τιμή LOS.
-        pLos  = losProbability38901(groundDistance, user_geo(u,3), simParameters.PathLoss.Scenario);
-        isLos = rand() < pLos;
+        % Πίνακας 7.4.2-1), αντί για μία σταθερή global τιμή LOS. Αν υπάρχει
+        % προηγούμενη κατάσταση καναλιού (prevChannelState), η κατάσταση
+        % LOS/NLOS και το shadow fading διατηρούν χωρική συσχέτιση με την
+        % προηγούμενη κλήση αντί να επαναδειγματίζονται ανεξάρτητα - βλ.
+        % correlatedLosState παρακάτω.
+        pLos = losProbability38901(groundDistance, user_geo(u,3), simParameters.PathLoss.Scenario);
+        if hasPrevState
+            prevIsLos = prevChannelState.IsLOS(u,b);
+            prevSF    = prevChannelState.ShadowFading_dB(u,b);
+        else
+            prevIsLos = false;
+            prevSF    = 0;
+        end
+        [isLos, rho, useCorrelatedSF] = correlatedLosState(pLos, userMoveDistance, ...
+            simParameters.PathLoss.Scenario, hasPrevState, prevIsLos);
         pLosMat(u,b) = pLos;
         losMat(u,b)  = isLos;
 
@@ -97,8 +142,20 @@ for u = 1:numUsers
                               isLos, ...
                               txPosition, rxPosition);
 
-        % Shadow fading: log-normal δείγμα με τυπική απόκλιση sigmaSF (TR 38.901 §7.4.1)
-        pathLoss = pathLoss + sigmaSF * randn();
+        % Shadow fading: log-normal δείγμα με τυπική απόκλιση sigmaSF (TR 38.901
+        % §7.4.1). Αν η ζεύξη διατήρησε την ίδια κατάσταση LOS/NLOS από την
+        % προηγούμενη κλήση, το δείγμα συσχετίζεται χωρικά με το προηγούμενο
+        % κατά Gudmundson (1991, exponential autocorrelation, ρ όπως
+        % υπολογίστηκε στο correlatedLosState) - αλλιώς είναι ανεξάρτητο
+        % (νέο "drop" ή μετάβαση LOS<->NLOS, που ούτως ή άλλως ακυρώνει τη
+        % στατιστική βάση της προηγούμενης τιμής).
+        if useCorrelatedSF
+            sfSample = rho*prevSF + sqrt(1 - rho^2) * sigmaSF * randn();
+        else
+            sfSample = sigmaSF * randn();
+        end
+        sfMat(u,b) = sfSample;
+        pathLoss = pathLoss + sfSample;
         pathLossMat(u,b) = pathLoss;
 
         snr_db = (simParameters.TxPower - 30) - pathLoss - noisePowerBS_dBW;
@@ -195,6 +252,78 @@ for u = 1:numUsers
     energyPerBitUJVec(u) = (nodePowerW / usersOnThisNode) / capacity * 1e6;
 end
 
+%% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
+% Ό,τι χρειάζεται η επόμενη κλήση (αν είναι continuation, π.χ. επόμενο
+% χρονικό βήμα του temporalPassSimulation.m) ώστε να υπολογίσει τη χωρική
+% συσχέτιση του shadow fading - βλ. correlatedLosState.
+newChannelState.UserGeo         = user_geo;
+newChannelState.IsLOS           = losMat;
+newChannelState.ShadowFading_dB = sfMat;
+
+end
+
+function [isLos, rho, useCorrelatedSF] = correlatedLosState(pLos, moveDistance, scenario, hasPrevState, prevIsLos)
+% Υπολογίζει τη συσχετισμένη κατάσταση LOS/NLOS μιας ζεύξης BS-χρήστη,
+% αντί να την επαναδειγματίζει ανεξάρτητα σε κάθε κλήση.
+%
+% Χωρική συσχέτιση shadow fading κατά Gudmundson (1991, "Correlation model
+% for shadow fading in mobile radio systems", Electronics Letters 27,
+% 2145-2146): εκθετική αυτοσυσχέτιση ρ(Δd) = exp(-Δd/d_corr), όπου d_corr η
+% "correlation distance" στο οριζόντιο επίπεδο. Οι τιμές του d_corr για το
+% shadow fading (SF) λαμβάνονται από το 3GPP TR 38.901 v16.1.0, Πίνακας
+% 7.5-6 Part-1 ("Correlation distance in the horizontal plane [m]", σειρά
+% SF): UMa LOS=37m, UMa NLOS=50m, UMi-Street Canyon LOS=10m, NLOS=13m.
+%
+% Το TR 38.901 δεν ορίζει ξεχωριστή "correlation distance" για την ίδια την
+% κατηγορική κατάσταση LOS/NLOS (μόνο για τις LSP παραμέτρους όπως SF/K/DS/
+% κ.λπ. στον Πίνακα 7.5-6) - ως απλοποίηση, εδώ η ίδια απόσταση συσχέτισης
+% (και το ίδιο ρ) χρησιμοποιείται και ως πιθανότητα διατήρησης της
+% προηγούμενης κατάστασης LOS/NLOS (Bernoulli, με πιθανότητα ρ διατηρείται,
+% με πιθανότητα 1-ρ επαναδειγματίζεται από το pLos). Αυτό είναι συνεπές με
+% τη λογική "drop-based" παραγωγής LSP του TR 38.901 §7.5 (Βήματα 2 και 4:
+% η κατάσταση LOS/NLOS και το SF παράγονται μαζί, ανά "drop"), και ανάγεται
+% ορθά στα δύο ακραία σενάρια: χωρίς προηγούμενη κατάσταση (ρ=0) πάντα νέο
+% δείγμα (i.i.d., όπως πριν)· με μηδενική μετακίνηση (ρ=1, π.χ. ακίνητος
+% χρήστης στο temporalPassSimulation.m) πάντα διατήρηση της προηγούμενης
+% κατάστασης.
+if ~hasPrevState
+    isLos = rand() < pLos;
+    rho = 0;
+    useCorrelatedSF = false;
+    return;
+end
+
+if prevIsLos
+    switch scenario
+        case 'UMa'
+            dCorr = 37;
+        case 'UMi'
+            dCorr = 10;
+        otherwise
+            dCorr = 37;
+    end
+else
+    switch scenario
+        case 'UMa'
+            dCorr = 50;
+        case 'UMi'
+            dCorr = 13;
+        otherwise
+            dCorr = 50;
+    end
+end
+rho = exp(-moveDistance / dCorr);
+
+if rand() < rho
+    isLos = prevIsLos;
+else
+    isLos = rand() < pLos;
+end
+
+% Το AR(1) δείγμα SF είναι έγκυρο μόνο αν η κατάσταση LOS/NLOS δεν άλλαξε -
+% μια μετάβαση LOS<->NLOS αλλάζει το σ_SF (TR 38.901 Πίνακας 7.4.1-1) και
+% ακυρώνει τη στατιστική βάση του προηγούμενου δείγματος.
+useCorrelatedSF = (isLos == prevIsLos);
 end
 
 function pLos = losProbability38901(d2D, hUT, scenario)
