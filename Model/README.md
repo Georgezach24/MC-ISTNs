@@ -43,7 +43,22 @@ This is the point, not a regression: because the channel is stochastic (per-link
 
 Full metrics: `results_geometry_only/metrics.json`. Plots: `results_geometry_only/confusion_matrix_*.png`, `results_geometry_only/roc_curve.png`, `results_geometry_only/feature_importance_RandomForest.png`.
 
+## Third pass: `train_model_noisy_snr.py` — a realistic middle ground
+
+Geometry-only is arguably *more* blind than a real deployed system: real UEs do get some signal-quality estimate for candidate cells via periodic neighbor-cell measurement reports (e.g. 3GPP TS 38.331 Event A3/A5), just not the instantaneous, exact value `train_model.py` assumes. `train_model_noisy_snr.py` sits between the two: it keeps `CandBS_SNR_dB`/`CandSat_SNR_dB` as features, but adds Gaussian noise to each before the model sees them, standing in for a slightly stale/imperfect measurement report. `CandBS_PathLoss_dB`/`CandSat_PathLoss_dB` stay excluded, same reasoning as the geometry-only pass.
+
+The noise magnitude isn't invented: it's the **actual measured** run-to-run SNR standard deviation from `kpiRepeatedRuns.m`'s 500 repeated realizations of the same static topology (`Results/kpi_summary_by_type.csv`, `std_SNR_dB`) — Terrestrial σ = 13.6668 dB, Satellite σ = 0.0881 dB. The satellite figure is small because this simulation's satellite channel is deterministic given geometry (no fading model on that side — see `CLAUDE.md` Standards section); it's used as-is rather than inflated, since a larger number wouldn't be grounded in anything the project actually models.
+
+| Model | Accuracy | F1 (Satellite) | ROC-AUC |
+|---|---|---|---|
+| Logistic Regression | 0.8693 | 0.8345 | 0.9428 |
+| Random Forest | 0.8949 | 0.8763 | 0.9522 |
+
+Lands exactly where you'd expect: between geometry-only (RF 0.8722/0.9329) and exact-SNR (RF 1.0000/1.0000). Logistic Regression's hard-classification accuracy happens to match the geometry-only run, but its ROC-AUC is clearly higher (0.9428 vs 0.8914) — the noisy SNR improves how well-*ranked* its probability estimates are even where the 0.5 threshold doesn't flip any more predictions.
+
+Full metrics: `results_noisy_snr/metrics.json`. Plots: `results_noisy_snr/confusion_matrix_*.png`, `results_noisy_snr/roc_curve.png`, `results_noisy_snr/feature_importance_RandomForest.png`.
+
 ## Next steps
 
-- `train_model_geometry_only.py` is a first step toward a meaningfully hard ML problem, not the final Part 2 target.
-- Further directions: predict from noisier/partial observations (e.g. historical SNR instead of an exact instantaneous reading), predict a handover *before* it happens using the temporal-pass data, or move past single-connectivity `ServingType` classification to a regression/ranking target (`Capacity_Mbps`, `EnergyPerBit_uJ`) or a joint/fairness-aware multi-user objective — none of which the current SNR-greedy baseline optimizes for.
+- Three passes now span the realism spectrum: exact SNR (`train_model.py`, unrealistic upper bound) → noisy SNR (`train_model_noisy_snr.py`, closest to a real deployed system) → geometry-only (`train_model_geometry_only.py`, a conservative lower bound with no signal measurement at all).
+- Further directions: predict a handover *before* it happens using the temporal-pass data, or move past single-connectivity `ServingType` classification to a regression/ranking target (`Capacity_Mbps`, `EnergyPerBit_uJ`) or a joint/fairness-aware multi-user objective — none of which the current SNR-greedy baseline optimizes for.

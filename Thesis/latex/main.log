@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  25 AUG 2026 10:09
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  25 AUG 2026 10:40
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1095,7 +1095,7 @@ Space,Script=Greek].
 (fontspec)             <->"Consolas/BI/OT:script=grek;language=dflt;"
 
 
-Overfull \hbox (11.41327pt too wide) in paragraph at lines 61--61
+Overfull \hbox (11.41327pt too wide) in paragraph at lines 62--62
  [][] [][]\TU/TimesNewRoman(1)/m/n/12 Χαρακτηριστικά και προεπεξεργασία μοντέλο
 υ μηχανικής μάθησης (\TU/Consolas(1)/m/n/12 train_model.py\TU/TimesNewRoman(1)/
 m/n/12 )[] [][]  
@@ -1254,7 +1254,11 @@ File: figures/roc_curve.png Graphic file (type bmp)
 <figures/roc_curve.png>
 File: figures/feature_importance_RandomForest.png Graphic file (type bmp)
 <figures/feature_importance_RandomForest.png>
-) (chapters/ch6_discussion_future_work.tex [26] [27]
+ [26] [27]
+File: figures/feature_importance_RandomForest_geometry_only.png Graphic file (t
+ype bmp)
+<figures/feature_importance_RandomForest_geometry_only.png>
+ [28]) (chapters/ch6_discussion_future_work.tex [29]
 Κεφάλαιο 6.
 
 Overfull \hbox (5.42023pt too wide) in paragraph at lines 7--9
@@ -1274,7 +1278,7 @@ Overfull \hbox (1.89975pt too wide) in paragraph at lines 27--37
 έχοντος μοντέλου (Ενότητες []5.3.1[], []5.3.2[]):
  []
 
-[28
+[30
 
 ]
 Overfull \hbox (0.54434pt too wide) in paragraph at lines 53--65
@@ -1300,15 +1304,22 @@ Overfull \hbox (22.054pt too wide) in paragraph at lines 96--100
 η χωρητικότητα Shannon (εξίσωση [],
  []
 
-[29]
-Overfull \hbox (6.74065pt too wide) in paragraph at lines 138--143
+[31]
+Overfull \hbox (20.27776pt too wide) in paragraph at lines 107--115
+\TU/TimesNewRoman(1)/m/n/12 δύο υποψηφίων (Ενότητα []5.5[], Πίνακας []5.5[]): δ
+ύο νέα πειράματα (\TU/Consolas(1)/m/n/12 train_model_noisy_snr.py\TU/TimesNewRo
+man(1)/m/n/12 ,
+ []
+
+
+Overfull \hbox (6.74065pt too wide) in paragraph at lines 146--151
 []\TU/TimesNewRoman(1)/b/n/12 Πραγματική πολυσυνδεσιμότητα. \TU/TimesNewRoman(1
 )/m/n/12 Επέκταση του κανόνα επιλογής κόμβου πέρα από το single-
  []
 
-[30]) (chapters/ch7_conclusions.tex [31]
+[32]) (chapters/ch7_conclusions.tex [33]
 Κεφάλαιο 7.
-) [32
+) [34
 
 ]
 Overfull \hbox (10.92528pt too wide) in paragraph at lines 126--126
@@ -1347,9 +1358,9 @@ Overfull \hbox (12.92043pt too wide) in paragraph at lines 126--126
 ing in Mobile Radio Systems'', \TU/TimesNewRoman(1)/m/it/12 Electronics
  []
 
-[33
+[35
 
-] (appendix/appendixA_code.tex [34]
+] (appendix/appendixA_code.tex [36]
 Παράρτημα \Greeknumeral {1}.
 
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
@@ -1358,30 +1369,30 @@ File: lstlang1.sty 2025/11/14 1.11b listings language file
 )
 Package hyperref Info: bookmark level for unknown lstlisting defaults to 0 on i
 nput line 18.
- [35
+ [37
 
-] [36] [37]
+] [38] [39]
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
 y
 File: lstlang1.sty 2025/11/14 1.11b listings language file
-)) [38] (main.aux)
+)) [40] (main.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
  ***********
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: 93854538E08D8CECAC851BACD84B27F8;16314.
+(rerunfilecheck)             Checksum: DB61B02AEA7242E95856037882664962;16665.
 Package logreq Info: Writing requests to 'main.run.xml'.
 \openout1 = `main.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 25772 strings out of 402987
- 494019 string characters out of 5447903
- 1638382 words of memory out of 5000000
- 54109 multiletter control sequences out of 15000+600000
+ 25786 strings out of 402987
+ 494765 string characters out of 5447903
+ 1639264 words of memory out of 5000000
+ 54122 multiletter control sequences out of 15000+600000
  638541 words of font info for 149 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
  73i,13n,101p,695b,5436s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (53 pages).
+Output written on main.pdf (55 pages).

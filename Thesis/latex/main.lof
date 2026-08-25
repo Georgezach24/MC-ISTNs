@@ -10,6 +10,7 @@
 \contentsline {figure}{\numberline {5.5}{\ignorespaces \xpg@aux {}{greek}\ignorespaces SNR του νικητή κόμβου ανά χρήστη κατά τη διάρκεια της διέλευσης. Η απότομη πτώση στο τέλος (χρήστες 4-6, καθώς μεταπίπτουν από δορυφόρο σε επίγειο κόμβο) είναι πιο ακραία για τον χρήστη 5, που αντιστοιχεί στο φαινόμενο outage που περιγράφεται στο κείμενο.}}{24}{figure.caption.14}%
 \contentsline {figure}{\numberline {5.6}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Καμπύλες ROC για τα δύο μοντέλα (πρόβλεψη Satellite έναντι Terrestrial).}}{26}{figure.caption.17}%
 \contentsline {figure}{\numberline {5.7}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Σπουδαιότητα χαρακτηριστικών (Random Forest). Τα δύο υποψήφια SNR κυριαρχούν, όπως αναμενόταν από τον κανόνα $\argmax (\text {SNR}_{\text {BS}}, \text {SNR}_{\text {sat}})$.}}{27}{figure.caption.18}%
+\contentsline {figure}{\numberline {5.8}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Σπουδαιότητα χαρακτηριστικών (Random Forest, μόνο γεωμετρία -- χωρίς SNR ή path loss). Η απόσταση προς το καλύτερο BS και η γωνία ανύψωσης/slant range του δορυφόρου κυριαρχούν πλέον, αφού το SNR δεν είναι πια διαθέσιμο ως χαρακτηριστικό.}}{28}{figure.caption.20}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }

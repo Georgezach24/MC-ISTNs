@@ -1,0 +1,70 @@
+{
+  "noise_sigma_dB": {
+    "Terrestrial": 13.6668233292497,
+    "Satellite": 0.0881110018275656
+  },
+  "LogisticRegression": {
+    "accuracy": 0.8693181818181818,
+    "f1_satellite": 0.8345323741007195,
+    "roc_auc": 0.9427875243664717,
+    "classification_report": {
+      "Satellite": {
+        "precision": 1.0,
+        "recall": 0.7160493827160493,
+        "f1-score": 0.8345323741007195,
+        "support": 162.0
+      },
+      "Terrestrial": {
+        "precision": 0.8050847457627118,
+        "recall": 1.0,
+        "f1-score": 0.892018779342723,
+        "support": 190.0
+      },
+      "accuracy": 0.8693181818181818,
+      "macro avg": {
+        "precision": 0.902542372881356,
+        "recall": 0.8580246913580247,
+        "f1-score": 0.8632755767217213,
+        "support": 352.0
+      },
+      "weighted avg": {
+        "precision": 0.8947900616332819,
+        "recall": 0.8693181818181818,
+        "f1-score": 0.865561967839301,
+        "support": 352.0
+      }
+    }
+  },
+  "RandomForest": {
+    "accuracy": 0.8948863636363636,
+    "f1_satellite": 0.8762541806020067,
+    "roc_auc": 0.9521929824561405,
+    "classification_report": {
+      "Satellite": {
+        "precision": 0.9562043795620438,
+        "recall": 0.808641975308642,
+        "f1-score": 0.8762541806020067,
+        "support": 162.0
+      },
+      "Terrestrial": {
+        "precision": 0.8558139534883721,
+        "recall": 0.968421052631579,
+        "f1-score": 0.908641975308642,
+        "support": 190.0
+      },
+      "accuracy": 0.8948863636363636,
+      "macro avg": {
+        "precision": 0.9060091665252079,
+        "recall": 0.8885315139701104,
+        "f1-score": 0.8924480779553243,
+        "support": 352.0
+      },
+      "weighted avg": {
+        "precision": 0.902016365488187,
+        "recall": 0.8948863636363636,
+        "f1-score": 0.8937362288811563,
+        "support": 352.0
+      }
+    }
+  }
+}
