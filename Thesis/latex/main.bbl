@@ -533,6 +533,33 @@
       \field{type}{techreport}
       \field{year}{2023}
     \endentry
+    \entry{ts38331}{report}{}{}
+      \name{author}{1}{}{%
+        {{hash=49952770ed51bcb32792566644a0032e}{%
+           family={{3GPP}},
+           familyi={3\bibinitperiod}}}%
+      }
+      \list{institution}{1}{%
+        {3GPP}%
+      }
+      \strng{namehash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{fullhashraw}{49952770ed51bcb32792566644a0032e}
+      \strng{bibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorbibnamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authornamehash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhash}{49952770ed51bcb32792566644a0032e}
+      \strng{authorfullhashraw}{49952770ed51bcb32792566644a0032e}
+      \field{extraname}{4}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{number}{TS 38.331}
+      \field{title}{{NR}; Radio Resource Control ({RRC}); Protocol Specification}
+      \field{type}{techreport}
+      \field{year}{2023}
+    \endentry
     \entry{gudmundson1991correlation}{article}{}{}
       \name{author}{1}{}{%
         {{hash=eec54d7d27ed950dc21299b248a0872c}{%
@@ -578,8 +605,8 @@
       \strng{authornamehash}{8687eae34a3830fc0c113d9d65382e90}
       \strng{authorfullhash}{8687eae34a3830fc0c113d9d65382e90}
       \strng{authorfullhashraw}{8687eae34a3830fc0c113d9d65382e90}
-      \field{sortinit}{2}
-      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{note}{MATLAB Toolbox, R2024x}

@@ -1,8 +1,8 @@
 \xpg@aux {}{greek}
 \contentsline {chapter}{Πρόλογος και ευχαριστίες}{}{chapter*.1}%
-\contentsline {chapter}{Ακρωνύμια}{v}{chapter*.5}%
-\contentsline {chapter}{Περίληψη}{vii}{chapter*.6}%
-\contentsline {chapter}{Abstract}{ix}{chapter*.7}%
+\contentsline {chapter}{Ακρωνύμια}{vii}{chapter*.5}%
+\contentsline {chapter}{Περίληψη}{ix}{chapter*.6}%
+\contentsline {chapter}{Abstract}{xi}{chapter*.7}%
 \xpg@aux {}{english}
 \xpg@aux {}{greek}
 \contentsline {chapter}{\numberline {1}Εισαγωγή}{1}{chapter.1}%
@@ -29,35 +29,37 @@
 \contentsline {section}{\numberline {3.3}Μοντέλο δορυφορικού καναλιού}{13}{section.3.3}%
 \contentsline {subsection}{\numberline {3.3.1}Ατμοσφαιρική απόσβεση αερίων}{13}{subsection.3.3.1}%
 \contentsline {section}{\numberline {3.4}Επιλογή κόμβου εξυπηρέτησης}{14}{section.3.4}%
-\contentsline {section}{\numberline {3.5}Κατανομή εύρους ζώνης και χωρητικότητα}{16}{section.3.5}%
-\contentsline {section}{\numberline {3.6}Ενεργειακό μοντέλο και ενέργεια ανά bit}{16}{section.3.6}%
-\contentsline {section}{\numberline {3.7}Μοντέλο κίνησης δορυφόρου LEO για τη χρονική προσομοίωση}{17}{section.3.7}%
-\contentsline {subsection}{\numberline {3.7.1}Ταχύτητα ίχνους εδάφους}{17}{subsection.3.7.1}%
-\contentsline {subsection}{\numberline {3.7.2}Ίχνος εδάφους και χρονικός βρόχος προσομοίωσης}{18}{subsection.3.7.2}%
-\contentsline {subsection}{\numberline {3.7.3}Χωρική συσχέτιση shadow fading μεταξύ διαδοχικών βημάτων}{18}{subsection.3.7.3}%
-\contentsline {section}{\numberline {3.8}Monte Carlo generator τυχαιοποιημένων τοπολογιών}{19}{section.3.8}%
-\contentsline {section}{\numberline {3.9}Pipeline μηχανικής μάθησης (πρώτη προσέγγιση)}{19}{section.3.9}%
-\contentsline {chapter}{\numberline {4}Υλοποίηση}{21}{chapter.4}%
-\contentsline {section}{\numberline {4.1}Εργαλεία και τεχνολογίες}{21}{section.4.1}%
-\contentsline {section}{\numberline {4.2}Δομή λογισμικού}{21}{section.4.2}%
-\contentsline {section}{\numberline {4.3}Ροή δεδομένων}{22}{section.4.3}%
-\contentsline {section}{\numberline {4.4}Αναπαραγωγιμότητα}{23}{section.4.4}%
-\contentsline {chapter}{\numberline {5}Αποτελέσματα}{24}{chapter.5}%
-\contentsline {section}{\numberline {5.1}Στατικό σενάριο αναφοράς}{24}{section.5.1}%
-\contentsline {section}{\numberline {5.2}Στατιστική ανάλυση KPI (500 επαναλαμβανόμενα runs)}{25}{section.5.2}%
-\contentsline {section}{\numberline {5.3}Χρονική εξέλιξη διέλευσης LEO}{28}{section.5.3}%
-\contentsline {subsection}{\numberline {5.3.1}Handovers, SN events και outage events}{28}{subsection.5.3.1}%
-\contentsline {subsection}{\numberline {5.3.2}Ρητή κατάσταση outage}{30}{subsection.5.3.2}%
-\contentsline {section}{\numberline {5.4}Αποτελέσματα πρώτου μοντέλου μηχανικής μάθησης}{31}{section.5.4}%
-\contentsline {section}{\numberline {5.5}Προς ρεαλιστικότερα σενάρια πρόβλεψης}{32}{section.5.5}%
-\contentsline {chapter}{\numberline {6}Συζήτηση, Περιορισμοί και Μελλοντική Εργασία}{36}{chapter.6}%
-\contentsline {section}{\numberline {6.1}Σύνοψη ευρημάτων}{36}{section.6.1}%
-\contentsline {section}{\numberline {6.2}Περιορισμοί του τρέχοντος μοντέλου}{37}{section.6.2}%
-\contentsline {section}{\numberline {6.3}Μελλοντική εργασία}{38}{section.6.3}%
-\contentsline {subsection}{\numberline {6.3.1}Η επίδραση της πολυσυνδεσιμότητας στα πειράματα μηχανικής μάθησης}{39}{subsection.6.3.1}%
-\contentsline {chapter}{\numberline {7}Συμπεράσματα}{41}{chapter.7}%
-\contentsline {chapter}{Βιβλιογραφία}{43}{chapter*.23}%
-\contentsline {chapter}{\numberline {\Greeknumeral {1}}Επιλεγμένα Τμήματα Κώδικα}{45}{appendix.Alph1}%
-\contentsline {section}{\numberline {\Greeknumeral {1}.1}Πυρήνας επιλογής κόμβου (\texttt {simulateScenario.m})}{45}{section.Alph1.1}%
-\contentsline {section}{\numberline {\Greeknumeral {1}.2}Μοντέλο κίνησης LEO (\texttt {temporalPassSimulation.m})}{47}{section.Alph1.2}%
-\contentsline {section}{\numberline {\Greeknumeral {1}.3}Χαρακτηριστικά και προεπεξεργασία μοντέλου μηχανικής μάθησης (\texttt {train\_model.py})}{48}{section.Alph1.3}%
+\contentsline {subsection}{\numberline {3.4.1}Υστέρηση (hysteresis) και time-to-trigger}{16}{subsection.3.4.1}%
+\contentsline {section}{\numberline {3.5}Κατανομή εύρους ζώνης και χωρητικότητα}{17}{section.3.5}%
+\contentsline {section}{\numberline {3.6}Ενεργειακό μοντέλο και ενέργεια ανά bit}{17}{section.3.6}%
+\contentsline {section}{\numberline {3.7}Μοντέλο κίνησης δορυφόρου LEO για τη χρονική προσομοίωση}{18}{section.3.7}%
+\contentsline {subsection}{\numberline {3.7.1}Ταχύτητα ίχνους εδάφους}{18}{subsection.3.7.1}%
+\contentsline {subsection}{\numberline {3.7.2}Ίχνος εδάφους και χρονικός βρόχος προσομοίωσης}{19}{subsection.3.7.2}%
+\contentsline {subsection}{\numberline {3.7.3}Χωρική συσχέτιση shadow fading μεταξύ διαδοχικών βημάτων}{19}{subsection.3.7.3}%
+\contentsline {section}{\numberline {3.8}Monte Carlo generator τυχαιοποιημένων τοπολογιών}{20}{section.3.8}%
+\contentsline {section}{\numberline {3.9}Pipeline μηχανικής μάθησης (πρώτη προσέγγιση)}{20}{section.3.9}%
+\contentsline {chapter}{\numberline {4}Υλοποίηση}{22}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Εργαλεία και τεχνολογίες}{22}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Δομή λογισμικού}{22}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Ροή δεδομένων}{23}{section.4.3}%
+\contentsline {section}{\numberline {4.4}Αναπαραγωγιμότητα}{24}{section.4.4}%
+\contentsline {chapter}{\numberline {5}Αποτελέσματα}{25}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Στατικό σενάριο αναφοράς}{25}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Στατιστική ανάλυση KPI (500 επαναλαμβανόμενα runs)}{26}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Χρονική εξέλιξη διέλευσης LEO}{29}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}Handovers, SN events και outage events}{29}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}Ρητή κατάσταση outage}{32}{subsection.5.3.2}%
+\contentsline {subsection}{\numberline {5.3.3}Επικύρωση της υστέρησης (hysteresis)}{32}{subsection.5.3.3}%
+\contentsline {section}{\numberline {5.4}Αποτελέσματα πρώτου μοντέλου μηχανικής μάθησης}{33}{section.5.4}%
+\contentsline {section}{\numberline {5.5}Προς ρεαλιστικότερα σενάρια πρόβλεψης}{35}{section.5.5}%
+\contentsline {chapter}{\numberline {6}Συζήτηση, Περιορισμοί και Μελλοντική Εργασία}{39}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Σύνοψη ευρημάτων}{39}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Περιορισμοί του τρέχοντος μοντέλου}{40}{section.6.2}%
+\contentsline {section}{\numberline {6.3}Μελλοντική εργασία}{41}{section.6.3}%
+\contentsline {subsection}{\numberline {6.3.1}Η επίδραση της πολυσυνδεσιμότητας στα πειράματα μηχανικής μάθησης}{42}{subsection.6.3.1}%
+\contentsline {chapter}{\numberline {7}Συμπεράσματα}{45}{chapter.7}%
+\contentsline {chapter}{Βιβλιογραφία}{47}{chapter*.24}%
+\contentsline {chapter}{\numberline {\Greeknumeral {1}}Επιλεγμένα Τμήματα Κώδικα}{49}{appendix.Alph1}%
+\contentsline {section}{\numberline {\Greeknumeral {1}.1}Πυρήνας επιλογής κόμβου (\texttt {simulateScenario.m})}{49}{section.Alph1.1}%
+\contentsline {section}{\numberline {\Greeknumeral {1}.2}Μοντέλο κίνησης LEO (\texttt {temporalPassSimulation.m})}{51}{section.Alph1.2}%
+\contentsline {section}{\numberline {\Greeknumeral {1}.3}Χαρακτηριστικά και προεπεξεργασία μοντέλου μηχανικής μάθησης (\texttt {train\_model.py})}{52}{section.Alph1.3}%

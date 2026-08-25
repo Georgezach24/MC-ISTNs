@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  25 AUG 2026 14:44
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  25 AUG 2026 15:26
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1095,7 +1095,7 @@ Space,Script=Greek].
 (fontspec)             <->"Consolas/BI/OT:script=grek;language=dflt;"
 
 
-Overfull \hbox (11.41327pt too wide) in paragraph at lines 63--63
+Overfull \hbox (11.41327pt too wide) in paragraph at lines 65--65
  [][] [][]\TU/TimesNewRoman(1)/m/n/12 Χαρακτηριστικά και προεπεξεργασία μοντέλο
 υ μηχανικής μάθησης (\TU/Consolas(1)/m/n/12 train_model.py\TU/TimesNewRoman(1)/
 m/n/12 )[] [][]  
@@ -1105,25 +1105,26 @@ m/n/12 )[] [][]
 \tf@toc=\write5
 \openout5 = `main.toc'.
 
- [2] (main.lof
-Overfull \hbox (3.51886pt too wide) in paragraph at lines 12--12
+ [2] [3] (main.lof
+Overfull \hbox (26.10573pt too wide) in paragraph at lines 12--12
+ [][] [][]\TU/TimesNewRoman(1)/m/n/12 Σενάριο πίεσης (\TU/Consolas(1)/m/n/12 hy
+steresisStressTest.m\TU/TimesNewRoman(1)/m/n/12 ), $\OT1/cmr/m/n/12 80$ \TU/Tim
+esNewRoman(1)/m/n/12 βήματα. Πάνω: SNR ζεύξης boundary 
+ []
+
+
+Overfull \hbox (3.51886pt too wide) in paragraph at lines 13--13
  [][] [][]\TU/TimesNewRoman(1)/m/n/12 One-vs-rest καμπύλες ROC για τα δύο μοντέ
 λα, ανά κλάση. Το υποπλαίσιο Terrestrial 
  []
 
-)
+[4
+
+])
 \tf@lof=\write6
 \openout6 = `main.lof'.
 
- [3
-
-] (main.lot
-Overfull \hbox (12.63303pt too wide) in paragraph at lines 9--9
- \TU/TimesNewRoman(1)/m/n/12 fading (εξίσωση []), πολυσυνδεσιμότητα και ρητή κα
-τάσταση outage (εξίσωση []).[] [][]  
- []
-
-
+ [5] (main.lot
 Overfull \hbox (14.25412pt too wide) in paragraph at lines 10--10
  [][] [][]\TU/TimesNewRoman(1)/m/n/12 Επιδόσεις πρόβλεψης \TU/Consolas(1)/m/n/1
 2 ServingType \TU/TimesNewRoman(1)/m/n/12 (Terrestrial/ Satellite/DualConnectiv
@@ -1134,16 +1135,16 @@ ity), grouped
 \tf@lot=\write7
 \openout7 = `main.lot'.
 
- (front/acronyms.tex [4
+ (front/acronyms.tex [6
 
-] [5
+] [7
 
-]) (front/abstract_gr.tex [6] [7
+]) (front/abstract_gr.tex [8] [9
 
 ])
-(front/abstract_en.tex [8] [9
+(front/abstract_en.tex [10] [11
 
-]) [10] (chapters/ch1_introduction.tex
+]) [12] (chapters/ch1_introduction.tex
 Κεφάλαιο 1.
 
 Overfull \hbox (12.58191pt too wide) in paragraph at lines 4--4
@@ -1212,7 +1213,14 @@ Overfull \hbox (3.75526pt too wide) in paragraph at lines 168--180
 όσβεση βροχής/νέφωσης (TR 38.811 §6.6.5),
  []
 
-[14] [15] [16] [17] [18]) (chapters/ch4_implementation.tex [19] [20]
+[14] [15]
+Overfull \hbox (73.17319pt too wide) in paragraph at lines 287--301
+\TU/TimesNewRoman(1)/m/n/12 οπισθο-συμβατή προεπιλογή για callers όπου κάθε κλή
+ση είναι ένα νέο, ανεξάρτητο "drop" (\TU/Consolas(1)/m/n/12 test_simulation.m\T
+U/TimesNewRoman(1)/m/n/12 ,
+ []
+
+[16] [17] [18] [19]) (chapters/ch4_implementation.tex [20] [21]
 Κεφάλαιο 4.
 
 Overfull \hbox (47.5863pt too wide) in paragraph at lines 36--43
@@ -1220,7 +1228,7 @@ Overfull \hbox (47.5863pt too wide) in paragraph at lines 36--43
 BS/χρηστών/δορυφόρου)
  []
 
-[21
+[22
 
 ]
 Overfull \hbox (2.38019pt too wide) in paragraph at lines 55--58
@@ -1243,7 +1251,7 @@ epeatedRuns.m \TU/TimesNewRoman(1)/m/n/12 και \TU/Consolas(1)/m/n/12 temporal
 ssSimulation.m
  []
 
-[22] [23]
+[23] [24]
 Κεφάλαιο 5.
 
 Overfull \hbox (68.0949pt too wide) in paragraph at lines 21--33
@@ -1266,7 +1274,7 @@ TimesNewRoman(1)/m/n/12 dB, οπότε ο νέος κανόνας τον συν�
 2 42$ \TU/TimesNewRoman(1)/m/n/12 Mbps)
  []
 
-[24
+[25
 
 ]
 File: figures/kpi_hist_Capacity_Mbps.png Graphic file (type bmp)
@@ -1275,38 +1283,53 @@ File: figures/kpi_hist_EnergyPerBit_uJ.png Graphic file (type bmp)
 <figures/kpi_hist_EnergyPerBit_uJ.png>
 File: figures/kpi_hist_SNR_dB.png Graphic file (type bmp)
 <figures/kpi_hist_SNR_dB.png>
- [25] [26] [27]
+ [26] [27] [28]
 File: figures/temporal_SatElevation_deg.png Graphic file (type bmp)
 <figures/temporal_SatElevation_deg.png>
 File: figures/temporal_CandBS_SNR_dB.png Graphic file (type bmp)
 <figures/temporal_CandBS_SNR_dB.png>
 File: figures/temporal_CandSat_SNR_dB.png Graphic file (type bmp)
 <figures/temporal_CandSat_SNR_dB.png>
- [28] [29] [30]
-Overfull \hbox (17.80948pt too wide) in paragraph at lines 355--370
+ [29] [30] [31] [32]
+Overfull \hbox (117.01303pt too wide) in paragraph at lines 382--400
+[]\TU/TimesNewRoman(1)/m/n/12 Για να επικυρωθεί ο ίδιος ο μηχανισμός, κατασκευά
+στηκε ξεχωριστά ένα σενάριο πίεσης (\TU/Consolas(1)/m/n/12 hysteresisStressTest
+.m\TU/TimesNewRoman(1)/m/n/12 ):
+ []
+
+File: figures/hysteresis_stress_comparison.png Graphic file (type bmp)
+<figures/hysteresis_stress_comparison.png>
+
+Underfull \hbox (badness 1701) in paragraph at lines 409--409
+[]\TU/TimesNewRoman(1)/m/n/12 Σχήμα 5.7: |Σενάριο πίεσης (\TU/Consolas(1)/m/n/1
+2 hysteresisStressTest.m\TU/TimesNewRoman(1)/m/n/12 ), $\OT1/cmr/m/n/12 80$ \TU
+/TimesNewRoman(1)/m/n/12 βήματα. Πάνω: SNR ζεύξης
+ []
+
+
+Overfull \hbox (17.80948pt too wide) in paragraph at lines 432--447
 []\TU/TimesNewRoman(1)/m/n/12 Πάνω σε ένα σύνολο δεδομένων $\OT1/cmr/m/n/12 200
 $ \TU/TimesNewRoman(1)/m/n/12 τυχαιοποιημένων σεναρίων ($\OT1/cmr/m/n/12 1313$ 
 \TU/TimesNewRoman(1)/m/n/12 γραμμές χρηστών, \TU/Consolas(1)/m/n/12 rng(42)\TU/
 TimesNewRoman(1)/m/n/12 )
  []
 
-
-Underfull \hbox (badness 5533) in paragraph at lines 375--375
+[33] [34]
+Underfull \hbox (badness 5533) in paragraph at lines 452--452
 []\TU/TimesNewRoman(1)/m/n/12 Πίνακας 5.5: |Επιδόσεις πρόβλεψης \TU/Consolas(1)
 /m/n/12 ServingType \TU/TimesNewRoman(1)/m/n/12 (Terrestrial/ Satellite/DualCon
 nectivity),
  []
 
-[31]
 File: figures/roc_curve.png Graphic file (type bmp)
 <figures/roc_curve.png>
 File: figures/feature_importance_RandomForest.png Graphic file (type bmp)
 <figures/feature_importance_RandomForest.png>
- [32] [33]
+[35] [36]
 File: figures/feature_importance_RandomForest_geometry_only.png Graphic file (t
 ype bmp)
 <figures/feature_importance_RandomForest_geometry_only.png>
- [34]) (chapters/ch6_discussion_future_work.tex [35]
+ [37]) (chapters/ch6_discussion_future_work.tex [38]
 Κεφάλαιο 6.
 
 Overfull \hbox (5.42023pt too wide) in paragraph at lines 7--9
@@ -1320,57 +1343,63 @@ Overfull \hbox (12.34502pt too wide) in paragraph at lines 11--18
 ριζικά και συστηματικά ως προς throughput,
  []
 
-[36
+
+Overfull \hbox (13.41928pt too wide) in paragraph at lines 27--67
+\TU/TimesNewRoman(1)/m/n/12 δεσιμότητας (ο αρχικός κανόνας ήταν καθαρά single-c
+onnectivity), και απουσία υστέρησης/time-
+ []
+
+[39
 
 ]
-Overfull \hbox (0.54434pt too wide) in paragraph at lines 80--92
+Overfull \hbox (0.54434pt too wide) in paragraph at lines 83--95
 []\TU/TimesNewRoman(1)/b/n/12 Δορυφορικό κανάλι χωρίς ιονοσφαιρική σπινθηρίδα. 
 \TU/TimesNewRoman(1)/m/n/12 Το μοντέλο FSPL περιλαμβάνει πλέον
  []
 
 
-Overfull \hbox (11.36264pt too wide) in paragraph at lines 80--92
+Overfull \hbox (11.36264pt too wide) in paragraph at lines 83--95
 \TU/TimesNewRoman(1)/m/n/12 ποιούν πλέον συμμετρικά ένα ενιαίο, βαθμωτό κέρδος 
 κεραίας το καθένα (εξισώσεις [], []),
  []
 
-[37]
-Overfull \hbox (1.26398pt too wide) in paragraph at lines 115--123
+[40]
+Overfull \hbox (1.26398pt too wide) in paragraph at lines 118--126
 []\TU/TimesNewRoman(1)/m/n/12 Ένα χρονικά συσχετισμένο μοντέλο shadow fading αν
 τί για ανεξάρτητο δείγμα (εξίσωση [])
  []
 
 
-Overfull \hbox (22.054pt too wide) in paragraph at lines 123--127
+Overfull \hbox (22.49931pt too wide) in paragraph at lines 126--130
 []\TU/TimesNewRoman(1)/m/n/12 Φραγμένη χωρητικότητα MCS/CQI αντί για μη-φραγμέν
 η χωρητικότητα Shannon (εξίσωση [],
  []
 
 
-Overfull \hbox (20.27776pt too wide) in paragraph at lines 134--143
+Overfull \hbox (20.27776pt too wide) in paragraph at lines 137--146
 \TU/TimesNewRoman(1)/m/n/12 δύο υποψηφίων (Ενότητα []5.5[], Πίνακας []5.6[]): δ
 ύο νέα πειράματα (\TU/Consolas(1)/m/n/12 train_model_noisy_snr.py\TU/TimesNewRo
 man(1)/m/n/12 ,
  []
 
 
-Overfull \hbox (81.9632pt too wide) in paragraph at lines 152--171
+Overfull \hbox (81.9632pt too wide) in paragraph at lines 155--174
 \TU/TimesNewRoman(1)/m/n/12 δέεται σε όποιον/όποιους το ξεπερνούν -- ταυτόχρονα
  και στους δύο (\TU/Consolas(1)/m/n/12 ServingType="DualConnectivity"\TU/TimesN
 ewRoman(1)/m/n/12 )
  []
 
-[38] [39]
-Overfull \hbox (2.07362pt too wide) in paragraph at lines 234--251
+[41] [42]
+Overfull \hbox (2.07362pt too wide) in paragraph at lines 244--261
 \TU/TimesNewRoman(1)/m/n/12 συμπληρωματικές κατευθύνσεις αξίζουν διερεύνηση εδώ
 : μια γεννήτρια που παράγει και πραγ-
  []
 
-) (chapters/ch7_conclusions.tex [40]
+) (chapters/ch7_conclusions.tex [43] [44]
 Κεφάλαιο 7.
-[41
+[45
 
-]) [42]
+]) [46]
 Overfull \hbox (10.92528pt too wide) in paragraph at lines 126--126
 []\TU/TimesNewRoman(1)/m/n/12 X. Li []και []B. Shang, ``Advancing Multi-Connect
 ivity in Satellite-Terrestrial Integrated Networks:
@@ -1401,15 +1430,15 @@ Overfull \hbox (4.8394pt too wide) in paragraph at lines 126--126
 ή εργασία []TR 38.901, 2020, version 16.1.0. 
  []
 
+[47
 
+]
 Overfull \hbox (12.92043pt too wide) in paragraph at lines 126--126
 []\TU/TimesNewRoman(1)/m/n/12 M. Gudmundson, ``Correlation Model for Shadow Fad
 ing in Mobile Radio Systems'', \TU/TimesNewRoman(1)/m/it/12 Electronics
  []
 
-[43
-
-] (appendix/appendixA_code.tex [44]
+(appendix/appendixA_code.tex [48]
 Παράρτημα \Greeknumeral {1}.
 
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
@@ -1418,30 +1447,30 @@ File: lstlang1.sty 2025/11/14 1.11b listings language file
 )
 Package hyperref Info: bookmark level for unknown lstlisting defaults to 0 on i
 nput line 22.
- [45
+ [49
 
-] [46] [47]
+] [50] [51]
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
 y
 File: lstlang1.sty 2025/11/14 1.11b listings language file
-)) [48] (main.aux)
+)) [52] (main.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
  ***********
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: 153E59D84EB08A6AA2AFCB9B88C5DD5F;17384.
+(rerunfilecheck)             Checksum: AA68CB6AAF72E88B04B16A81CECDBD13;18019.
 Package logreq Info: Writing requests to 'main.run.xml'.
 \openout1 = `main.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 25808 strings out of 402987
- 495518 string characters out of 5447903
- 1665822 words of memory out of 5000000
- 54142 multiletter control sequences out of 15000+600000
+ 25827 strings out of 402987
+ 496222 string characters out of 5447903
+ 1667239 words of memory out of 5000000
+ 54160 multiletter control sequences out of 15000+600000
  638549 words of font info for 150 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
  73i,13n,101p,740b,5436s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (63 pages).
+Output written on main.pdf (69 pages).

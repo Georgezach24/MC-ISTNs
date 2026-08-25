@@ -70,6 +70,53 @@ noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 minSpectralEfficiency = 0.2344;                        % bits/s/Hz, TS 38.214 §5.1.3.1, MCS 0
 minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
 
+%% ------------------ Υστέρηση (hysteresis) στην ενεργοποίηση/απενεργοποίηση ζεύξης ------------------
+% Χωρίς υστέρηση, μια ζεύξη μπαίνει/βγαίνει από το σύνολο σύνδεσης
+% ΤΗΝ ΣΤΙΓΜΗ που περνάει το minUsableSnrDb - σε ένα θορυβώδες κανάλι κοντά
+% στο κατώφλι αυτό οδηγεί σε τεχνητά συχνή εναλλαγή (ping-pong), το ίδιο
+% φαινόμενο που αντιμετωπίστηκε στο shadow fading (Ενότητα
+% subsec:meth-correlated-sf) αλλά εδώ στο επίπεδο απόφασης σύνδεσης αντί
+% στο κανάλι. Μοντελοποιείται κατά το πρότυπο Event A3 του 3GPP TS 38.331
+% (offset/hysteresis + TimeToTrigger): μια ζεύξη ενεργοποιείται μόνο αφού
+% το SNR της παραμείνει πάνω από minUsableSnrDb + MarginDb για
+% TimeToTriggerSteps διαδοχικές κλήσεις, και απενεργοποιείται μόνο αφού
+% παραμείνει κάτω από minUsableSnrDb - MarginDb εξίσου επίμονα - μια
+% "νεκρή ζώνη" γύρω από το κατώφλι, αντί για μία μόνο τιμή απόφασης.
+%
+% Προαιρετικό: αν simParameters.Hysteresis δεν έχει οριστεί (η περίπτωση
+% των test_simulation.m/monteCarloDriver.m/kpiRepeatedRuns.m, όπου κάθε
+% κλήση είναι ένα νέο, ανεξάρτητο "drop" - δεν έχει νόημα η υστέρηση χωρίς
+% συνέχεια στον χρόνο), MarginDb=0 και TimeToTriggerSteps=0 αναπαράγουν
+% ακριβώς την παλιά, άμεση συμπεριφορά κατωφλίου.
+if isfield(simParameters, 'Hysteresis') && isfield(simParameters.Hysteresis, 'MarginDb')
+    hystMarginDb = simParameters.Hysteresis.MarginDb;
+else
+    hystMarginDb = 0;
+end
+if isfield(simParameters, 'Hysteresis') && isfield(simParameters.Hysteresis, 'TimeToTriggerSteps')
+    hystTtt = simParameters.Hysteresis.TimeToTriggerSteps;
+else
+    hystTtt = 0;
+end
+
+hasPrevActivation = ~isempty(prevChannelState) && isfield(prevChannelState, 'ActiveBs') && ...
+    isequal(size(prevChannelState.ActiveBs), [numUsers, 1]);
+if hasPrevActivation
+    prevActiveBs         = prevChannelState.ActiveBs;
+    prevActiveSat         = prevChannelState.ActiveSat;
+    prevBsPendingCounter  = prevChannelState.BsPendingCounter;
+    prevSatPendingCounter = prevChannelState.SatPendingCounter;
+else
+    prevActiveBs          = false(numUsers,1);
+    prevActiveSat          = false(numUsers,1);
+    prevBsPendingCounter   = zeros(numUsers,1);
+    prevSatPendingCounter  = zeros(numUsers,1);
+end
+newActiveBs         = false(numUsers,1);
+newActiveSat         = false(numUsers,1);
+newBsPendingCounter  = zeros(numUsers,1);
+newSatPendingCounter = zeros(numUsers,1);
+
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
@@ -247,9 +294,29 @@ for u = 1:numUsers
     % χρησιμοποιήσιμου SNR, και ο χρήστης συνδέεται σε ΟΠΟΙΟΝΔΗΠΟΤΕ από
     % τους δύο το ξεπερνά - ταυτόχρονα και στους δύο αν το ξεπερνούν και οι
     % δύο (DualConnectivity), σε έναν μόνο αν μόνο αυτός το ξεπερνά, ή σε
-    % κανέναν (Outage) - βλ. σχόλιο κεφαλίδας συνάρτησης.
-    bsUsable  = userBestSNR >= minUsableSnrDb;   % userBestSNR = SNR του καλύτερου BS εδώ
-    satUsable = satSnrDb    >= minUsableSnrDb;
+    % κανέναν (Outage) - βλ. σχόλιο κεφαλίδας συνάρτησης. Η ενεργοποίηση/
+    % απενεργοποίηση κάθε ζεύξης περνάει από τη μηχανή υστέρησης
+    % (updateLinkActivation, τοπική συνάρτηση παρακάτω) αντί από απευθείας
+    % σύγκριση με το minUsableSnrDb - ΕΚΤΟΣ από την πρώτη κλήση μιας
+    % ακολουθίας (hasPrevActivation=false, καμία προηγούμενη κατάσταση): η
+    % υστέρηση/TTT αφορά ΜΕΤΑΒΑΣΕΙΣ (π.χ. Event A3 του TS 38.331 αξιολογεί
+    % αλλαγή κατάστασης γειτονικού κόμβου, όχι την αρχική απόκτηση), οπότε
+    % η πρώτη παρατήρηση αποφασίζεται άμεσα, όπως πριν - αλλιώς κάθε
+    % ζεύξη θα ξεκινούσε τεχνητά ανενεργή για TimeToTriggerSteps κλήσεις
+    % ακόμα κι αν το SNR ήταν ήδη άνετα πάνω από το κατώφλι.
+    if hasPrevActivation
+        [bsUsable, newBsPendingCounter(u)] = updateLinkActivation( ...
+            prevActiveBs(u), userBestSNR, minUsableSnrDb, hystMarginDb, hystTtt, prevBsPendingCounter(u));
+        [satUsable, newSatPendingCounter(u)] = updateLinkActivation( ...
+            prevActiveSat(u), satSnrDb, minUsableSnrDb, hystMarginDb, hystTtt, prevSatPendingCounter(u));
+    else
+        bsUsable  = userBestSNR >= minUsableSnrDb;
+        satUsable = satSnrDb    >= minUsableSnrDb;
+        newBsPendingCounter(u)  = 0;
+        newSatPendingCounter(u) = 0;
+    end
+    newActiveBs(u)  = bsUsable;
+    newActiveSat(u) = satUsable;
 
     if bsUsable && satUsable
         bestNodeTypeVec(u)  = "DualConnectivity";
@@ -381,6 +448,53 @@ newChannelState.UserGeo         = user_geo;
 newChannelState.IsLOS           = losMat;
 newChannelState.ShadowFading_dB = sfMat;
 
+% Κατάσταση της μηχανής υστέρησης (ενεργοποίηση ζεύξης BS/δορυφόρου +
+% μετρητές time-to-trigger), ώστε η επόμενη κλήση να συνεχίσει τη σωστή
+% "νεκρή ζώνη" απόφασης αντί να ξεκινήσει από την υπόθεση "καμία ζεύξη
+% ενεργή" - βλ. updateLinkActivation.
+newChannelState.ActiveBs          = newActiveBs;
+newChannelState.ActiveSat          = newActiveSat;
+newChannelState.BsPendingCounter   = newBsPendingCounter;
+newChannelState.SatPendingCounter  = newSatPendingCounter;
+
+end
+
+function [isActive, pendingCounter] = updateLinkActivation(wasActive, snrDb, snrMinDb, marginDb, tttSteps, pendingCounter)
+% Μηχανή υστέρησης (hysteresis) + time-to-trigger (TTT) για την ενεργοποίηση/
+% απενεργοποίηση μιας ζεύξης (BS ή δορυφόρος), κατά το πρότυπο του Event A3
+% του 3GPP TS 38.331 (offset/hysteresis γύρω από το κατώφλι σύγκρισης, και
+% απαίτηση το κριτήριο να ισχύει επίμονα για TimeToTrigger πριν ενεργοποιηθεί
+% η μετάβαση) - εδώ εφαρμοσμένο στο ελάχιστο χρησιμοποιήσιμο SNR
+% (minUsableSnrDb) αντί σε σύγκριση serving/neighbor cell.
+%
+% - Μια ανενεργή ζεύξη ενεργοποιείται μόνο αφού SNR >= snrMinDb+marginDb
+%   ισχύσει για tttSteps+1 διαδοχικές κλήσεις.
+% - Μια ενεργή ζεύξη απενεργοποιείται μόνο αφού SNR < snrMinDb-marginDb
+%   ισχύσει εξίσου επίμονα.
+% - Το marginDb δημιουργεί μια "νεκρή ζώνη" γύρω από το κατώφλι όπου καμία
+%   μετάβαση δεν συμβαίνει, ακόμα κι αν το SNR ταλαντώνεται γύρω από το
+%   ίδιο το snrMinDb.
+% - Με marginDb=0 και tttSteps=0, η συνάρτηση αναπαράγει ακριβώς την παλιά,
+%   άμεση συμπεριφορά κατωφλίου (snr >= snrMinDb) - οπισθο-συμβατή default
+%   συμπεριφορά για callers που δεν ενεργοποιούν ρητά την υστέρηση.
+if wasActive
+    conditionForChange = snrDb < (snrMinDb - marginDb);
+else
+    conditionForChange = snrDb >= (snrMinDb + marginDb);
+end
+
+if conditionForChange
+    pendingCounter = pendingCounter + 1;
+else
+    pendingCounter = 0;
+end
+
+if pendingCounter > tttSteps
+    isActive = ~wasActive;
+    pendingCounter = 0;
+else
+    isActive = wasActive;
+end
 end
 
 function [isLos, rho, useCorrelatedSF] = correlatedLosState(pLos, moveDistance, scenario, hasPrevState, prevIsLos)

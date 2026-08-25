@@ -57,8 +57,12 @@ SS-SBS model), with additive capacity/energy across both active links.
 This change surfaced an unexpected finding: given this scenario's
 coverage geometry, the "terrestrial-only" category nearly disappeared
 from the dataset, which in turn noticeably reshaped all three machine
-learning experiments below. Hysteresis in the handover decision now sets
-the immediate next priority for the work. For machine learning, moving
+learning experiments below. Hysteresis and a time-to-trigger were also
+added to the connectivity decision, following the 3GPP TS~38.331 Event~A3
+pattern, and validated on a purpose-built stress-test scenario ($67\%$
+fewer artificial state transitions). Joint/fairness-aware
+multi-connectivity now sets the immediate next priority for the work.
+For machine learning, moving
 from ideal to realistically available SNR now leaves Random Forest
 performance nearly unchanged ($99.15\%$ accuracy, vs.\ $99.72\%$ with
 ideal SNR) -- the result this thesis treats as representative of a real

@@ -83,6 +83,19 @@ simParameters.Power.Psleep = 75;
 satParameters.Power.Pfix  = 0;
 satParameters.Power.EtaPA = 0.4;
 
+% Υστέρηση (hysteresis) + time-to-trigger στην ενεργοποίηση/απενεργοποίηση
+% ζεύξης (simulateScenario.m, κατά το πρότυπο Event A3 του 3GPP TS 38.331):
+% ενεργό μόνο εδώ (temporal, sequential decisions) - δεν έχει νόημα σε
+% ανεξάρτητα "drops" (test_simulation.m/monteCarloDriver.m/kpiRepeatedRuns.m).
+% MarginDb=2dB είναι τυπική τιμή υστέρησης Event A3 (εύρος προτύπου 0-15dB,
+% βήμα 0.5dB). TimeToTriggerSteps=1 (=1 βήμα * dt=5s = 5s επιμονή) είναι ήδη
+% μεγαλύτερο από τις περισσότερες τυπικές τιμές TimeToTrigger του προτύπου
+% (π.χ. 320ms) - το χρονικό βήμα dt=5s της προσομοίωσης είναι πολύ πιο αδρό
+% από πραγματικά χρονικά διαστήματα σηματοδοσίας, οπότε ακόμα και 1 βήμα
+% αντιπροσωπεύει ήδη μια σχετικά γενναιόδωρη περίοδο επιμονής.
+simParameters.Hysteresis.MarginDb           = 2;
+simParameters.Hysteresis.TimeToTriggerSteps = 1;
+
 %% ------------------ Ground track του LEO (απλοποιημένο μοντέλο διέλευσης) ------------------
 muEarth = 3.986004418e14;  % m^3/s^2, βαρυτική παράμετρος Γης
 Re      = 6371e3;          % m, μέση ακτίνα Γης
