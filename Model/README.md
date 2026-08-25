@@ -10,12 +10,12 @@ This is a **sanity-check model, not the Part 2 deliverable**: the label is essen
 
 `NodeLoad` is deliberately excluded from the feature set — it's a downstream consequence of `ServingType` for every user in a scenario (satellite scenarios mechanically have larger groups), not an independent predictor, so including it would be circular rather than genuinely predictive.
 
-## Results (3000-scenario / 19538-row dataset, `rng(42)`)
+## Results (200-scenario / 1313-row dataset, `rng(42)`)
 
 | Model | Accuracy | F1 (Satellite) | ROC-AUC |
 |---|---|---|---|
-| Logistic Regression | 0.9905 | 0.9926 | 0.9999 |
-| Random Forest | 0.9984 | 0.9987 | 1.0000 |
+| Logistic Regression | 0.8835 | 0.8551 | 0.9956 |
+| Random Forest | 1.0000 | 1.0000 | 1.0000 |
 
 Train/test split is grouped by `ScenarioID` (75/25), not by row — users in the same scenario share BS/satellite geometry, so a row-level split would leak scenario context between train and test.
 
@@ -30,7 +30,20 @@ python train_model.py
 
 Requires `Dataset/dataset.csv` to exist first — generate it with `monteCarloDriver.m` in MATLAB (see `PROD/monteCarloDriver.m` / top-level `README.md`).
 
+## Second pass: `train_model_geometry_only.py` — removing the SNR shortcut
+
+`train_model.py`'s near-perfect scores aren't a meaningful ML result: the label is essentially `argmax(CandBS_SNR_dB, CandSat_SNR_dB)`, so giving the model both candidate SNRs lets it reproduce the rule almost exactly. `train_model_geometry_only.py` drops both SNR columns **and** both `*_PathLoss_dB` columns (path loss is a near-affine proxy for SNR given the fixed per-type EIRP/noise floor in `simulateScenario.m`, so keeping it would silently reintroduce the same shortcut). What's left is only what a real system knows *before* measuring a link: geometry (`CandBS_Distance_m`, `CandSat_Elevation_deg`, `CandSat_SlantRange_m`, `CandSat_Visible`) and scenario context (`NumBS`, `NumUsers`, `ScenarioType`).
+
+| Model | Accuracy | F1 (Satellite) | ROC-AUC |
+|---|---|---|---|
+| Logistic Regression | 0.8693 | 0.8345 | 0.8914 |
+| Random Forest | 0.8722 | 0.8475 | 0.9329 |
+
+This is the point, not a regression: because the channel is stochastic (per-link LOS/NLOS draw + log-normal shadow fading, TR 38.901 §7.4), geometry alone can't fully determine the winner — a lower, honest accuracy on a genuinely harder problem, rather than a near-tautological ~100% on an easy one. Notably, Logistic Regression and Random Forest now perform comparably (unlike the SNR-fed version, where RF dominated) — with the shortcut features gone, there's no longer a near-linear decision boundary sitting right there for either model to find trivially.
+
+Full metrics: `results_geometry_only/metrics.json`. Plots: `results_geometry_only/confusion_matrix_*.png`, `results_geometry_only/roc_curve.png`, `results_geometry_only/feature_importance_RandomForest.png`.
+
 ## Next steps
 
-- This proof-of-concept confirms the pipeline works; it doesn't yet represent a meaningfully hard ML problem, since the label is a near-deterministic function of two of the input features.
-- A more useful Part 2 target would remove that determinism — e.g. predict from noisier/partial observations (no ground-truth SNR, only geometry/history), or move past single-connectivity ServingType to a regression/ranking target (Capacity_Mbps, EnergyPerBit_uJ) or a joint/fairness-aware multi-user objective, none of which the current SNR-greedy baseline optimizes for.
+- `train_model_geometry_only.py` is a first step toward a meaningfully hard ML problem, not the final Part 2 target.
+- Further directions: predict from noisier/partial observations (e.g. historical SNR instead of an exact instantaneous reading), predict a handover *before* it happens using the temporal-pass data, or move past single-connectivity `ServingType` classification to a regression/ranking target (`Capacity_Mbps`, `EnergyPerBit_uJ`) or a joint/fairness-aware multi-user objective — none of which the current SNR-greedy baseline optimizes for.
