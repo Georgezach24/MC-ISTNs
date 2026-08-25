@@ -158,7 +158,7 @@ for u = 1:numUsers
         pathLoss = pathLoss + sfSample;
         pathLossMat(u,b) = pathLoss;
 
-        snr_db = (simParameters.TxPower - 30) - pathLoss - noisePowerBS_dBW;
+        snr_db = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
         snrDbMat(u,b) = snr_db;
 
         if snr_db > userBestSNR
@@ -189,6 +189,19 @@ for u = 1:numUsers
     if elevSat >= satParameters.MinElevationDeg
         lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency;
         satPathLoss = fspl(slantRangeSat, lambdaSat);
+
+        % Ατμοσφαιρική απόσβεση αερίων (οξυγόνο + υδρατμοί), TR 38.811 §6.6.4
+        % εξ. (6.6-8) - βλ. τοπική συνάρτηση gasAttenuationSlantP676 παρακάτω
+        % για τις πλήρεις βιβλιογραφικές αναφορές. Ισχύει για elevSat >= 5°
+        % (όριο ισχύος ITU-R P.676 Annex 2) - πάντα αληθές εδώ αφού
+        % MinElevationDeg=10°. Βροχή/νέφωση παραλείπεται σκόπιμα: το TR 38.811
+        % §6.6.5 τη χαρακτηρίζει αμελητέα κάτω από 6GHz (εδώ 2.01GHz). Η
+        % ιονοσφαιρική σπινθηρίδα (§6.6.6) παραμένει εκτός πεδίου - χρειάζεται
+        % κλιματολογικό μοντέλο (γεωγρ. πλάτος/ώρα/εποχή/ηλιακή δραστηριότητα),
+        % όχι κλειστή αναλυτική σχέση - future work, όχι σιωπηλή προσέγγιση.
+        gasAttenuationDb = gasAttenuationSlantP676(satParameters.CarrierFrequency, elevSat);
+        satPathLoss = satPathLoss + gasAttenuationDb;
+
         satSnrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
     else
         satPathLoss = inf;
@@ -240,9 +253,19 @@ for u = 1:numUsers
     % Κατανομή πόρων (B_user = BW_grid / N_users)
     B_user = nodeBW / usersOnThisNode;
 
-    % Υπολογισμός τελικής χωρητικότητας βάσει Shannon για το κομμάτι του B_user
+    % Υπολογισμός τελικής χωρητικότητας για το κομμάτι του B_user: η θεωρητική
+    % χωρητικότητα Shannon περιορίζεται (clamp) στη μέγιστη φασματική απόδοση
+    % που ορίζει το 3GPP για πραγματικό gNB/UE, ώστε να μην υπερεκτιμάται η
+    % χωρητικότητα σε υψηλά SNR (3GPP TS 38.214 v17.x, Πίνακας 5.1.3.1-2
+    % "MCS Index Table 2 for PDSCH", MCS 27 -> 256QAM, target code rate
+    % 948/1024 -> φασματική απόδοση 5.5547 bits/s/Hz· ίδια ανώτατη τιμή στον
+    % Πίνακα 5.2.2.1-4 "4-bit CQI Table", CQI index 15). Πάνω από αυτό το SNR
+    % ένας πραγματικός δέκτης δεν μπορεί να εκμεταλλευτεί άλλα bits/s/Hz αφού
+    % το 256QAM είναι ο υψηλότερος διαμορφωτής που ορίζει το NR.
+    maxSpectralEfficiency = 5.5547;   % bits/s/Hz, TS 38.214 §5.1.3.1/§5.2.2.1
     snr_lin = 10^(bestSnrDbVec(u)/10);
-    capacity = B_user * log2(1 + snr_lin);   % bits/s
+    spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
+    capacity = B_user * spectralEfficiency;   % bits/s
 
     capacityMbpsVec(u) = capacity * 1e-6;    % Mbps
 
@@ -354,4 +377,88 @@ switch scenario
             'Άγνωστο PathLoss.Scenario "%s" - η πιθανότητα LOS (TR 38.901 §7.4.2) είναι ορισμένη μόνο για "UMa" και "UMi".', ...
             scenario);
 end
+end
+
+function pla_dB = gasAttenuationSlantP676(freqHz, elevDeg)
+% Απόσβεση λόγω ατμοσφαιρικών αερίων (οξυγόνο + υδρατμοί) σε ζεύξη
+% δορυφόρου-χρήστη, κατά 3GPP TR 38.811 v15.1.0 §6.6.4, εξ. (6.6-8):
+%   PLA(ε,f) = A_zenith(f) / sin(ε),   ε >= 5° (όριο ισχύος της απλοποιημένης
+%   μεθόδου Annex 2 της ITU-R P.676-12 - πάντα αληθές εδώ αφού το σενάριο
+%   έχει MinElevationDeg=10°).
+%
+% Το A_zenith (ζενιθιακή απόσβεση) υπολογίζεται από τα ισοδύναμα ύψη
+% οξυγόνου/υδρατμών (ITU-R P.676-12, Annex 2, εξ. 30-39):
+%   A_zenith = γ_o·h_o + γ_w·h_w
+% με "reference atmosphere" T=288.15K, p=1013.25hPa, ρ=7.5 g/m^3 (mean
+% annual global reference atmosphere, ITU-R P.835) - το ίδιο baseline που
+% ορίζει το TR 38.811 §6.6.4 για system-level προσομοιώσεις.
+%
+% Οι ειδικές αποσβέσεις γ_o (ξηρός αέρας) και γ_w (υδρατμοί) σε dB/km
+% υπολογίζονται με την ενσωματωμένη συνάρτηση gaspl του MATLAB (Communications
+% Toolbox, υλοποιεί το πλήρες line-by-line μοντέλο του Annex 1 της ITU-R
+% P.676-13, πιο ακριβές από τη χειρωνακτική Annex 2 μέθοδο για το ίδιο
+% βήμα)· η ξηρή/υγρή συνιστώσα διαχωρίζονται καλώντας τη με και χωρίς
+% πυκνότητα υδρατμών.
+%
+% ΣΗΜΕΙΩΣΗ αξιοπιστίας πηγής: οι συντελεστές των Πινάκων 3/4 και οι
+% εξισώσεις (30)-(37) επαληθεύτηκαν από το επίσημο κείμενο της ITU-R
+% P.676-12. Ο διορθωτικός όρος σ_w της εξ. (38) ανασυντέθηκε από ένα
+% τμηματικά κατεστραμμένο (OCR/εξαγωγή κειμένου) απόσπασμα του PDF - η
+% συνεισφορά του στο h_w είναι όμως <1% (κυριαρχεί ο σταθερός όρος A_w),
+% οπότε τυχόν μικρή ανακρίβεια εδώ δεν επηρεάζει ουσιωδώς το αποτέλεσμα.
+
+TcRef    = 15;        % °C (= 288.15 K)
+TKRef    = 288.15;    % K
+pPaRef   = 101325;    % Pa
+pHpaRef  = 1013.25;   % hPa
+rhoRef   = 7.5;       % g/m^3 (υδρατμοί, mean annual global reference atmosphere)
+
+freqGHz = freqHz / 1e9;
+
+gammaDry = gaspl(1000, freqHz, TcRef, pPaRef, 0);       % dB/km, μόνο οξυγόνο
+gammaTot = gaspl(1000, freqHz, TcRef, pPaRef, rhoRef);  % dB/km, οξυγόνο+υδρατμοί
+gammaWet = gammaTot - gammaDry;
+
+[ho, hw] = equivalentHeightsP676(freqGHz, TKRef, pHpaRef, rhoRef);
+
+Azenith = gammaDry*ho + gammaWet*hw;   % dB, εξ. (39)
+
+pla_dB = Azenith / sind(elevDeg);      % dB, εξ. (6.6-8)
+end
+
+function [ho, hw] = equivalentHeightsP676(freqGHz, T_K, p_hPa, rho)
+% Ισοδύναμα ύψη οξυγόνου/υδρατμών, ITU-R P.676-12 Annex 2, εξ. (30)-(38).
+e_hPa = rho * T_K / 216.7;
+rp = (p_hPa + e_hPa) / 1013.25;
+
+% -- Οξυγόνο (εξ. 30-35a, Πίνακας 3) --
+A_o = 0.7832 + 0.00709*(T_K - 273.15);
+
+t1 = (5.1040 / (1 + 0.066*rp^(-2.3))) * ...
+     exp(-((freqGHz - 59.7) / (2.87 + 12.4*exp(-7.9*rp)))^2);
+
+fi3 = [118.750334 368.498246 424.763020 487.249273 715.392902 773.839490 834.145546];
+ci3 = [0.1597 0.1066 0.1325 0.1242 0.0938 0.1448 0.1374];
+t2 = sum( (ci3 * exp(2.12*rp)) ./ ((freqGHz - fi3).^2 + 0.025*exp(2.2*rp)) );
+
+t3 = (0.0114*freqGHz * (15.02*freqGHz^2 - 1353*freqGHz + 5.333e4)) / ...
+     ((1 + 0.14*rp^(-2.6)) * (freqGHz^3 - 151.3*freqGHz^2 + 9629*freqGHz - 6803));
+
+ho = (6.1*A_o / (1 + 0.17*rp^(-1.1))) * (1 + t1 + t2 + t3);
+if freqGHz >= 70
+    ho = min(ho, 10.7*rp^0.3);   % εξ. (35a)
+end
+
+% -- Υδρατμοί (εξ. 35b-38, Πίνακας 4) --
+A_w = 1.9298 - 0.04166*(T_K - 273.15) + 0.0517*e_hPa;
+B_w = 1.1674 - 0.00622*(T_K - 273.15) + 0.0063*e_hPa;
+sigma_w = 1 + 1.013 / (1 + exp(-8.6*(rp - 0.57)));   % εξ. (38), βλ. σημείωση πηγής
+
+fi4 = [22.235080 183.310087 325.152888 380.197353 439.150807 448.001085 ...
+       474.689092 488.490108 556.935985 620.700870 752.033113 916.171582 ...
+       970.315022 987.926764];
+ai4 = [1.52 7.62 1.56 4.15 0.20 1.63 0.76 0.26 7.81 1.25 16.2 1.47 1.36 1.60];
+bi4 = [2.56 10.2 2.70 5.70 0.91 2.46 2.22 2.49 10.0 2.35 20.0 2.58 2.44 1.86];
+
+hw = A_w + B_w * sum( (ai4*sigma_w) ./ ((freqGHz - fi4).^2 + bi4) );
 end

@@ -47,6 +47,8 @@ simParametersBase.Carrier.SubcarrierSpacing = 30;
 simParametersBase.Carrier.CyclicPrefix = 'Normal';
 simParametersBase.CarrierFrequency = 3.5e9;
 simParametersBase.TxPower = 43;
+simParametersBase.AntennaGain = 8;   % dBi, BS antenna element gain (TR 38.901 §7.3, Table 7.3-1, G_E,max)
+simParametersBase.EIRP = simParametersBase.TxPower + simParametersBase.AntennaGain;
 simParametersBase.RxNoiseFigure = 5;
 simParametersBase.RxAntTemperature = 290;
 

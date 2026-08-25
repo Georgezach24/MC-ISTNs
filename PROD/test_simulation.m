@@ -32,6 +32,13 @@ simParameters.Carrier.SubcarrierSpacing = 30;
 simParameters.Carrier.CyclicPrefix = 'Normal';
 simParameters.CarrierFrequency = 3.5e9;     % FR1
 simParameters.TxPower = 43;                 % dBm ανά BS
+simParameters.AntennaGain = 8;              % dBi, κατευθυντικό κέρδος στοιχείου κεραίας BS
+                                             % (3GPP TR 38.901 §7.3, Πίνακας 7.3-1: G_E,max = 8dBi
+                                             % στο υπόδειγμα μοτίβου ακτινοβολίας στοιχείου κεραίας -
+                                             % στοιχειώδες κέρδος, όχι πλήρες array/beamforming gain,
+                                             % ώστε να μείνει συμμετρικό με το επίπεδο μοντελοποίησης
+                                             % της πλευράς του δορυφόρου, βλ. satParameters.EIRP)
+simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain; % dBm
 simParameters.RxNoiseFigure = 5;            % dB
 simParameters.RxAntTemperature = 290;       % K
 
