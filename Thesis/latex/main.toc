@@ -11,52 +11,53 @@
 \contentsline {subsection}{\numberline {1.2.1}Ερευνητικά ερωτήματα}{3}{subsection.1.2.1}%
 \contentsline {section}{\numberline {1.3}Συνεισφορά}{3}{section.1.3}%
 \contentsline {section}{\numberline {1.4}Δομή της διπλωματικής}{4}{section.1.4}%
-\contentsline {chapter}{\numberline {2}Θεωρητικό Υπόβαθρο και Σχετική Βιβλιογραφία}{5}{chapter.2}%
-\contentsline {section}{\numberline {2.1}Από το 5G NTN στην ενοποίηση TN-NTN στο 6G}{5}{section.2.1}%
-\contentsline {section}{\numberline {2.2}Πολυσυνδεσιμότητα σε Ολοκληρωμένα Δορυφορικά-Επίγεια Δίκτυα}{6}{section.2.2}%
-\contentsline {subsection}{\numberline {2.2.1}Αρχιτεκτονικές ανάπτυξης}{6}{subsection.2.2.1}%
-\contentsline {subsection}{\numberline {2.2.2}Προκλήσεις σχεδίασης σε επίπεδο συστήματος}{6}{subsection.2.2.2}%
-\contentsline {section}{\numberline {2.3}Θέση της παρούσας εργασίας}{7}{section.2.3}%
-\contentsline {section}{\numberline {2.4}Μοντέλα διάδοσης καναλιού 3GPP TR~38.901}{8}{section.2.4}%
-\contentsline {section}{\numberline {2.5}Ενεργειακή μοντελοποίηση σταθμών βάσης}{8}{section.2.5}%
-\contentsline {section}{\numberline {2.6}Μηχανική μάθηση για διαχείριση συνδεσιμότητας}{9}{section.2.6}%
-\contentsline {chapter}{\numberline {3}Μεθοδολογία - Μοντέλο Προσομοίωσης}{10}{chapter.3}%
-\contentsline {section}{\numberline {3.1}Επισκόπηση}{10}{section.3.1}%
-\contentsline {section}{\numberline {3.2}Μοντέλο επίγειου καναλιού}{10}{section.3.2}%
-\contentsline {subsection}{\numberline {3.2.1}Στοχαστική επιλογή LOS/NLOS}{11}{subsection.3.2.1}%
-\contentsline {subsection}{\numberline {3.2.2}Path loss και shadow fading}{11}{subsection.3.2.2}%
-\contentsline {subsection}{\numberline {3.2.3}SNR}{11}{subsection.3.2.3}%
-\contentsline {section}{\numberline {3.3}Μοντέλο δορυφορικού καναλιού}{12}{section.3.3}%
-\contentsline {subsection}{\numberline {3.3.1}Ατμοσφαιρική απόσβεση αερίων}{12}{subsection.3.3.1}%
-\contentsline {section}{\numberline {3.4}Επιλογή κόμβου εξυπηρέτησης}{13}{section.3.4}%
-\contentsline {section}{\numberline {3.5}Κατανομή εύρους ζώνης και χωρητικότητα}{14}{section.3.5}%
-\contentsline {section}{\numberline {3.6}Ενεργειακό μοντέλο και ενέργεια ανά bit}{15}{section.3.6}%
-\contentsline {section}{\numberline {3.7}Μοντέλο κίνησης δορυφόρου LEO για τη χρονική προσομοίωση}{15}{section.3.7}%
-\contentsline {subsection}{\numberline {3.7.1}Ταχύτητα ίχνους εδάφους}{15}{subsection.3.7.1}%
-\contentsline {subsection}{\numberline {3.7.2}Ίχνος εδάφους και χρονικός βρόχος προσομοίωσης}{16}{subsection.3.7.2}%
-\contentsline {subsection}{\numberline {3.7.3}Χωρική συσχέτιση shadow fading μεταξύ διαδοχικών βημάτων}{16}{subsection.3.7.3}%
-\contentsline {section}{\numberline {3.8}Monte Carlo generator τυχαιοποιημένων τοπολογιών}{17}{section.3.8}%
-\contentsline {section}{\numberline {3.9}Pipeline μηχανικής μάθησης (πρώτη προσέγγιση)}{17}{section.3.9}%
-\contentsline {chapter}{\numberline {4}Υλοποίηση}{19}{chapter.4}%
-\contentsline {section}{\numberline {4.1}Εργαλεία και τεχνολογίες}{19}{section.4.1}%
-\contentsline {section}{\numberline {4.2}Δομή λογισμικού}{19}{section.4.2}%
-\contentsline {section}{\numberline {4.3}Ροή δεδομένων}{20}{section.4.3}%
-\contentsline {section}{\numberline {4.4}Αναπαραγωγιμότητα}{21}{section.4.4}%
-\contentsline {chapter}{\numberline {5}Αποτελέσματα}{22}{chapter.5}%
-\contentsline {section}{\numberline {5.1}Στατικό σενάριο αναφοράς}{22}{section.5.1}%
-\contentsline {section}{\numberline {5.2}Στατιστική ανάλυση KPI (500 επαναλαμβανόμενα runs)}{23}{section.5.2}%
-\contentsline {section}{\numberline {5.3}Χρονική εξέλιξη διέλευσης LEO}{25}{section.5.3}%
-\contentsline {subsection}{\numberline {5.3.1}Handovers}{25}{subsection.5.3.1}%
-\contentsline {subsection}{\numberline {5.3.2}Ρητή κατάσταση outage}{27}{subsection.5.3.2}%
-\contentsline {section}{\numberline {5.4}Αποτελέσματα πρώτου μοντέλου μηχανικής μάθησης}{28}{section.5.4}%
-\contentsline {section}{\numberline {5.5}Προς ρεαλιστικότερα σενάρια πρόβλεψης}{30}{section.5.5}%
-\contentsline {chapter}{\numberline {6}Συζήτηση, Περιορισμοί και Μελλοντική Εργασία}{33}{chapter.6}%
-\contentsline {section}{\numberline {6.1}Σύνοψη ευρημάτων}{33}{section.6.1}%
-\contentsline {section}{\numberline {6.2}Περιορισμοί του τρέχοντος μοντέλου}{34}{section.6.2}%
-\contentsline {section}{\numberline {6.3}Μελλοντική εργασία}{34}{section.6.3}%
-\contentsline {chapter}{\numberline {7}Συμπεράσματα}{37}{chapter.7}%
-\contentsline {chapter}{Βιβλιογραφία}{39}{chapter*.21}%
-\contentsline {chapter}{\numberline {\Greeknumeral {1}}Επιλεγμένα Τμήματα Κώδικα}{41}{appendix.Alph1}%
-\contentsline {section}{\numberline {\Greeknumeral {1}.1}Πυρήνας επιλογής κόμβου (\texttt {simulateScenario.m})}{41}{section.Alph1.1}%
-\contentsline {section}{\numberline {\Greeknumeral {1}.2}Μοντέλο κίνησης LEO (\texttt {temporalPassSimulation.m})}{43}{section.Alph1.2}%
-\contentsline {section}{\numberline {\Greeknumeral {1}.3}Χαρακτηριστικά και προεπεξεργασία μοντέλου μηχανικής μάθησης (\texttt {train\_model.py})}{44}{section.Alph1.3}%
+\contentsline {chapter}{\numberline {2}Θεωρητικό Υπόβαθρο και Σχετική Βιβλιογραφία}{6}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Από το 5G NTN στην ενοποίηση TN-NTN στο 6G}{6}{section.2.1}%
+\contentsline {section}{\numberline {2.2}Πολυσυνδεσιμότητα σε Ολοκληρωμένα Δορυφορικά-Επίγεια Δίκτυα}{7}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Αρχιτεκτονικές ανάπτυξης}{7}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Προκλήσεις σχεδίασης σε επίπεδο συστήματος}{7}{subsection.2.2.2}%
+\contentsline {section}{\numberline {2.3}Θέση της παρούσας εργασίας}{8}{section.2.3}%
+\contentsline {section}{\numberline {2.4}Μοντέλα διάδοσης καναλιού 3GPP TR~38.901}{9}{section.2.4}%
+\contentsline {section}{\numberline {2.5}Ενεργειακή μοντελοποίηση σταθμών βάσης}{10}{section.2.5}%
+\contentsline {section}{\numberline {2.6}Μηχανική μάθηση για διαχείριση συνδεσιμότητας}{10}{section.2.6}%
+\contentsline {chapter}{\numberline {3}Μεθοδολογία - Μοντέλο Προσομοίωσης}{11}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Επισκόπηση}{11}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Μοντέλο επίγειου καναλιού}{11}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}Στοχαστική επιλογή LOS/NLOS}{12}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}Path loss και shadow fading}{12}{subsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}SNR}{12}{subsection.3.2.3}%
+\contentsline {section}{\numberline {3.3}Μοντέλο δορυφορικού καναλιού}{13}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Ατμοσφαιρική απόσβεση αερίων}{13}{subsection.3.3.1}%
+\contentsline {section}{\numberline {3.4}Επιλογή κόμβου εξυπηρέτησης}{14}{section.3.4}%
+\contentsline {section}{\numberline {3.5}Κατανομή εύρους ζώνης και χωρητικότητα}{16}{section.3.5}%
+\contentsline {section}{\numberline {3.6}Ενεργειακό μοντέλο και ενέργεια ανά bit}{16}{section.3.6}%
+\contentsline {section}{\numberline {3.7}Μοντέλο κίνησης δορυφόρου LEO για τη χρονική προσομοίωση}{17}{section.3.7}%
+\contentsline {subsection}{\numberline {3.7.1}Ταχύτητα ίχνους εδάφους}{17}{subsection.3.7.1}%
+\contentsline {subsection}{\numberline {3.7.2}Ίχνος εδάφους και χρονικός βρόχος προσομοίωσης}{18}{subsection.3.7.2}%
+\contentsline {subsection}{\numberline {3.7.3}Χωρική συσχέτιση shadow fading μεταξύ διαδοχικών βημάτων}{18}{subsection.3.7.3}%
+\contentsline {section}{\numberline {3.8}Monte Carlo generator τυχαιοποιημένων τοπολογιών}{19}{section.3.8}%
+\contentsline {section}{\numberline {3.9}Pipeline μηχανικής μάθησης (πρώτη προσέγγιση)}{19}{section.3.9}%
+\contentsline {chapter}{\numberline {4}Υλοποίηση}{21}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Εργαλεία και τεχνολογίες}{21}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Δομή λογισμικού}{21}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Ροή δεδομένων}{22}{section.4.3}%
+\contentsline {section}{\numberline {4.4}Αναπαραγωγιμότητα}{23}{section.4.4}%
+\contentsline {chapter}{\numberline {5}Αποτελέσματα}{24}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Στατικό σενάριο αναφοράς}{24}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Στατιστική ανάλυση KPI (500 επαναλαμβανόμενα runs)}{25}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Χρονική εξέλιξη διέλευσης LEO}{28}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}Handovers, SN events και outage events}{28}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}Ρητή κατάσταση outage}{30}{subsection.5.3.2}%
+\contentsline {section}{\numberline {5.4}Αποτελέσματα πρώτου μοντέλου μηχανικής μάθησης}{31}{section.5.4}%
+\contentsline {section}{\numberline {5.5}Προς ρεαλιστικότερα σενάρια πρόβλεψης}{32}{section.5.5}%
+\contentsline {chapter}{\numberline {6}Συζήτηση, Περιορισμοί και Μελλοντική Εργασία}{36}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Σύνοψη ευρημάτων}{36}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Περιορισμοί του τρέχοντος μοντέλου}{37}{section.6.2}%
+\contentsline {section}{\numberline {6.3}Μελλοντική εργασία}{38}{section.6.3}%
+\contentsline {subsection}{\numberline {6.3.1}Η επίδραση της πολυσυνδεσιμότητας στα πειράματα μηχανικής μάθησης}{39}{subsection.6.3.1}%
+\contentsline {chapter}{\numberline {7}Συμπεράσματα}{41}{chapter.7}%
+\contentsline {chapter}{Βιβλιογραφία}{43}{chapter*.23}%
+\contentsline {chapter}{\numberline {\Greeknumeral {1}}Επιλεγμένα Τμήματα Κώδικα}{45}{appendix.Alph1}%
+\contentsline {section}{\numberline {\Greeknumeral {1}.1}Πυρήνας επιλογής κόμβου (\texttt {simulateScenario.m})}{45}{section.Alph1.1}%
+\contentsline {section}{\numberline {\Greeknumeral {1}.2}Μοντέλο κίνησης LEO (\texttt {temporalPassSimulation.m})}{47}{section.Alph1.2}%
+\contentsline {section}{\numberline {\Greeknumeral {1}.3}Χαρακτηριστικά και προεπεξεργασία μοντέλου μηχανικής μάθησης (\texttt {train\_model.py})}{48}{section.Alph1.3}%

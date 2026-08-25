@@ -36,27 +36,36 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     
     % Σχεδίαση Γραμμών Σύνδεσης (Με Interpolation για να έχουμε λογαριθμική κλίμακα και να χωράνε όλα στο γράφιμα)
     for u = 1:numUsers
-        if bestNodeTypeVec(u) == "Terrestrial"
-            bs_idx = str2double(extractAfter(bestNodeVec(u), "BS"));
-            
+        % Ένας DualConnectivity χρήστης (SS-SBS, simulateScenario.m)
+        % εξυπηρετείται ΤΑΥΤΟΧΡΟΝΑ από BS και δορυφόρο - σχεδιάζονται και
+        % οι δύο γραμμές σύνδεσης (πράσινη + ματζέντα) αντί για μία. Το
+        % bestNodeVec έχει τη μορφή "BSx+SAT-1" σε αυτή την περίπτωση, οπότε
+        % το BS index εξάγεται πριν το "+" (λειτουργεί ίδια και για το
+        % απλό "BSx" της Terrestrial-only περίπτωσης).
+        if bestNodeTypeVec(u) == "Terrestrial" || bestNodeTypeVec(u) == "DualConnectivity"
+            bsToken = extractBefore(bestNodeVec(u) + "+", "+");
+            bs_idx = str2double(extractAfter(bsToken, "BS"));
+
             num_pts = 50;
             xq = linspace(xUE(u), xBS(bs_idx), num_pts);
             yq = linspace(yUE(u), yBS(bs_idx), num_pts);
-            zq = linspace(zUE(u), zBS(bs_idx), num_pts); 
-            
+            zq = linspace(zUE(u), zBS(bs_idx), num_pts);
+
             plot3(xq, yq, zq, 'g-', 'LineWidth', 1.5, 'HandleVisibility', 'off');
-            
-        elseif bestNodeTypeVec(u) == "Satellite"
+        end
+
+        if bestNodeTypeVec(u) == "Satellite" || bestNodeTypeVec(u) == "DualConnectivity"
             num_pts = 100;
             xq = linspace(xUE(u), xSat, num_pts);
             yq = linspace(yUE(u), ySat, num_pts);
-            
+
             % Logarithmic interpolation για τον άξονα Z
             zq = logspace(log10(zUE(u)), log10(zSat(1)), num_pts);
-            
-            plot3(xq, yq, zq, 'm-', 'LineWidth', 1.5, 'HandleVisibility', 'off');
 
-        elseif bestNodeTypeVec(u) == "Outage"
+            plot3(xq, yq, zq, 'm-', 'LineWidth', 1.5, 'HandleVisibility', 'off');
+        end
+
+        if bestNodeTypeVec(u) == "Outage"
             % Κανένας υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR
             % (simulateScenario.m) - δεν σχεδιάζεται γραμμή σύνδεσης, μόνο
             % ένα κόκκινο 'x' πάνω στον ήδη σχεδιασμένο χρήστη, ώστε η

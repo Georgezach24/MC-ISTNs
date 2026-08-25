@@ -14,20 +14,26 @@ stale / imperfect measurement report" rather than the exact instantaneous
 value. The noise magnitude is not an invented fudge factor: it is the
 *actual measured* run-to-run SNR standard deviation from 500 repeated
 stochastic realizations of the same static topology
-(kpiRepeatedRuns.m -> Results/kpi_summary_by_type.csv), i.e. empirically
+(kpiRepeatedRuns.m -> Results/kpi_link_snr_std.csv), i.e. empirically
 "how differently would a second, independent measurement of this same
 link read" under this simulation's own channel model (TR 38.901 LOS/NLOS
 draw + shadow fading for the terrestrial side). CandBS_PathLoss_dB /
 CandSat_PathLoss_dB are still dropped (near-affine proxies for the exact
 SNR, would reintroduce the shortcut train_model_geometry_only.py removes).
 
-Terrestrial sigma = 13.6668 dB, satellite sigma = 0.0881 dB (both from
-Results/kpi_summary_by_type.csv, columns std_SNR_dB). The satellite
-figure is small because this simulation's satellite channel is
-deterministic given geometry (no fading model on that side yet - see
-CLAUDE.md Standards section); it is used as-is rather than inflated,
-since inventing a larger number would not be grounded in anything the
-project has actually modeled or measured.
+The sigma source is Results/kpi_link_snr_std.csv (std of CandBS_SNR_dB /
+CandSat_SNR_dB over usable candidates, i.e. per-LINK variance), not the
+older Results/kpi_summary_by_type.csv (std of the WINNER's SNR, grouped by
+ServingType): after DualConnectivity was added to simulateScenario.m, the
+static 6-user topology no longer produces any "Terrestrial"-only winning
+row at all (near users always qualify for DualConnectivity - see
+CLAUDE.md, dual-connectivity), so a group-by-ServingType summary has no
+"Terrestrial" row to read a sigma from any more. The satellite sigma is
+small because this simulation's satellite channel is deterministic given
+geometry (no fading model on that side yet - see CLAUDE.md Standards
+section); it is used as-is rather than inflated, since inventing a larger
+number would not be grounded in anything the project has actually modeled
+or measured.
 
 Usage:
     python train_model_noisy_snr.py
@@ -50,22 +56,16 @@ import matplotlib.pyplot as plt
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    RocCurveDisplay,
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    roc_auc_score,
-)
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ml_common import CLASS_LABELS, evaluate_model, plot_roc_ovr
+
 ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
-KPI_SUMMARY_PATH = ROOT / "Results" / "kpi_summary_by_type.csv"
+KPI_SUMMARY_PATH = ROOT / "Results" / "kpi_link_snr_std.csv"
 RESULTS_DIR = Path(__file__).resolve().parent / "results_noisy_snr"
 
 MIN_ELEVATION_DEG = 10.0
@@ -73,7 +73,7 @@ SENTINEL_SNR_DB = -50.0  # πρακτικά άχρηστος, ίδιο sentinel 
 NOISE_SEED = 42
 
 FEATURE_COLUMNS_NUMERIC = [
-    # NodeLoad exclude σκόπιμα (βλ. train_model.py) - κυκλικός predictor.
+    # BsLoad/SatLoad exclude σκόπιμα (βλ. train_model.py) - κυκλικός predictor.
     "NumBS", "NumUsers",
     "CandBS_Distance_m",
     "CandSat_Elevation_deg", "CandSat_SlantRange_m",
@@ -88,7 +88,7 @@ TARGET_COLUMN = "ServingType"
 
 
 def load_noise_sigmas(path: Path) -> dict:
-    kpi = pd.read_csv(path).set_index("ServingType")
+    kpi = pd.read_csv(path).set_index("LinkType")
     return {
         "Terrestrial": kpi.loc["Terrestrial", "std_SNR_dB"],
         "Satellite": kpi.loc["Satellite", "std_SNR_dB"],
@@ -104,7 +104,7 @@ def load_dataset(path: Path, sigma_bs: float, sigma_sat: float) -> pd.DataFrame:
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
         print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
-              f"out of {len(df)} - binary Terrestrial/Satellite target only.")
+              f"out of {len(df)} - {'/'.join(CLASS_LABELS)} target only.")
         df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
 
     df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
@@ -134,38 +134,6 @@ def group_train_test_split(df: pd.DataFrame, test_size=0.25, seed=42):
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)
 
 
-def evaluate_model(name, pipeline, X_test, y_test, results):
-    y_pred = pipeline.predict(X_test)
-    y_proba = pipeline.predict_proba(X_test)[:, list(pipeline.classes_).index("Satellite")]
-
-    acc = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred, pos_label="Satellite")
-    auc = roc_auc_score((y_test == "Satellite").astype(int), y_proba)
-    report = classification_report(y_test, y_pred, output_dict=True)
-
-    print(f"\n=== {name} ===")
-    print(f"Accuracy: {acc:.4f}  F1(Satellite): {f1:.4f}  ROC-AUC: {auc:.4f}")
-    print(classification_report(y_test, y_pred))
-
-    results[name] = {
-        "accuracy": acc,
-        "f1_satellite": f1,
-        "roc_auc": auc,
-        "classification_report": report,
-    }
-
-    cm = confusion_matrix(y_test, y_pred, labels=["Terrestrial", "Satellite"])
-    disp = ConfusionMatrixDisplay(cm, display_labels=["Terrestrial", "Satellite"])
-    fig, ax = plt.subplots(figsize=(4, 4))
-    disp.plot(ax=ax, cmap="Blues", colorbar=False)
-    ax.set_title(f"{name} - Confusion Matrix (noisy SNR)")
-    fig.tight_layout()
-    fig.savefig(RESULTS_DIR / f"confusion_matrix_{name}.png", dpi=150)
-    plt.close(fig)
-
-    return y_proba
-
-
 def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -177,7 +145,7 @@ def main():
     if not KPI_SUMMARY_PATH.exists():
         raise FileNotFoundError(
             f"{KPI_SUMMARY_PATH} not found - run kpiRepeatedRuns.m in MATLAB first "
-            "to generate the noise-sigma source (see PROD/kpiRepeatedRuns.m)."
+            "to generate the per-link noise-sigma source (see PROD/kpiRepeatedRuns.m)."
         )
 
     sigmas = load_noise_sigmas(KPI_SUMMARY_PATH)
@@ -190,9 +158,8 @@ def main():
     print(f"Loaded {len(df)} user-rows from {df['ScenarioID'].nunique()} scenarios")
     print(f"Train: {len(train_df)} rows ({train_df['ScenarioID'].nunique()} scenarios)")
     print(f"Test:  {len(test_df)} rows ({test_df['ScenarioID'].nunique()} scenarios)")
-    print(f"Class balance (all data): "
-          f"{(df[TARGET_COLUMN] == 'Terrestrial').mean():.1%} Terrestrial / "
-          f"{(df[TARGET_COLUMN] == 'Satellite').mean():.1%} Satellite")
+    balance = " / ".join(f"{(df[TARGET_COLUMN] == c).mean():.1%} {c}" for c in CLASS_LABELS)
+    print(f"Class balance (all data): {balance}")
 
     feature_cols = FEATURE_COLUMNS_NUMERIC + FEATURE_COLUMNS_CATEGORICAL + FEATURE_COLUMNS_BOOL
     X_train, y_train = train_df[feature_cols], train_df[TARGET_COLUMN]
@@ -211,8 +178,8 @@ def main():
             ("clf", clf),
         ])
         pipeline.fit(X_train, y_train)
-        y_proba = evaluate_model(name, pipeline, X_test, y_test, results)
-        roc_curves[name] = (y_test, y_proba)
+        y_proba, class_order = evaluate_model(name, pipeline, X_test, y_test, results, RESULTS_DIR, " (noisy SNR)")
+        roc_curves[name] = (y_test, y_proba, class_order)
 
         if name == "RandomForest":
             ohe = pipeline.named_steps["preprocess"].named_transformers_["cat"]
@@ -229,13 +196,7 @@ def main():
             fig.savefig(RESULTS_DIR / "feature_importance_RandomForest.png", dpi=150)
             plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(5, 5))
-    for name, (y_true, y_proba) in roc_curves.items():
-        RocCurveDisplay.from_predictions((y_true == "Satellite").astype(int), y_proba, name=name, ax=ax)
-    ax.set_title("ROC Curve - Predicting Satellite vs Terrestrial (noisy SNR)")
-    fig.tight_layout()
-    fig.savefig(RESULTS_DIR / "roc_curve.png", dpi=150)
-    plt.close(fig)
+    plot_roc_ovr(roc_curves, RESULTS_DIR, " (noisy SNR)")
 
     with open(RESULTS_DIR / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)

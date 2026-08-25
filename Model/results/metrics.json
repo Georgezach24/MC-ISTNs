@@ -1,64 +1,92 @@
 {
   "LogisticRegression": {
-    "accuracy": 0.8835227272727273,
-    "f1_satellite": 0.8551236749116607,
-    "roc_auc": 0.9955815464587394,
+    "accuracy": 0.9857954545454546,
+    "f1_macro": 0.9840312117225423,
+    "f1_classes_used": [
+      "Satellite",
+      "DualConnectivity"
+    ],
+    "roc_auc_macro_ovr": 0.9992816091954022,
+    "roc_auc_classes_used": [
+      "DualConnectivity",
+      "Satellite"
+    ],
     "classification_report": {
+      "Terrestrial": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
       "Satellite": {
         "precision": 1.0,
-        "recall": 0.7469135802469136,
-        "f1-score": 0.8551236749116607,
-        "support": 162.0
+        "recall": 0.9583333333333334,
+        "f1-score": 0.9787234042553191,
+        "support": 120.0
       },
-      "Terrestrial": {
-        "precision": 0.8225108225108225,
+      "DualConnectivity": {
+        "precision": 0.9789029535864979,
         "recall": 1.0,
-        "f1-score": 0.9026128266033254,
-        "support": 190.0
+        "f1-score": 0.9893390191897654,
+        "support": 232.0
       },
-      "accuracy": 0.8835227272727273,
+      "accuracy": 0.9857954545454546,
       "macro avg": {
-        "precision": 0.9112554112554112,
-        "recall": 0.8734567901234568,
-        "f1-score": 0.8788682507574931,
+        "precision": 0.659634317862166,
+        "recall": 0.6527777777777778,
+        "f1-score": 0.6560208078150281,
         "support": 352.0
       },
       "weighted avg": {
-        "precision": 0.9041961826052737,
-        "recall": 0.8835227272727273,
-        "f1-score": 0.8807570238361389,
+        "precision": 0.9860951285001918,
+        "recall": 0.9857954545454546,
+        "f1-score": 0.9857200595530223,
         "support": 352.0
       }
     }
   },
   "RandomForest": {
-    "accuracy": 1.0,
-    "f1_satellite": 1.0,
-    "roc_auc": 1.0,
+    "accuracy": 0.9971590909090909,
+    "f1_macro": 0.996845397596408,
+    "f1_classes_used": [
+      "Satellite",
+      "DualConnectivity"
+    ],
+    "roc_auc_macro_ovr": 1.0,
+    "roc_auc_classes_used": [
+      "DualConnectivity",
+      "Satellite"
+    ],
     "classification_report": {
-      "Satellite": {
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1-score": 1.0,
-        "support": 162.0
-      },
       "Terrestrial": {
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1-score": 1.0,
-        "support": 190.0
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
       },
-      "accuracy": 1.0,
-      "macro avg": {
-        "precision": 1.0,
+      "Satellite": {
+        "precision": 0.9917355371900827,
         "recall": 1.0,
-        "f1-score": 1.0,
+        "f1-score": 0.995850622406639,
+        "support": 120.0
+      },
+      "DualConnectivity": {
+        "precision": 1.0,
+        "recall": 0.9956896551724138,
+        "f1-score": 0.9978401727861771,
+        "support": 232.0
+      },
+      "accuracy": 0.9971590909090909,
+      "macro avg": {
+        "precision": 0.6639118457300276,
+        "recall": 0.6652298850574713,
+        "f1-score": 0.6645635983976054,
         "support": 352.0
       },
       "weighted avg": {
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1-score": 1.0,
+        "precision": 0.9971825694966191,
+        "recall": 0.9971590909090909,
+        "f1-score": 0.9971619169749709,
         "support": 352.0
       }
     }

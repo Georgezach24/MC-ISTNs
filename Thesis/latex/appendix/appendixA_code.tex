@@ -13,15 +13,18 @@
 (εξίσωση~\eqref{eq:node-selection}): για κάθε χρήστη, υπολογίζεται το SNR
 προς κάθε υποψήφιο σταθμό βάσης (με στοχαστικό LOS draw και shadow fading,
 εξισώσεις~\eqref{eq:los-prob-uma}-\eqref{eq:snr-bs}), κρατείται ο
-καλύτερος υποψήφιος BS, και στη συνέχεια συγκρίνεται με τον δορυφόρο.
+καλύτερος υποψήφιος BS, υπολογίζεται ανεξάρτητα το SNR του δορυφόρου, και
+οι δύο αξιολογούνται \emph{ο καθένας ξεχωριστά} έναντι του ελάχιστου
+χρησιμοποιήσιμου SNR -- ο χρήστης συνδέεται σε όποιον/όποιους το
+ξεπερνούν, ταυτόχρονα και στους δύο αν το ξεπερνούν και οι δύο
+(πολυσυνδεσιμότητα).
 
-\begin{lstlisting}[language=Matlab, caption={Απόσπασμα από \texttt{PROD/simulateScenario.m}: επιλογή κόμβου ανά χρήστη.}]
+\begin{lstlisting}[language=Matlab, caption={Απόσπασμα από \texttt{PROD/simulateScenario.m}: επιλογή κόμβου ανά χρήστη (πολυσυνδεσιμότητα).}]
 for u = 1:numUsers
     userBestSNR  = -Inf;
     userBestNode = "";
-    userBestType = "";
 
-    %% ===== Terrestrial BS candidates =====
+    %% ===== Terrestrial BS candidates: kalyteros ypopsifios BS =====
     for b = 1:numBs
         % ... geodetic2enu, groundDistance, d3d ...
 
@@ -43,12 +46,12 @@ for u = 1:numUsers
         if snr_db > userBestSNR
             userBestSNR  = snr_db;
             userBestNode = "BS" + string(b);
-            userBestType = "Terrestrial";
         end
     end
+    bsWinnerNode = userBestNode;   % kalyteros BS, prin sygkrithei me ton doryforo
 
     %% ===== Satellite candidate =====
-    [azSat, elevSat, slantRangeSat] = geodetic2aer( ...
+    [~, elevSat, slantRangeSat] = geodetic2aer( ...
         sat_geo(1), sat_geo(2), sat_geo(3), ...
         user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
 
@@ -67,15 +70,23 @@ for u = 1:numUsers
         satSnrDb = -Inf;
     end
 
-    if satSnrDb > userBestSNR
-        userBestSNR  = satSnrDb;
-        userBestNode = "SAT-1";
-        userBestType = "Satellite";
-    end
+    %% ===== Apofasi syndesimotitas: tessera katastasiaka montelo SS-SBS =====
+    bsUsable  = userBestSNR >= minUsableSnrDb;
+    satUsable = satSnrDb    >= minUsableSnrDb;
 
-    bestNodeVec(u)     = userBestNode;
-    bestNodeTypeVec(u) = userBestType;
-    bestSnrDbVec(u)    = userBestSNR;
+    if bsUsable && satUsable
+        bestNodeTypeVec(u) = "DualConnectivity";
+        bestNodeVec(u)     = bsWinnerNode + "+SAT-1";
+    elseif bsUsable
+        bestNodeTypeVec(u) = "Terrestrial";
+        bestNodeVec(u)     = bsWinnerNode;
+    elseif satUsable
+        bestNodeTypeVec(u) = "Satellite";
+        bestNodeVec(u)     = "SAT-1";
+    else
+        bestNodeTypeVec(u) = "Outage";
+        bestNodeVec(u)     = "None";
+    end
 end
 \end{lstlisting}
 
@@ -137,13 +148,16 @@ end
 
 \begin{lstlisting}[language=Python, caption={Απόσπασμα από \texttt{Model/train\_model.py}: χαρακτηριστικά και grouped train/test split.}]
 FEATURE_COLUMNS_NUMERIC = [
-    # NodeLoad exclude skopima: einai sinepia tou ServingType, oxi
+    # BsLoad/SatLoad exclude skopima: einai synepeia tou ServingType, oxi
     # anexartitos provlepsis (kyklikos, oxi genikos, predictor).
     "NumBS", "NumUsers",
     "CandBS_SNR_dB", "CandBS_Distance_m", "CandBS_PathLoss_dB",
     "CandSat_SNR_dB", "CandSat_Elevation_deg", "CandSat_SlantRange_m",
     "CandSat_PathLoss_dB",
 ]
+# ServingType: Terrestrial / Satellite / DualConnectivity (3-class stochos
+# meta tin prosthiki polysyndesimotitas - blepe ml_common.py gia to
+# koino multiclass evaluation logic pou moirazontai kai ta tria scripts).
 TARGET_COLUMN = "ServingType"
 
 def group_train_test_split(df, test_size=0.25, seed=42):

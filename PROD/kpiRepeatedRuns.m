@@ -83,9 +83,16 @@ allTables = cell(numRuns,1);
 for r = 1:numRuns
     rng(r); % διαφορετικό seed ανά run -> διαφορετικό LOS/shadow-fading draw
 
+    % Ζητείται η πλήρης λίστα εξόδων (όχι μόνο του νικητή) ώστε να είναι
+    % διαθέσιμα τα per-candidate CandBS_SNR_dB/CandSat_SNR_dB - απαραίτητα
+    % εδώ επειδή, μετά την προσθήκη DualConnectivity, δεν υπάρχει πλέον
+    % εγγυημένα καμιά "Terrestrial"-only γραμμή στη σύνοψη ανά ServingType
+    % (βλ. παρακάτω) από την οποία να αντληθεί η διακύμανση SNR του
+    % επίγειου σκέλους.
     [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
         bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
-        nodePowerWattsVec, energyPerBitUJVec] = ...
+        nodePowerWattsVec, energyPerBitUJVec, ...
+        bestBsSnrDbVec, ~, ~, ~, ~, ~, satSnrDbVec] = ...
         simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters);
 
     runID  = repmat(r, numUsers, 1);
@@ -94,9 +101,10 @@ for r = 1:numRuns
     allTables{r} = table(runID, userID, bestNodeVec, bestNodeTypeVec, ...
         bestDistanceVec, bestPathLossVec, bestSnrDbVec, capacityMbpsVec, ...
         bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec, ...
+        bestBsSnrDbVec, satSnrDbVec, ...
         'VariableNames', {'RunID','UserID','ServingNode','ServingType', ...
         'Distance_m','PathLoss_dB','SNR_dB','Capacity_Mbps','SatElevation_deg', ...
-        'NodePower_W','EnergyPerBit_uJ'});
+        'NodePower_W','EnergyPerBit_uJ','CandBS_SNR_dB','CandSat_SNR_dB'});
 end
 
 T = vertcat(allTables{:});
@@ -113,7 +121,36 @@ disp(G)
 writetable(G, fullfile(outputDir, 'kpi_summary_by_type.csv'));
 
 numOutage = sum(T.ServingType == "Outage");
+numDual   = sum(T.ServingType == "DualConnectivity");
 fprintf('Outage: %d/%d γραμμές (%.2f%%)\n', numOutage, height(T), 100*numOutage/height(T));
+fprintf('DualConnectivity: %d/%d γραμμές (%.2f%%)\n', numDual, height(T), 100*numDual/height(T));
+
+%% ------------------ Διακύμανση SNR ανά ΖΕΥΞΗ (όχι ανά τύπο εξυπηρέτησης) ------------------
+% Πηγή του noise sigma για το Model/train_model_noisy_snr.py. Πριν το
+% DualConnectivity, η στήλη std_SNR_dB του kpi_summary_by_type.csv (groupby
+% ServingType) αρκούσε, αφού κάθε νικητής κόμβος ήταν ακριβώς μία ζεύξη.
+% Πλέον όμως δεν υπάρχει καμία εγγύηση ότι θα υπάρχουν "Terrestrial"-only
+% γραμμές (στο τρέχον static topology ΔΕΝ υπάρχουν καθόλου - όλοι οι
+% κοντινοί χρήστες παίρνουν DualConnectivity σε κάθε run, βλ.
+% Ενότητα~\ref{sec:results-mc} στη διπλωματική) - το CandBS_SNR_dB/
+% CandSat_SNR_dB όμως υπολογίζεται ΠΑΝΤΑ, ανεξάρτητα από την τελική
+% κατάσταση σύνδεσης, οπότε η διακύμανση ανά ζεύξη αντλείται απευθείας
+% από αυτά αντί από τον νικητή. Περιορίζεται στους ΧΡΗΣΙΜΟΠΟΙΗΣΙΜΟΥΣ
+% υποψηφίους (SNR >= minUsableSnrDb, ίδιο κατώφλι με simulateScenario.m) -
+% χωρίς αυτό τον περιορισμό, οι μακρινοί χρήστες 5-6 (πάντα εκτός εμβέλειας
+% κάθε BS, SNR βαθιά αρνητικό λόγω γεωμετρίας/NLOS και όχι θορύβου
+% μέτρησης) θα διόγκωναν τεχνητά τη std σε μη-ρεαλιστικά επίπεδα.
+minSpectralEfficiency = 0.2344;
+minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1);   % ≈ -7.53 dB, TS 38.214 MCS 0
+
+bsUsableCand  = T.CandBS_SNR_dB  >= minUsableSnrDb;
+satUsableCand = T.CandSat_SNR_dB >= minUsableSnrDb;
+bsLinkStd  = std(T.CandBS_SNR_dB(bsUsableCand));
+satLinkStd = std(T.CandSat_SNR_dB(satUsableCand));
+linkSnrStd = table(["Terrestrial";"Satellite"], [bsLinkStd;satLinkStd], ...
+    'VariableNames', {'LinkType','std_SNR_dB'});
+disp(linkSnrStd)
+writetable(linkSnrStd, fullfile(outputDir, 'kpi_link_snr_std.csv'));
 
 %% ------------------ Γραφήματα (overlaid histograms ανά τύπο εξυπηρέτησης) ------------------
 % boxplot() απαιτεί Statistics and Machine Learning Toolbox (μη διαθέσιμο
@@ -123,6 +160,7 @@ kpiLabel = {'Throughput (Mbps)','Energy per bit (\muJ/bit)','SNR (dB)'};
 
 isTerr = T.ServingType == "Terrestrial";
 isSat  = T.ServingType == "Satellite";
+isDual = T.ServingType == "DualConnectivity";
 
 for k = 1:numel(kpiList)
     fig = figure('Visible','off');
@@ -130,6 +168,9 @@ for k = 1:numel(kpiList)
     vals = T.(kpiList{k});
     histogram(vals(isTerr), 'Normalization','probability', 'FaceAlpha',0.6, 'DisplayName','Terrestrial');
     histogram(vals(isSat),  'Normalization','probability', 'FaceAlpha',0.6, 'DisplayName','Satellite');
+    if any(isDual)
+        histogram(vals(isDual), 'Normalization','probability', 'FaceAlpha',0.6, 'DisplayName','DualConnectivity');
+    end
     hold off;
     xlabel(kpiLabel{k});
     ylabel('Σχετική συχνότητα');

@@ -11,9 +11,11 @@ improve reliability, coverage, and load management in such networks.
 
 This thesis develops a MATLAB simulation framework for a connectivity
 scenario consisting of two terrestrial base stations (5G NR, 3GPP TR
-38.901 UMa/UMi) and one LEO satellite, in which each user selects its
-serving node (terrestrial or satellite) based on the highest SNR (greedy
-single-connectivity). The model computes propagation loss according to
+38.901 UMa/UMi) and one LEO satellite, in which each user connects to
+every candidate node (terrestrial, satellite) whose SNR clears a minimum
+usable threshold -- simultaneously to both when both clear it
+(multi-connectivity, greedy per-user decision). The model computes
+propagation loss according to
 3GPP TR 38.901 (a per-link stochastic LOS/NLOS draw and log-normal shadow
 fading) for the terrestrial link, and free-space path loss (FSPL) under a
 minimum-elevation visibility mask for the satellite link, and derives
@@ -42,17 +44,27 @@ markedly better energy efficiency per bit. The pass simulation initially
 exposed frequent, unrealistic node switching caused by independent
 (i.i.d.) per-step shadow fading; this was subsequently addressed by
 adopting a spatially correlated shadow-fading model (Gudmundson, 1991),
-which brought handovers down to a physically plausible level. The
-initial lack of an explicit outage state was also addressed: when no
-candidate offers a practically usable SNR, the user is now explicitly
-recorded as out of coverage instead of being assigned to whichever one
-is "least bad." Hysteresis in the handover decision now sets the
-immediate next priority for the work. For machine learning, moving from
-ideal to realistically available SNR
-drops Random Forest performance from near-perfect to $89.5\%$ accuracy --
-the result this thesis treats as representative of a real deployment,
-rather than the unrealistic $\argmax(\text{SNR})$ of the initial
-experiment.
+which brought handovers down to a physically plausible level (zero
+genuine handovers in the final pass scenario). The initial lack of an
+explicit outage state was also addressed: when no candidate offers a
+practically usable SNR, the user is now explicitly recorded as out of
+coverage instead of being assigned to whichever one is "least bad." The
+same usable-SNR threshold was then applied independently to each
+candidate link rather than to a single winner: the user now connects
+simultaneously to a terrestrial base station \emph{and} a satellite
+whenever both clear the threshold (multi-connectivity, the four-state
+SS-SBS model), with additive capacity/energy across both active links.
+This change surfaced an unexpected finding: given this scenario's
+coverage geometry, the "terrestrial-only" category nearly disappeared
+from the dataset, which in turn noticeably reshaped all three machine
+learning experiments below. Hysteresis in the handover decision now sets
+the immediate next priority for the work. For machine learning, moving
+from ideal to realistically available SNR now leaves Random Forest
+performance nearly unchanged ($99.15\%$ accuracy, vs.\ $99.72\%$ with
+ideal SNR) -- the result this thesis treats as representative of a real
+deployment, not because the problem became generally easy, but because
+multi-connectivity reduced it to an almost purely geometric distinction
+in this scenario.
 
 \vspace{1em}
 \noindent\textbf{Keywords:} multi-connectivity, satellite-terrestrial

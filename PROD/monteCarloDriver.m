@@ -121,16 +121,23 @@ for s = 1:numScenarios
         simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParametersBase, satParametersBase);
 
     % Φορτίο κόμβου: πλήθος χρηστών του ΙΔΙΟΥ σεναρίου που εξυπηρετούνται
-    % από τον ίδιο κόμβο (χρήσιμο ως feature "node load" για το Part 2).
-    % Οι χρήστες σε outage (ServingNode="None") δεν μοιράζονται πραγματικό
-    % κόμβο μεταξύ τους - NodeLoad=0 ρητά, αντί να μετρηθούν σαν να
-    % συνδέονται όλοι στο ίδιο "None".
-    nodeLoadVec = nan(numUsers,1);
+    % από τον ίδιο ΣΥΓΚΕΚΡΙΜΕΝΟ κόμβο (χρήσιμο ως feature "node load" για
+    % το Part 2). Ένας DualConnectivity χρήστης φορτίζει ΚΑΙ τον BS ΚΑΙ
+    % τον δορυφόρο του ταυτόχρονα (simulateScenario.m), οπότε μία κοινή
+    % στήλη "NodeLoad" δεν αρκεί πλέον - καταγράφονται δύο ξεχωριστές
+    % στήλες, BsLoad και SatLoad, καθεμία 0 αν ο χρήστης δεν συνδέεται σε
+    % εκείνον τον τύπο κόμβου (π.χ. outage, ή Satellite-only για BsLoad).
+    isBsConnected  = (bestNodeTypeVec == "Terrestrial") | (bestNodeTypeVec == "DualConnectivity");
+    isSatConnected = (bestNodeTypeVec == "Satellite")   | (bestNodeTypeVec == "DualConnectivity");
+    bsIdVec = extractBefore(bestNodeVec + "+", "+");   % "BSx" για Terrestrial/DualConnectivity
+    bsLoadVec  = zeros(numUsers,1);
+    satLoadVec = zeros(numUsers,1);
     for u = 1:numUsers
-        if bestNodeTypeVec(u) == "Outage"
-            nodeLoadVec(u) = 0;
-        else
-            nodeLoadVec(u) = sum(bestNodeVec == bestNodeVec(u));
+        if isBsConnected(u)
+            bsLoadVec(u) = sum(isBsConnected & bsIdVec == bsIdVec(u));
+        end
+        if isSatConnected(u)
+            satLoadVec(u) = sum(isSatConnected);
         end
     end
 
@@ -145,12 +152,13 @@ for s = 1:numScenarios
     allScenarioTables{s} = table(scenarioID, userID, scenarioTypeCol, numBsCol, numUsersCol, ...
         userLat, userLon, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
         bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, nodePowerWattsVec, ...
-        energyPerBitUJVec, nodeLoadVec, ...
+        energyPerBitUJVec, bsLoadVec, satLoadVec, ...
         bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
         satSnrDbVecAll, satElevationVecAll, satSlantRangeVec, satPathLossVec, ...
         'VariableNames', {'ScenarioID','UserID','ScenarioType','NumBS','NumUsers', ...
         'UserLat','UserLon','ServingNode','ServingType','Distance_m','PathLoss_dB', ...
-        'SNR_dB','Capacity_Mbps','SatElevation_deg','NodePower_W','EnergyPerBit_uJ','NodeLoad', ...
+        'SNR_dB','Capacity_Mbps','SatElevation_deg','NodePower_W','EnergyPerBit_uJ', ...
+        'BsLoad','SatLoad', ...
         'CandBS_SNR_dB','CandBS_Distance_m','CandBS_PathLoss_dB', ...
         'CandSat_SNR_dB','CandSat_Elevation_deg','CandSat_SlantRange_m','CandSat_PathLoss_dB'});
 end
@@ -166,9 +174,10 @@ writetable(datasetTable, outputCsvPath);
 
 numTerrestrial = sum(datasetTable.ServingType == "Terrestrial");
 numSatellite   = sum(datasetTable.ServingType == "Satellite");
+numDual        = sum(datasetTable.ServingType == "DualConnectivity");
 numOutage      = sum(datasetTable.ServingType == "Outage");
-fprintf('Monte-Carlo dataset: %d σενάρια, %d γραμμές χρηστών (%d Terrestrial, %d Satellite, %d Outage) -> %s\n', ...
-    numScenarios, height(datasetTable), numTerrestrial, numSatellite, numOutage, outputCsvPath);
+fprintf('Monte-Carlo dataset: %d σενάρια, %d γραμμές χρηστών (%d Terrestrial, %d Satellite, %d DualConnectivity, %d Outage) -> %s\n', ...
+    numScenarios, height(datasetTable), numTerrestrial, numSatellite, numDual, numOutage, outputCsvPath);
 
 end
 

@@ -155,14 +155,27 @@ writetable(T, fullfile(outputDir, 'temporal_pass_dataset.csv'));
 fprintf('Temporal pass simulation: %d χρονικά βήματα (dt=%ds, ~%.0f s συνολικά), ταχύτητα ίχνους %.0f m/s (T_orbit=%.0f s)\n', ...
     step, dtSeconds, T.Time_s(end), groundSpeedMps, orbitalPeriodS);
 
-%% ------------------ Handovers & outage events ανά χρήστη ------------------
-% Μετάβαση ΠΡΟΣ ή ΑΠΟ ServingNode="None" (outage - simulateScenario.m,
-% ελάχιστο χρησιμοποιήσιμο SNR) δεν μετράει ως handover: δεν αποκτάται
-% νέος κόμβος, χάνεται/ξαναβρίσκεται κάλυψη. Μετράται ξεχωριστά ως
-% "outage event" (μετάβαση ΠΡΟΣ "None"), ώστε τα δύο φαινόμενα να μην
-% συγχέονται στην ίδια μετρική.
-fprintf('\n--- Handovers & outage events ανά χρήστη ---\n');
+%% ------------------ Handovers, SN events & outage events ανά χρήστη ------------------
+% Μετάβαση ΠΡΟΣ ServingNode="None" (outage - simulateScenario.m, ελάχιστο
+% χρησιμοποιήσιμο SNR) δεν μετράει ως handover: δεν αποκτάται νέος κόμβος,
+% χάνεται κάλυψη. Μετράται ξεχωριστά ως "outage event".
+%
+% Μεταξύ των υπόλοιπων μεταβάσεων γίνεται περαιτέρω διάκριση, με βάση την
+% ορολογία master-node (MN, εδώ ο BS) / secondary-node (SN, εδώ ο
+% δορυφόρος) που ήδη αναφέρεται στο Κεφ.2 (Majamaa, MR-DC):
+%   - "SN event": ο δορυφόρος (SN) προστίθεται ή αφαιρείται (single- <->
+%     dual-connectivity), ενώ ο BS (MN) παραμένει ο ΙΔΙΟΣ. Αντιστοιχεί στο
+%     "προσθήκη/αφαίρεση δευτερεύοντος κόμβου" της βιβλιογραφίας NTN MC,
+%     όχι σε πλήρες handover.
+%   - "handover": αλλάζει η ταυτότητα του BS (MN) - είτε καθαρό BSx->BSy,
+%     είτε πλήρης εναλλαγή Terrestrial<->Satellite, είτε ταυτόχρονη
+%     αλλαγή BS ΚΑΙ SN κατάστασης.
+bsPartOf  = @(s) regexprep(s, ["^None$" "^SAT-1$" "\+SAT-1$"], ["" "" ""]);
+hasSatOf  = @(s) contains(s, "SAT-1");
+
+fprintf('\n--- Handovers, SN events & outage events ανά χρήστη ---\n');
 handoverCounts    = zeros(numUsers,1);
+snEventCounts     = zeros(numUsers,1);
 outageEventCounts = zeros(numUsers,1);
 for u = 1:numUsers
     userRows = T(T.UserID == u, :);
@@ -170,19 +183,33 @@ for u = 1:numUsers
     prevNodes = userRows.ServingNode(1:end-1);
     currNodes = userRows.ServingNode(2:end);
     changed = currNodes ~= prevNodes;
-    intoOutage = changed & (currNodes == "None");
-    realHandover = changed & ~(prevNodes == "None" | currNodes == "None");
+    intoOutage   = changed & (currNodes == "None");
+    notOutageTxn = changed & ~(prevNodes == "None" | currNodes == "None");
+
+    bsChanged  = notOutageTxn & (bsPartOf(prevNodes) ~= bsPartOf(currNodes));
+    satChanged = notOutageTxn & (hasSatOf(prevNodes) ~= hasSatOf(currNodes));
+
+    snEvent      = satChanged & ~bsChanged;
+    realHandover = bsChanged;
 
     handoverCounts(u)    = sum(realHandover);
+    snEventCounts(u)     = sum(snEvent);
     outageEventCounts(u) = sum(intoOutage);
-    fprintf('  User %d: %d handovers, %d outage events (%s -> ... -> %s)\n', u, ...
-        handoverCounts(u), outageEventCounts(u), ...
+    fprintf('  User %d: %d handovers, %d SN events, %d outage events (%s -> ... -> %s)\n', u, ...
+        handoverCounts(u), snEventCounts(u), outageEventCounts(u), ...
         userRows.ServingNode(1), userRows.ServingNode(end));
 end
 
 %% ------------------ Γραφήματα χρονοσειράς ανά χρήστη ------------------
-kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB','SatElevation_deg'};
-kpiLabel = {'Throughput (Mbps)','Energy per bit (\muJ/bit)','SNR (dB)','Sat. Elevation (deg)'};
+% Το SNR_dB (νικητή) εμφανίζει πλέον NaN σε κάθε βήμα όπου ο χρήστης είναι
+% DualConnectivity (δεν υπάρχει ένα ενιαίο "SNR νικητή" όταν εξυπηρετείται
+% ταυτόχρονα από δύο ζεύξεις - simulateScenario.m), κάτι που θα άφηνε το
+% αντίστοιχο γράφημα σχεδόν κενό για τους περισσότερους χρήστες. Σχεδιάζεται
+% αντ' αυτού το per-link CandBS_SNR_dB/CandSat_SNR_dB (πάντα πεπερασμένα -
+% εκτός από CandSat_SNR_dB όταν ο δορυφόρος είναι εκτός ορατότητας),
+% ανεξάρτητα από την τελική κατάσταση σύνδεσης.
+kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','CandBS_SNR_dB','CandSat_SNR_dB','SatElevation_deg'};
+kpiLabel = {'Throughput (Mbps)','Energy per bit (\muJ/bit)','Best-BS SNR (dB)','Satellite SNR (dB)','Sat. Elevation (deg)'};
 
 for k = 1:numel(kpiList)
     fig = figure('Visible','off');
@@ -190,7 +217,12 @@ for k = 1:numel(kpiList)
     for u = 1:numUsers
         userRows = T(T.UserID == u, :);
         userRows = sortrows(userRows, 'Step');
-        plot(userRows.Time_s, userRows.(kpiList{k}), 'DisplayName', sprintf('User %d', u));
+        % -Inf (δορυφόρος εκτός ορατότητας, CandSat_SNR_dB) -> NaN για το
+        % γράφημα, ώστε να αφήνει κενό στη γραμμή αντί να καταστρέφει την
+        % κλίμακα του άξονα y.
+        yVals = userRows.(kpiList{k});
+        yVals(isinf(yVals)) = NaN;
+        plot(userRows.Time_s, yVals, 'DisplayName', sprintf('User %d', u));
     end
     hold off;
     xlabel('Χρόνος (s)');

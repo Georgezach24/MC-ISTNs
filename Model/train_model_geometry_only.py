@@ -42,18 +42,12 @@ import matplotlib.pyplot as plt
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    RocCurveDisplay,
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    roc_auc_score,
-)
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ml_common import CLASS_LABELS, evaluate_model, plot_roc_ovr
 
 ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
@@ -68,7 +62,7 @@ MIN_ELEVATION_DEG = 10.0
 # ένα σχεδόν-affine ισοδύναμό της. Μένουν μόνο γεωμετρικά/context
 # χαρακτηριστικά, διαθέσιμα σε ένα πραγματικό σύστημα πριν τη μέτρηση SNR.
 FEATURE_COLUMNS_NUMERIC = [
-    # NodeLoad exclude σκόπιμα: είναι συνέπεια του ServingType, όχι
+    # BsLoad/SatLoad exclude σκόπιμα: είναι συνέπεια του ServingType, όχι
     # ανεξάρτητος predictor (βλ. train_model.py).
     "NumBS", "NumUsers",
     "CandBS_Distance_m",
@@ -88,7 +82,7 @@ def load_dataset(path: Path) -> pd.DataFrame:
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
         print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
-              f"out of {len(df)} - binary Terrestrial/Satellite target only.")
+              f"out of {len(df)} - {'/'.join(CLASS_LABELS)} target only.")
         df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
 
     # CandSat_Elevation_deg/CandSat_SlantRange_m είναι πάντα πεπερασμένα
@@ -115,38 +109,6 @@ def group_train_test_split(df: pd.DataFrame, test_size=0.25, seed=42):
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)
 
 
-def evaluate_model(name, pipeline, X_test, y_test, results):
-    y_pred = pipeline.predict(X_test)
-    y_proba = pipeline.predict_proba(X_test)[:, list(pipeline.classes_).index("Satellite")]
-
-    acc = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred, pos_label="Satellite")
-    auc = roc_auc_score((y_test == "Satellite").astype(int), y_proba)
-    report = classification_report(y_test, y_pred, output_dict=True)
-
-    print(f"\n=== {name} ===")
-    print(f"Accuracy: {acc:.4f}  F1(Satellite): {f1:.4f}  ROC-AUC: {auc:.4f}")
-    print(classification_report(y_test, y_pred))
-
-    results[name] = {
-        "accuracy": acc,
-        "f1_satellite": f1,
-        "roc_auc": auc,
-        "classification_report": report,
-    }
-
-    cm = confusion_matrix(y_test, y_pred, labels=["Terrestrial", "Satellite"])
-    disp = ConfusionMatrixDisplay(cm, display_labels=["Terrestrial", "Satellite"])
-    fig, ax = plt.subplots(figsize=(4, 4))
-    disp.plot(ax=ax, cmap="Blues", colorbar=False)
-    ax.set_title(f"{name} - Confusion Matrix (geometry-only)")
-    fig.tight_layout()
-    fig.savefig(RESULTS_DIR / f"confusion_matrix_{name}.png", dpi=150)
-    plt.close(fig)
-
-    return y_proba
-
-
 def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -162,9 +124,8 @@ def main():
     print(f"Loaded {len(df)} user-rows from {df['ScenarioID'].nunique()} scenarios")
     print(f"Train: {len(train_df)} rows ({train_df['ScenarioID'].nunique()} scenarios)")
     print(f"Test:  {len(test_df)} rows ({test_df['ScenarioID'].nunique()} scenarios)")
-    print(f"Class balance (all data): "
-          f"{(df[TARGET_COLUMN] == 'Terrestrial').mean():.1%} Terrestrial / "
-          f"{(df[TARGET_COLUMN] == 'Satellite').mean():.1%} Satellite")
+    balance = " / ".join(f"{(df[TARGET_COLUMN] == c).mean():.1%} {c}" for c in CLASS_LABELS)
+    print(f"Class balance (all data): {balance}")
 
     feature_cols = FEATURE_COLUMNS_NUMERIC + FEATURE_COLUMNS_CATEGORICAL + FEATURE_COLUMNS_BOOL
     X_train, y_train = train_df[feature_cols], train_df[TARGET_COLUMN]
@@ -183,8 +144,8 @@ def main():
             ("clf", clf),
         ])
         pipeline.fit(X_train, y_train)
-        y_proba = evaluate_model(name, pipeline, X_test, y_test, results)
-        roc_curves[name] = (y_test, y_proba)
+        y_proba, class_order = evaluate_model(name, pipeline, X_test, y_test, results, RESULTS_DIR, " (geometry-only)")
+        roc_curves[name] = (y_test, y_proba, class_order)
 
         if name == "RandomForest":
             ohe = pipeline.named_steps["preprocess"].named_transformers_["cat"]
@@ -201,13 +162,7 @@ def main():
             fig.savefig(RESULTS_DIR / "feature_importance_RandomForest.png", dpi=150)
             plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(5, 5))
-    for name, (y_true, y_proba) in roc_curves.items():
-        RocCurveDisplay.from_predictions((y_true == "Satellite").astype(int), y_proba, name=name, ax=ax)
-    ax.set_title("ROC Curve - Predicting Satellite vs Terrestrial (geometry-only)")
-    fig.tight_layout()
-    fig.savefig(RESULTS_DIR / "roc_curve.png", dpi=150)
-    plt.close(fig)
+    plot_roc_ovr(roc_curves, RESULTS_DIR, " (geometry-only)")
 
     with open(RESULTS_DIR / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)

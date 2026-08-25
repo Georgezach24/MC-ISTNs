@@ -15,6 +15,16 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 % ώστε ένα μελλοντικό μοντέλο ML (Part 2) να μπορεί να εκπαιδευτεί στη
 % σύγκριση των δύο υποψήφιων ζεύξεων αντί να διαβάζει απευθείας τον νικητή.
 %
+% Επιλογή κόμβου (πολυσυνδεσιμότητα): αντί για έναν απλό single-connectivity
+% argmax-SNR κανόνα, ο χρήστης εξυπηρετείται ΤΑΥΤΟΧΡΟΝΑ από τον καλύτερο BS
+% ΚΑΙ τον δορυφόρο (bestNodeTypeVec="DualConnectivity") όταν και οι δύο
+% ξεπερνούν το ελάχιστο χρησιμοποιήσιμο SNR, μόνο από τον έναν όταν μόνο
+% αυτός το ξεπερνά, ή "Outage" όταν κανένας - το τετρα-καταστασιακό μοντέλο
+% της SS-SBS αρχιτεκτονικής (Li & Shang, βλ. Κεφ.2 της διπλωματικής). Η
+% χωρητικότητα/ενέργεια ενός DualConnectivity χρήστη είναι το ΑΘΡΟΙΣΜΑ της
+% συνεισφοράς κάθε ενεργής ζεύξης (σαν carrier aggregation) - βλ. τον
+% δεύτερο βρόχο παρακάτω.
+%
 % prevChannelState (προαιρετικό, 7ο όρισμα): αν δοθεί, η γεωμετρική
 % απόσταση μετακίνησης κάθε χρήστη από την προηγούμενη κλήση χρησιμοποιείται
 % ώστε το shadow fading (και η κατάσταση LOS/NLOS) της κάθε ζεύξης BS-χρήστη
@@ -74,6 +84,14 @@ bestBsSnrDbVec      = nan(numUsers,1);
 bestBsDistanceVec   = nan(numUsers,1);
 bestBsPathLossVec   = nan(numUsers,1);
 
+% Εσωτερική καταγραφή σύνδεσης ανά τύπο κόμβου (όχι επιστρεφόμενη τιμή) -
+% ένας DualConnectivity χρήστης είναι connected ΚΑΙ σε ένα BS ΚΑΙ στον
+% δορυφόρο ταυτόχρονα, οπότε το φορτίο κάθε κόμβου (bandwidth/ισχύος split
+% παρακάτω) πρέπει να μετρηθεί ανεξάρτητα ανά τύπο αντί για μία κοινή
+% μεταβλητή "servingNode" όπως στο παλιό single-connectivity μοντέλο.
+connectedBsIdVec = strings(numUsers,1);   % "" αν ο χρήστης δεν συνδέεται σε BS, αλλιώς "BSx"
+connectedSatVec  = false(numUsers,1);     % true αν ο χρήστης συνδέεται στον δορυφόρο
+
 % Διαγνωστικοί πίνακες
 groundDistanceMat = nan(numUsers,numBs);
 range3DMat        = nan(numUsers,numBs);
@@ -95,10 +113,8 @@ for u = 1:numUsers
     % Αρχικοποιήσεις
     userBestSNR       = -Inf;
     userBestNode      = "";
-    userBestType      = "";
     userBestDistance  = NaN;
     userBestPathLoss  = NaN;
-    userBestElevation = NaN;
 
     % Απόσταση μετακίνησης του χρήστη από την προηγούμενη κλήση (0 αν ο
     % χρήστης είναι ακίνητος μεταξύ διαδοχικών κλήσεων, όπως συμβαίνει σήμερα
@@ -178,10 +194,8 @@ for u = 1:numUsers
         if snr_db > userBestSNR
             userBestSNR       = snr_db;
             userBestNode      = "BS" + string(b);
-            userBestType      = "Terrestrial";
             userBestDistance  = d3d;
             userBestPathLoss  = pathLoss;
-            userBestElevation = NaN;
         end
     end
 
@@ -191,6 +205,7 @@ for u = 1:numUsers
     bestBsSnrDbVec(u)   = userBestSNR;
     bestBsDistanceVec(u) = userBestDistance;
     bestBsPathLossVec(u) = userBestPathLoss;
+    bsWinnerNode          = userBestNode;   % "BSx" του καλύτερου BS, πριν συγκριθεί με τον δορυφόρο
 
     %% ===== Satellite candidate =====
     [~, elevSat, slantRangeSat] = geodetic2aer( ...
@@ -225,40 +240,103 @@ for u = 1:numUsers
     satPathLossVec(u) = satPathLoss;
     satSnrDbVec(u)    = satSnrDb;
 
-    if satSnrDb > userBestSNR
-        userBestSNR       = satSnrDb;
-        userBestNode      = "SAT-1";
-        userBestType      = "Satellite";
-        userBestDistance  = slantRangeSat;
-        userBestPathLoss  = satPathLoss;
-        userBestElevation = elevSat;
-    end
+    % ===== Απόφαση συνδεσιμότητας (SS-SBS, τέσσερις καταστάσεις) =====
+    % Αντικαθιστά τον προηγούμενο single-connectivity κανόνα (argmax SNR
+    % μεταξύ ΟΛΩΝ των υποψηφίων, BS και δορυφόρου μαζί): τώρα ο καλύτερος
+    % BS και ο δορυφόρος αξιολογούνται ΑΝΕΞΑΡΤΗΤΑ έναντι του ελάχιστου
+    % χρησιμοποιήσιμου SNR, και ο χρήστης συνδέεται σε ΟΠΟΙΟΝΔΗΠΟΤΕ από
+    % τους δύο το ξεπερνά - ταυτόχρονα και στους δύο αν το ξεπερνούν και οι
+    % δύο (DualConnectivity), σε έναν μόνο αν μόνο αυτός το ξεπερνά, ή σε
+    % κανέναν (Outage) - βλ. σχόλιο κεφαλίδας συνάρτησης.
+    bsUsable  = userBestSNR >= minUsableSnrDb;   % userBestSNR = SNR του καλύτερου BS εδώ
+    satUsable = satSnrDb    >= minUsableSnrDb;
 
-    % Αποθήκευση επιλογής κόμβου για τον χρήστη. Ακόμα κι όταν το καλύτερο
-    % διαθέσιμο SNR δεν φτάνει το ελάχιστο χρησιμοποιήσιμο όριο, τα
-    % διαγνωστικά (distance/pathloss/SNR/elevation) του "λιγότερο κακού"
-    % υποψηφίου διατηρούνται (χρήσιμα για ανάλυση), απλά ο χρήστης δεν
-    % ανατίθεται πλέον σε αυτόν ως εξυπηρετητή.
-    if userBestSNR < minUsableSnrDb
-        bestNodeVec(u)     = "None";
-        bestNodeTypeVec(u) = "Outage";
+    if bsUsable && satUsable
+        bestNodeTypeVec(u)  = "DualConnectivity";
+        bestNodeVec(u)      = bsWinnerNode + "+SAT-1";
+        connectedBsIdVec(u) = bsWinnerNode;
+        connectedSatVec(u)  = true;
+        % Δεν υπάρχει ένα ενιαίο "SNR/distance/path loss νικητή" όταν ο
+        % χρήστης εξυπηρετείται ταυτόχρονα από δύο ζεύξεις πολύ
+        % διαφορετικής κλίμακας (BS vs δορυφόρος) - τα πλήρη per-candidate
+        % διαγνωστικά (bestBsSnrDbVec/satSnrDbVec κ.λπ.) παραμένουν
+        % διαθέσιμα ανεξάρτητα από την τελική κατάσταση σύνδεσης.
+        bestSnrDbVec(u)        = NaN;
+        bestDistanceVec(u)     = NaN;
+        bestPathLossVec(u)     = NaN;
+        bestElevationDegVec(u) = elevSat;
+    elseif bsUsable
+        bestNodeTypeVec(u)  = "Terrestrial";
+        bestNodeVec(u)      = bsWinnerNode;
+        connectedBsIdVec(u) = bsWinnerNode;
+        connectedSatVec(u)  = false;
+        bestSnrDbVec(u)        = userBestSNR;
+        bestDistanceVec(u)     = userBestDistance;
+        bestPathLossVec(u)     = userBestPathLoss;
+        bestElevationDegVec(u) = NaN;
+    elseif satUsable
+        bestNodeTypeVec(u)  = "Satellite";
+        bestNodeVec(u)      = "SAT-1";
+        connectedBsIdVec(u) = "";
+        connectedSatVec(u)  = true;
+        bestSnrDbVec(u)        = satSnrDb;
+        bestDistanceVec(u)     = slantRangeSat;
+        bestPathLossVec(u)     = satPathLoss;
+        bestElevationDegVec(u) = elevSat;
     else
-        bestNodeVec(u)     = userBestNode;
-        bestNodeTypeVec(u) = userBestType;
+        % Ούτε ο καλύτερος BS ούτε ο δορυφόρος ξεπερνούν το ελάχιστο
+        % χρησιμοποιήσιμο SNR - outage. Τα διαγνωστικά του "λιγότερο
+        % κακού" υποψηφίου διατηρούνται για ανάλυση, όπως πριν.
+        bestNodeTypeVec(u)  = "Outage";
+        bestNodeVec(u)      = "None";
+        connectedBsIdVec(u) = "";
+        connectedSatVec(u)  = false;
+        if satSnrDb > userBestSNR
+            bestSnrDbVec(u)        = satSnrDb;
+            bestDistanceVec(u)     = slantRangeSat;
+            bestPathLossVec(u)     = satPathLoss;
+            bestElevationDegVec(u) = elevSat;
+        else
+            bestSnrDbVec(u)        = userBestSNR;
+            bestDistanceVec(u)     = userBestDistance;
+            bestPathLossVec(u)     = userBestPathLoss;
+            bestElevationDegVec(u) = NaN;
+        end
     end
-    bestDistanceVec(u)     = userBestDistance;
-    bestPathLossVec(u)     = userBestPathLoss;
-    bestSnrDbVec(u)        = userBestSNR;
-    bestElevationDegVec(u) = userBestElevation;
 end
 
 %% ------------------ Υπολογισμός Χωρητικότητας & Ενέργειας (Κατανομή Πόρων) ------------------
+% Φορτίο ανά ΣΥΓΚΕΚΡΙΜΕΝΟ κόμβο (BS ή δορυφόρος), όχι ανά "servingNode"
+% string όπως στο παλιό single-connectivity μοντέλο - ένας
+% DualConnectivity χρήστης φορτίζει ΚΑΙ τον BS του ΚΑΙ τον δορυφόρο
+% ταυτόχρονα, άρα πρέπει να μετρηθεί σε αμφότερα τα φορτία.
+bsLoadVec = zeros(numBs,1);
+for b = 1:numBs
+    bsLoadVec(b) = sum(connectedBsIdVec == ("BS" + string(b)));
+end
+satLoad = sum(connectedSatVec);
+
+% Κατανάλωση ισχύος κόμβου σε ενεργή λειτουργία (μοντέλο EARTH για BS,
+% γραμμικό μοντέλο ενισχυτή ισχύος για δορυφόρο - βλ. CLAUDE.md §
+% Standards & scientific grounding). Ίδια ανά χρήστη, οπότε υπολογίζεται
+% μία φορά έξω από τον βρόχο.
+pOutW_bs  = 10^((simParameters.TxPower - 30)/10);
+nodePowerW_bsActive = simParameters.Power.NumTrx * ...
+    (simParameters.Power.P0 + simParameters.Power.DeltaP * pOutW_bs);
+
+pOutW_sat = 10^((satParameters.TxPower - 30)/10);
+nodePowerW_satActive = satParameters.Power.Pfix + pOutW_sat / satParameters.Power.EtaPA;
+
+% Ανώτατη φασματική απόδοση (3GPP TS 38.214 v17.x, Πίνακας 5.1.3.1-2 "MCS
+% Index Table 2 for PDSCH", MCS 27 -> 256QAM, target code rate 948/1024 ->
+% 5.5547 bits/s/Hz· ίδια ανώτατη τιμή στον Πίνακα 5.2.2.1-4, CQI index 15)
+% - ίδιο cap με πριν, εφαρμόζεται τώρα ανά ζεύξη (BS και/ή δορυφόρος).
+maxSpectralEfficiency = 5.5547;   % bits/s/Hz, TS 38.214 §5.1.3.1/§5.2.2.1
+
 for u = 1:numUsers
     % Οι χρήστες σε outage δεν εξυπηρετούνται από κανέναν κόμβο -
     % μηδενική χωρητικότητα, καμία κατανάλωση ισχύος να τους αποδοθεί, και
-    % ενέργεια/bit μη ορισμένη (Inf). Παραλείπονται ΠΡΙΝ το usersOnThisNode
-    % ώστε να μην μετρηθούν σαν να "μοιράζονται" τον ίδιο κόμβο μεταξύ
-    % τους μέσω του κοινού sentinel ServingNode="None".
+    % ενέργεια/bit μη ορισμένη (Inf).
     if bestNodeTypeVec(u) == "Outage"
         capacityMbpsVec(u)   = 0;
         nodePowerWattsVec(u) = 0;
@@ -266,48 +344,33 @@ for u = 1:numUsers
         continue;
     end
 
-    servingNode = bestNodeVec(u);
+    % Αθροιστική χωρητικότητα/ισχύς (σαν carrier aggregation): ένας
+    % DualConnectivity χρήστης αθροίζει τη συνεισφορά ΚΑΙ των δύο ενεργών
+    % ζεύξεών του· ένας Terrestrial-only ή Satellite-only χρήστης έχει
+    % μόνο έναν από τους δύο όρους παρακάτω μη-μηδενικό.
+    capacityBps = 0;
+    powerW      = 0;
 
-    % Πόσοι χρήστες συνολικά εξυπηρετούνται από τον ΙΔΙΟ κόμβο
-    usersOnThisNode = sum(bestNodeVec == servingNode);
-
-    % Επιλέγουμε το συνολικό Bandwidth του κόμβου και την κατανάλωση ισχύος του
-    % (μοντέλο EARTH για BS, γραμμικό μοντέλο ενισχυτή ισχύος για δορυφόρο -
-    % βλ. CLAUDE.md § Standards & scientific grounding)
-    if bestNodeTypeVec(u) == "Terrestrial"
-        nodeBW = BW_bs;
-        pOutW  = 10^((simParameters.TxPower - 30)/10);
-        nodePowerW = simParameters.Power.NumTrx * ...
-            (simParameters.Power.P0 + simParameters.Power.DeltaP * pOutW);
-    else
-        nodeBW = satParameters.Bandwidth;
-        pOutW  = 10^((satParameters.TxPower - 30)/10);
-        nodePowerW = satParameters.Power.Pfix + pOutW / satParameters.Power.EtaPA;
+    if connectedBsIdVec(u) ~= ""
+        bIdx   = str2double(extractAfter(connectedBsIdVec(u), "BS"));
+        B_user = BW_bs / bsLoadVec(bIdx);
+        snr_lin = 10^(bestBsSnrDbVec(u)/10);
+        spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
+        capacityBps = capacityBps + B_user * spectralEfficiency;
+        powerW      = powerW + nodePowerW_bsActive / bsLoadVec(bIdx);
     end
 
-    % Κατανομή πόρων (B_user = BW_grid / N_users)
-    B_user = nodeBW / usersOnThisNode;
+    if connectedSatVec(u)
+        B_user = satParameters.Bandwidth / satLoad;
+        snr_lin = 10^(satSnrDbVec(u)/10);
+        spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
+        capacityBps = capacityBps + B_user * spectralEfficiency;
+        powerW      = powerW + nodePowerW_satActive / satLoad;
+    end
 
-    % Υπολογισμός τελικής χωρητικότητας για το κομμάτι του B_user: η θεωρητική
-    % χωρητικότητα Shannon περιορίζεται (clamp) στη μέγιστη φασματική απόδοση
-    % που ορίζει το 3GPP για πραγματικό gNB/UE, ώστε να μην υπερεκτιμάται η
-    % χωρητικότητα σε υψηλά SNR (3GPP TS 38.214 v17.x, Πίνακας 5.1.3.1-2
-    % "MCS Index Table 2 for PDSCH", MCS 27 -> 256QAM, target code rate
-    % 948/1024 -> φασματική απόδοση 5.5547 bits/s/Hz· ίδια ανώτατη τιμή στον
-    % Πίνακα 5.2.2.1-4 "4-bit CQI Table", CQI index 15). Πάνω από αυτό το SNR
-    % ένας πραγματικός δέκτης δεν μπορεί να εκμεταλλευτεί άλλα bits/s/Hz αφού
-    % το 256QAM είναι ο υψηλότερος διαμορφωτής που ορίζει το NR.
-    maxSpectralEfficiency = 5.5547;   % bits/s/Hz, TS 38.214 §5.1.3.1/§5.2.2.1
-    snr_lin = 10^(bestSnrDbVec(u)/10);
-    spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
-    capacity = B_user * spectralEfficiency;   % bits/s
-
-    capacityMbpsVec(u) = capacity * 1e-6;    % Mbps
-
-    % Ενεργειακό proxy: ισομερής κατανομή ισχύος κόμβου ανά χρήστη (ίδια λογική
-    % με το bandwidth split), διαιρεμένη με τον ρυθμό bit του χρήστη -> µJ/bit
-    nodePowerWattsVec(u) = nodePowerW;
-    energyPerBitUJVec(u) = (nodePowerW / usersOnThisNode) / capacity * 1e6;
+    capacityMbpsVec(u)   = capacityBps * 1e-6;   % Mbps
+    nodePowerWattsVec(u) = powerW;
+    energyPerBitUJVec(u) = powerW / capacityBps * 1e6;   % µJ/bit
 end
 
 %% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
