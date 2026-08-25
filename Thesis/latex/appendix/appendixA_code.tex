@@ -37,7 +37,8 @@ for u = 1:numUsers
         % Shadow fading: log-normal deigma me tipiki apoklisi sigmaSF
         pathLoss = pathLoss + sigmaSF * randn();
 
-        snr_db = (simParameters.TxPower - 30) - pathLoss - noisePowerBS_dBW;
+        % EIRP = TxPower + AntennaGain (TR 38.901 Table 7.3-1, 8 dBi)
+        snr_db = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
 
         if snr_db > userBestSNR
             userBestSNR  = snr_db;
@@ -54,6 +55,12 @@ for u = 1:numUsers
     if elevSat >= satParameters.MinElevationDeg
         lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency;
         satPathLoss = fspl(slantRangeSat, lambdaSat);
+
+        % Atmospheric gas attenuation, TR 38.811 eq (6.6-8) / ITU-R P.676-12
+        % Annex 2 (equivalent-height model) - see gasAttenuationSlantP676
+        satPathLoss = satPathLoss + gasAttenuationSlantP676( ...
+            satParameters.CarrierFrequency, elevSat);
+
         satSnrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
     else
         satPathLoss = inf;
