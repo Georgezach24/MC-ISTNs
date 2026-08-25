@@ -372,6 +372,72 @@ for u = 1:numUsers
     end
 end
 
+%% ------------------ Joint/fairness-aware εξισορρόπηση φορτίου (προαιρετική) ------------------
+% Μέχρι εδώ, κάθε χρήστης αποφάσισε το N(u) του ανεξάρτητα (greedy, χωρίς
+% συντονισμό με άλλους χρήστες - βλ. σχόλιο κεφαλίδας συνάρτησης). Εδώ
+% προστίθεται προαιρετικά μια δεύτερη, load-aware φάση
+% (simParameters.Fairness.MaxUsersPerBs, default Inf = απενεργοποιημένη,
+% ίδια συμπεριφορά με πριν): αν ένας BS εξυπηρετεί περισσότερους χρήστες
+% από το όριο, οι ήδη DualConnectivity χρήστες του (που έχουν ήδη
+% διαθέσιμο τον δορυφόρο ως εναλλακτική) αποσυνδέονται προτεραιοποιημένα
+% από αυτόν τον BS -- ξεκινώντας από τον πιο "οριακό" (χαμηλότερο BS SNR,
+% δηλαδή αυτόν που θα κέρδιζε το λιγότερο αν παρέμενε και θα χάσει το
+% λιγότερο αν αποχωρήσει) -- μέχρι να επανέλθει το φορτίο εντός ορίου ή
+% να εξαντληθούν οι DualConnectivity χρήστες του BS. Οι Terrestrial-only
+% χρήστες (χωρίς δορυφορική εναλλακτική) ΔΕΝ αγγίζονται ποτέ -- η
+% προστασία τους είναι ακριβώς το ζητούμενο fairness: δεν έχουν πού
+% αλλού να πάνε, οπότε το φορτίο μετατοπίζεται σε όσους έχουν
+% εναλλακτική, όχι σε αυτούς χωρίς. Πρόκειται για ένα καθιερωμένο μοτίβο
+% load-based offloading σε ετερογενή δίκτυα (μεταφορά κίνησης προς
+% δευτερεύουσα στρώση όταν η κύρια είναι κορεσμένη, π.χ. cell range
+% expansion/offloading σε HetNets) -- πολιτική διαχείρισης
+% συνδεσιμότητας, ίδιας φύσης απόφασης με το κατώφλι SNR_min και την
+% πολυσυνδεσιμότητα παραπάνω (confirmed με τον επιβλέποντα, όχι νέο
+% μοντέλο διάδοσης που θα χρειαζόταν standards citation check-in).
+%
+% Σημείωση: η κατάσταση υστέρησης (newActiveBs/newBsPendingCounter
+% παραπάνω) ΔΕΝ ενημερώνεται εδώ - παραμένει ό,τι υπολόγισε η μηχανή
+% υστέρησης βάσει SNR. Η εξισορρόπηση φορτίου είναι μια ξεχωριστή,
+% per-call διοικητική απόφαση αποδοχής (admission) πάνω σε ήδη
+% SNR-επιλέξιμες ζεύξεις, όχι αλλαγή της SNR-based επιλεξιμότητας· έτσι
+% ένας χρήστης που αποσυνδέθηκε εδώ λόγω φόρτου μπορεί να ξαναγίνει
+% DualConnectivity στο επόμενο βήμα χωρίς να χρειαστεί να "ξανακερδίσει"
+% το time-to-trigger της υστέρησης.
+if isfield(simParameters, 'Fairness') && isfield(simParameters.Fairness, 'MaxUsersPerBs')
+    maxUsersPerBs = simParameters.Fairness.MaxUsersPerBs;
+else
+    maxUsersPerBs = Inf;
+end
+
+if isfinite(maxUsersPerBs)
+    for b = 1:numBs
+        bsName  = "BS" + string(b);
+        bsUsers = find(connectedBsIdVec == bsName);
+        overload = numel(bsUsers) - maxUsersPerBs;
+        if overload <= 0
+            continue;
+        end
+
+        eligible = bsUsers(bestNodeTypeVec(bsUsers) == "DualConnectivity");
+        [~, order] = sort(bestBsSnrDbVec(eligible), 'ascend');
+        eligible = eligible(order);
+        numToOffload = min(overload, numel(eligible));
+
+        for k = 1:numToOffload
+            u = eligible(k);
+            % Αποσύνδεση μόνο του BS σκέλους - ο δορυφόρος παραμένει
+            % (ήδη ενεργός, αφού ο χρήστης ήταν DualConnectivity).
+            bestNodeTypeVec(u)     = "Satellite";
+            bestNodeVec(u)         = "SAT-1";
+            connectedBsIdVec(u)    = "";
+            bestSnrDbVec(u)        = satSnrDbVec(u);
+            bestDistanceVec(u)     = satSlantRangeVec(u);
+            bestPathLossVec(u)     = satPathLossVec(u);
+            bestElevationDegVec(u) = satElevationVec(u);
+        end
+    end
+end
+
 %% ------------------ Υπολογισμός Χωρητικότητας & Ενέργειας (Κατανομή Πόρων) ------------------
 % Φορτίο ανά ΣΥΓΚΕΚΡΙΜΕΝΟ κόμβο (BS ή δορυφόρος), όχι ανά "servingNode"
 % string όπως στο παλιό single-connectivity μοντέλο - ένας

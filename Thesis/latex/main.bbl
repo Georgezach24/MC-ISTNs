@@ -613,6 +613,44 @@
       \field{title}{{5G Toolbox}}
       \field{year}{2024}
     \endentry
+    \entry{jain1984fairness}{report}{}{}
+      \name{author}{3}{}{%
+        {{hash=574b972396bd6f881e37cb5ab734532e}{%
+           family={Jain},
+           familyi={J\bibinitperiod},
+           given={Rajendra},
+           giveni={R\bibinitperiod}}}%
+        {{hash=4294dfaa15246b9be2177f3ddf1a800e}{%
+           family={Chiu},
+           familyi={C\bibinitperiod},
+           given={Dah-Ming},
+           giveni={D\bibinithyphendelim M\bibinitperiod}}}%
+        {{hash=790ef81bfc7b4bd70c6d6ce669715ff2}{%
+           family={Hawe},
+           familyi={H\bibinitperiod},
+           given={William},
+           giveni={W\bibinitperiod}}}%
+      }
+      \list{institution}{1}{%
+        {Digital Equipment Corporation}%
+      }
+      \strng{namehash}{b4a7da4f492ada1562844575d8347b4d}
+      \strng{fullhash}{bea6100b869ed1d99459e31b4f75a581}
+      \strng{fullhashraw}{bea6100b869ed1d99459e31b4f75a581}
+      \strng{bibnamehash}{bea6100b869ed1d99459e31b4f75a581}
+      \strng{authorbibnamehash}{bea6100b869ed1d99459e31b4f75a581}
+      \strng{authornamehash}{b4a7da4f492ada1562844575d8347b4d}
+      \strng{authorfullhash}{bea6100b869ed1d99459e31b4f75a581}
+      \strng{authorfullhashraw}{bea6100b869ed1d99459e31b4f75a581}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{number}{DEC-TR-301}
+      \field{title}{A Quantitative Measure of Fairness and Discrimination for Resource Allocation in Shared Computer Systems}
+      \field{type}{techreport}
+      \field{year}{1984}
+    \endentry
   \enddatalist
 \endrefsection
 \endinput

@@ -60,9 +60,14 @@ from the dataset, which in turn noticeably reshaped all three machine
 learning experiments below. Hysteresis and a time-to-trigger were also
 added to the connectivity decision, following the 3GPP TS~38.331 Event~A3
 pattern, and validated on a purpose-built stress-test scenario ($67\%$
-fewer artificial state transitions). Joint/fairness-aware
-multi-connectivity now sets the immediate next priority for the work.
-For machine learning, moving
+fewer artificial state transitions). Finally, a basic load-based
+fairness mechanism was added: when a base station becomes overloaded,
+users who also have a satellite alternative are preferentially
+disconnected from it, protecting users with no alternative at all --
+with a measured, honestly reported benefit ($+33\%$ capacity for the
+protected group) and a corresponding cost for the other. Full joint
+multi-node optimization now sets the immediate next priority for the
+work. For machine learning, moving
 from ideal to realistically available SNR now leaves Random Forest
 performance nearly unchanged ($99.15\%$ accuracy, vs.\ $99.72\%$ with
 ideal SNR) -- the result this thesis treats as representative of a real
