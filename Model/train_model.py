@@ -81,6 +81,17 @@ def load_dataset(path: Path) -> pd.DataFrame:
     df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
     df["CandSat_SNR_dB"] = df["CandSat_SNR_dB"].replace([np.inf, -np.inf], SENTINEL_SNR_DB)
     df["CandSat_PathLoss_dB"] = df["CandSat_PathLoss_dB"].replace([np.inf, -np.inf], SENTINEL_PATHLOSS_DB)
+
+    # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
+    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR). Εξαιρούνται
+    # εδώ: το "ποιος από τους δύο διαθέσιμους κόμβους κερδίζει" είναι
+    # διαφορετικό ερώτημα από το "υπάρχει καθόλου κάλυψη" - η ανάμειξή τους
+    # θα αλλοίωνε το ήδη καθιερωμένο binary πρόβλημα Terrestrial/Satellite.
+    numOutage = int((df["ServingType"] == "Outage").sum())
+    if numOutage:
+        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
+              f"out of {len(df)} - binary Terrestrial/Satellite target only.")
+        df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
     return df
 
 

@@ -81,6 +81,16 @@ TARGET_COLUMN = "ServingType"
 
 def load_dataset(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
+
+    # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
+    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR) - εξαιρείται
+    # εδώ, ίδια λογική με το train_model.py.
+    numOutage = int((df["ServingType"] == "Outage").sum())
+    if numOutage:
+        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
+              f"out of {len(df)} - binary Terrestrial/Satellite target only.")
+        df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
+
     # CandSat_Elevation_deg/CandSat_SlantRange_m είναι πάντα πεπερασμένα
     # (γεωμετρία, όχι SNR/path loss) - το μόνο που χρειάζεται είναι η
     # boolean σημαία ορατότητας.

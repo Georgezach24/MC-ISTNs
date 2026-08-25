@@ -155,15 +155,28 @@ writetable(T, fullfile(outputDir, 'temporal_pass_dataset.csv'));
 fprintf('Temporal pass simulation: %d χρονικά βήματα (dt=%ds, ~%.0f s συνολικά), ταχύτητα ίχνους %.0f m/s (T_orbit=%.0f s)\n', ...
     step, dtSeconds, T.Time_s(end), groundSpeedMps, orbitalPeriodS);
 
-%% ------------------ Handovers ανά χρήστη ------------------
-fprintf('\n--- Handovers ανά χρήστη (αλλαγές ServingNode μεταξύ διαδοχικών βημάτων) ---\n');
-handoverCounts = zeros(numUsers,1);
+%% ------------------ Handovers & outage events ανά χρήστη ------------------
+% Μετάβαση ΠΡΟΣ ή ΑΠΟ ServingNode="None" (outage - simulateScenario.m,
+% ελάχιστο χρησιμοποιήσιμο SNR) δεν μετράει ως handover: δεν αποκτάται
+% νέος κόμβος, χάνεται/ξαναβρίσκεται κάλυψη. Μετράται ξεχωριστά ως
+% "outage event" (μετάβαση ΠΡΟΣ "None"), ώστε τα δύο φαινόμενα να μην
+% συγχέονται στην ίδια μετρική.
+fprintf('\n--- Handovers & outage events ανά χρήστη ---\n');
+handoverCounts    = zeros(numUsers,1);
+outageEventCounts = zeros(numUsers,1);
 for u = 1:numUsers
     userRows = T(T.UserID == u, :);
     userRows = sortrows(userRows, 'Step');
-    changes = sum(userRows.ServingNode(2:end) ~= userRows.ServingNode(1:end-1));
-    handoverCounts(u) = changes;
-    fprintf('  User %d: %d handovers (%s -> ... -> %s)\n', u, changes, ...
+    prevNodes = userRows.ServingNode(1:end-1);
+    currNodes = userRows.ServingNode(2:end);
+    changed = currNodes ~= prevNodes;
+    intoOutage = changed & (currNodes == "None");
+    realHandover = changed & ~(prevNodes == "None" | currNodes == "None");
+
+    handoverCounts(u)    = sum(realHandover);
+    outageEventCounts(u) = sum(intoOutage);
+    fprintf('  User %d: %d handovers, %d outage events (%s -> ... -> %s)\n', u, ...
+        handoverCounts(u), outageEventCounts(u), ...
         userRows.ServingNode(1), userRows.ServingNode(end));
 end
 

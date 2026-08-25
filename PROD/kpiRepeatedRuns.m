@@ -103,10 +103,17 @@ T = vertcat(allTables{:});
 writetable(T, fullfile(outputDir, 'kpi_repeated_runs.csv'));
 
 %% ------------------ Σύνοψη ανά τύπο εξυπηρέτησης ------------------
+% Το groupsummary ομαδοποιεί βάσει των ΠΡΑΓΜΑΤΙΚΩΝ τιμών ServingType, άρα
+% τυχόν γραμμές "Outage" (simulateScenario.m - ελάχιστο χρησιμοποιήσιμο
+% SNR) εμφανίζονται αυτόματα ως ξεχωριστή ομάδα, χωρίς να χρειάζεται
+% ρητή διαχείριση εδώ.
 G = groupsummary(T, 'ServingType', {'mean','std','min','max'}, ...
     {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB'});
 disp(G)
 writetable(G, fullfile(outputDir, 'kpi_summary_by_type.csv'));
+
+numOutage = sum(T.ServingType == "Outage");
+fprintf('Outage: %d/%d γραμμές (%.2f%%)\n', numOutage, height(T), 100*numOutage/height(T));
 
 %% ------------------ Γραφήματα (overlaid histograms ανά τύπο εξυπηρέτησης) ------------------
 % boxplot() απαιτεί Statistics and Machine Learning Toolbox (μη διαθέσιμο

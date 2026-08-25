@@ -10,6 +10,8 @@ This is a **sanity-check model, not the Part 2 deliverable**: the label is essen
 
 `NodeLoad` is deliberately excluded from the feature set — it's a downstream consequence of `ServingType` for every user in a scenario (satellite scenarios mechanically have larger groups), not an independent predictor, so including it would be circular rather than genuinely predictive.
 
+`simulateScenario.m` can also emit `ServingType="Outage"` (no candidate above the minimum usable SNR — see `CLAUDE.md` Standards section, gap #6). All three training scripts filter these rows out before training and print how many were excluded: predicting "which of the two available links wins" is a different question from "is there any coverage at all," and mixing them would corrupt this binary Terrestrial/Satellite task. The current 200-scenario dataset has 0 outage rows, so this is currently a no-op — it exists so the scripts don't silently break (or produce a misleading class-balance/metric) the day a Monte Carlo run does produce one.
+
 ## Results (200-scenario / 1313-row dataset, `rng(42)`)
 
 | Model | Accuracy | F1 (Satellite) | ROC-AUC |

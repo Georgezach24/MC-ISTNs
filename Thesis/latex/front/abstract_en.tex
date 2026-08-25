@@ -42,11 +42,13 @@ markedly better energy efficiency per bit. The pass simulation initially
 exposed frequent, unrealistic node switching caused by independent
 (i.i.d.) per-step shadow fading; this was subsequently addressed by
 adopting a spatially correlated shadow-fading model (Gudmundson, 1991),
-which brought handovers down to a physically plausible level. What
-remains open is the lack of an explicit outage state: when no candidate
-offers a practically usable SNR, the user is still assigned to whichever
-one is "least bad." This sets the immediate next priority for the work.
-For machine learning, moving from ideal to realistically available SNR
+which brought handovers down to a physically plausible level. The
+initial lack of an explicit outage state was also addressed: when no
+candidate offers a practically usable SNR, the user is now explicitly
+recorded as out of coverage instead of being assigned to whichever one
+is "least bad." Hysteresis in the handover decision now sets the
+immediate next priority for the work. For machine learning, moving from
+ideal to realistically available SNR
 drops Random Forest performance from near-perfect to $89.5\%$ accuracy --
 the result this thesis treats as representative of a real deployment,
 rather than the unrealistic $\argmax(\text{SNR})$ of the initial

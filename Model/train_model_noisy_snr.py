@@ -97,6 +97,16 @@ def load_noise_sigmas(path: Path) -> dict:
 
 def load_dataset(path: Path, sigma_bs: float, sigma_sat: float) -> pd.DataFrame:
     df = pd.read_csv(path)
+
+    # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
+    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR) - εξαιρείται
+    # εδώ, ίδια λογική με το train_model.py.
+    numOutage = int((df["ServingType"] == "Outage").sum())
+    if numOutage:
+        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
+              f"out of {len(df)} - binary Terrestrial/Satellite target only.")
+        df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
+
     df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
 
     # Ο δορυφόρος έχει -Inf SNR όταν elevation < MinElevationDeg (visibility

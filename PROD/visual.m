@@ -55,12 +55,21 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
             zq = logspace(log10(zUE(u)), log10(zSat(1)), num_pts);
             
             plot3(xq, yq, zq, 'm-', 'LineWidth', 1.5, 'HandleVisibility', 'off');
+
+        elseif bestNodeTypeVec(u) == "Outage"
+            % Κανένας υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR
+            % (simulateScenario.m) - δεν σχεδιάζεται γραμμή σύνδεσης, μόνο
+            % ένα κόκκινο 'x' πάνω στον ήδη σχεδιασμένο χρήστη, ώστε η
+            % απουσία κάλυψης να είναι οπτικά εμφανής αντί για σιωπηλή.
+            scatter3(xUE(u), yUE(u), zUE(u), 200, 'x', 'MarkerEdgeColor', 'r', ...
+                'LineWidth', 2.5, 'HandleVisibility', 'off');
         end
     end
-    
+
     % Dummy plots για το Legend
     plot3(nan, nan, nan, 'g-', 'LineWidth', 1.5, 'DisplayName', 'Terrestrial Link (Green)');
     plot3(nan, nan, nan, 'm-', 'LineWidth', 1.5, 'DisplayName', 'Satellite Link (Magenta)');
+    scatter3(nan, nan, nan, 200, 'x', 'MarkerEdgeColor', 'r', 'LineWidth', 2.5, 'DisplayName', 'Outage (no usable SNR)');
     
     % --- Μορφοποίηση Γραφήματος και Αξόνων ---
     xlabel('East (meters)');

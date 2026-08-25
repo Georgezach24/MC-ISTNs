@@ -46,6 +46,20 @@ Teq = simParameters.RxAntTemperature + 290*(NF-1);
 noisePowerBS_dBW  = 10*log10(kBoltz * Teq * BW_bs);
 noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 
+%% ------------------ Ελάχιστο χρησιμοποιήσιμο SNR (κατάσταση outage) ------------------
+% Ο κανόνας επιλογής κόμβου (max-SNR) ανέθετε πάντα τον "λιγότερο κακό"
+% υποψήφιο, ακόμα κι όταν το SNR του ήταν αδικαιολόγητα κακό (π.χ. -600dB
+% σε NLOS ζεύξη εκτός εμβέλειας) - βλ. CLAUDE.md § Standards, gap "no
+% outage state". Το ελάχιστο χρησιμοποιήσιμο SNR ορίζεται εδώ ως το
+% Shannon-ισοδύναμο SNR για το πιο ανθεκτικό MCS που ορίζει το ίδιο
+% πρότυπο ήδη χρησιμοποιούμενο για το capacity cap παραπάνω/παρακάτω
+% (3GPP TS 38.214 v17.x, Πίνακας 5.1.3.1-2 "MCS Index Table 2 for PDSCH",
+% MCS 0 -> QPSK, target code rate 120/1024 -> φασματική απόδοση
+% 0.2344 bits/s/Hz): κάτω από αυτό το SNR, ούτε το πιο ανθεκτικό σχήμα
+% διαμόρφωσης/κωδικοποίησης που ορίζει το NR δεν είναι θεωρητικά εφικτό.
+minSpectralEfficiency = 0.2344;                        % bits/s/Hz, TS 38.214 §5.1.3.1, MCS 0
+minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
+
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
@@ -220,9 +234,18 @@ for u = 1:numUsers
         userBestElevation = elevSat;
     end
 
-    % Αποθήκευση επιλογής κόμβου για τον χρήστη
-    bestNodeVec(u)         = userBestNode;
-    bestNodeTypeVec(u)     = userBestType;
+    % Αποθήκευση επιλογής κόμβου για τον χρήστη. Ακόμα κι όταν το καλύτερο
+    % διαθέσιμο SNR δεν φτάνει το ελάχιστο χρησιμοποιήσιμο όριο, τα
+    % διαγνωστικά (distance/pathloss/SNR/elevation) του "λιγότερο κακού"
+    % υποψηφίου διατηρούνται (χρήσιμα για ανάλυση), απλά ο χρήστης δεν
+    % ανατίθεται πλέον σε αυτόν ως εξυπηρετητή.
+    if userBestSNR < minUsableSnrDb
+        bestNodeVec(u)     = "None";
+        bestNodeTypeVec(u) = "Outage";
+    else
+        bestNodeVec(u)     = userBestNode;
+        bestNodeTypeVec(u) = userBestType;
+    end
     bestDistanceVec(u)     = userBestDistance;
     bestPathLossVec(u)     = userBestPathLoss;
     bestSnrDbVec(u)        = userBestSNR;
@@ -231,6 +254,18 @@ end
 
 %% ------------------ Υπολογισμός Χωρητικότητας & Ενέργειας (Κατανομή Πόρων) ------------------
 for u = 1:numUsers
+    % Οι χρήστες σε outage δεν εξυπηρετούνται από κανέναν κόμβο -
+    % μηδενική χωρητικότητα, καμία κατανάλωση ισχύος να τους αποδοθεί, και
+    % ενέργεια/bit μη ορισμένη (Inf). Παραλείπονται ΠΡΙΝ το usersOnThisNode
+    % ώστε να μην μετρηθούν σαν να "μοιράζονται" τον ίδιο κόμβο μεταξύ
+    % τους μέσω του κοινού sentinel ServingNode="None".
+    if bestNodeTypeVec(u) == "Outage"
+        capacityMbpsVec(u)   = 0;
+        nodePowerWattsVec(u) = 0;
+        energyPerBitUJVec(u) = Inf;
+        continue;
+    end
+
     servingNode = bestNodeVec(u);
 
     % Πόσοι χρήστες συνολικά εξυπηρετούνται από τον ΙΔΙΟ κόμβο

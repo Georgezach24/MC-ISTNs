@@ -3,14 +3,14 @@
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {5.1}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή throughput (Mbps) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{22}{figure.caption.10}%
-\contentsline {figure}{\numberline {5.2}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή ενέργειας ανά bit (\textmu J/bit) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{23}{figure.caption.11}%
-\contentsline {figure}{\numberline {5.3}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή SNR (dB) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{23}{figure.caption.12}%
-\contentsline {figure}{\numberline {5.4}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Γωνία ανύψωσης δορυφόρου ανά χρήστη κατά τη διάρκεια της διέλευσης (93 βήματα, $\Delta t = 5$~s).}}{24}{figure.caption.13}%
-\contentsline {figure}{\numberline {5.5}{\ignorespaces \xpg@aux {}{greek}\ignorespaces SNR του νικητή κόμβου ανά χρήστη κατά τη διάρκεια της διέλευσης. Η απότομη πτώση στο τέλος (χρήστες 4-6, καθώς μεταπίπτουν από δορυφόρο σε επίγειο κόμβο) είναι πιο ακραία για τον χρήστη 5, που αντιστοιχεί στο φαινόμενο outage που περιγράφεται στο κείμενο.}}{25}{figure.caption.14}%
-\contentsline {figure}{\numberline {5.6}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Καμπύλες ROC για τα δύο μοντέλα (πρόβλεψη Satellite έναντι Terrestrial).}}{27}{figure.caption.17}%
-\contentsline {figure}{\numberline {5.7}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Σπουδαιότητα χαρακτηριστικών (Random Forest). Τα δύο υποψήφια SNR κυριαρχούν, όπως αναμενόταν από τον κανόνα $\argmax (\text {SNR}_{\text {BS}}, \text {SNR}_{\text {sat}})$.}}{28}{figure.caption.18}%
-\contentsline {figure}{\numberline {5.8}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Σπουδαιότητα χαρακτηριστικών (Random Forest, μόνο γεωμετρία -- χωρίς SNR ή path loss). Η απόσταση προς το καλύτερο BS και η γωνία ανύψωσης/slant range του δορυφόρου κυριαρχούν πλέον, αφού το SNR δεν είναι πια διαθέσιμο ως χαρακτηριστικό.}}{30}{figure.caption.20}%
+\contentsline {figure}{\numberline {5.1}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή throughput (Mbps) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{23}{figure.caption.10}%
+\contentsline {figure}{\numberline {5.2}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή ενέργειας ανά bit (\textmu J/bit) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{24}{figure.caption.11}%
+\contentsline {figure}{\numberline {5.3}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Κατανομή SNR (dB) ανά τύπο εξυπηρέτησης, πάνω από 500 επαναλήψεις.}}{24}{figure.caption.12}%
+\contentsline {figure}{\numberline {5.4}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Γωνία ανύψωσης δορυφόρου ανά χρήστη κατά τη διάρκεια της διέλευσης (93 βήματα, $\Delta t = 5$~s).}}{25}{figure.caption.13}%
+\contentsline {figure}{\numberline {5.5}{\ignorespaces \xpg@aux {}{greek}\ignorespaces SNR του νικητή κόμβου ανά χρήστη κατά τη διάρκεια της διέλευσης. Η απότομη πτώση στο τέλος (χρήστες 4-6, καθώς ο δορυφόρος βγαίνει εκτός ορατότητας) οδηγεί τον χρήστη 4 σε handover προς επίγειο κόμβο, ενώ τους χρήστες 5-6 σε ρητή κατάσταση outage (Ενότητα~\ref {subsec:results-outage}) -- η τιμή SNR που εμφανίζεται γι' αυτούς στα τελευταία βήματα είναι το διαγνωστικό SNR του μη-χρησιμοποιήσιμου υποψηφίου, όχι SNR ενεργής ζεύξης.}}{26}{figure.caption.14}%
+\contentsline {figure}{\numberline {5.6}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Καμπύλες ROC για τα δύο μοντέλα (πρόβλεψη Satellite έναντι Terrestrial).}}{29}{figure.caption.17}%
+\contentsline {figure}{\numberline {5.7}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Σπουδαιότητα χαρακτηριστικών (Random Forest). Τα δύο υποψήφια SNR κυριαρχούν, όπως αναμενόταν από τον κανόνα $\argmax (\text {SNR}_{\text {BS}}, \text {SNR}_{\text {sat}})$.}}{29}{figure.caption.18}%
+\contentsline {figure}{\numberline {5.8}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Σπουδαιότητα χαρακτηριστικών (Random Forest, μόνο γεωμετρία -- χωρίς SNR ή path loss). Η απόσταση προς το καλύτερο BS και η γωνία ανύψωσης/slant range του δορυφόρου κυριαρχούν πλέον, αφού το SNR δεν είναι πια διαθέσιμο ως χαρακτηριστικό.}}{31}{figure.caption.20}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
