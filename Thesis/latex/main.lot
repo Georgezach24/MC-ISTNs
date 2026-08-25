@@ -3,11 +3,11 @@
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {table}{\numberline {5.1}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Αποτελέσματα στατικού σεναρίου αναφοράς (μία εκτέλεση, \texttt {rng(42)}).}}{20}{table.caption.8}%
-\contentsline {table}{\numberline {5.2}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Στατιστική σύνοψη KPI πάνω από 500 επαναλήψεις της σταθερής τοπολογίας αναφοράς (mean $\pm $ std, [min, max]).}}{21}{table.caption.9}%
-\contentsline {table}{\numberline {5.3}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Αριθμός handovers ανά χρήστη κατά τη διάρκεια της διέλευσης (93 διαδοχικά βήματα), με το χωρικά συσχετισμένο μοντέλο shadow fading (εξίσωση~\eqref {eq:correlated-sf}).}}{24}{table.caption.15}%
-\contentsline {table}{\numberline {5.4}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Επιδόσεις πρόβλεψης τύπου εξυπηρέτησης (Terrestrial/Satellite), grouped train/test split ανά \texttt {ScenarioID} (75/25).}}{26}{table.caption.16}%
-\contentsline {table}{\numberline {5.5}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Επιδόσεις πρόβλεψης \texttt {ServingType} με προοδευτικά λιγότερη πληροφορία SNR (ίδιο dataset/split με τον Πίνακα~\ref {tab:ml-results}).}}{28}{table.caption.19}%
+\contentsline {table}{\numberline {5.1}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Αποτελέσματα στατικού σεναρίου αναφοράς (μία εκτέλεση, \texttt {rng(42)}).}}{21}{table.caption.8}%
+\contentsline {table}{\numberline {5.2}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Στατιστική σύνοψη KPI πάνω από 500 επαναλήψεις της σταθερής τοπολογίας αναφοράς (mean $\pm $ std, [min, max]).}}{22}{table.caption.9}%
+\contentsline {table}{\numberline {5.3}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Αριθμός handovers ανά χρήστη κατά τη διάρκεια της διέλευσης (93 διαδοχικά βήματα), με το χωρικά συσχετισμένο μοντέλο shadow fading (εξίσωση~\eqref {eq:correlated-sf}).}}{25}{table.caption.15}%
+\contentsline {table}{\numberline {5.4}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Επιδόσεις πρόβλεψης τύπου εξυπηρέτησης (Terrestrial/Satellite), grouped train/test split ανά \texttt {ScenarioID} (75/25).}}{27}{table.caption.16}%
+\contentsline {table}{\numberline {5.5}{\ignorespaces \xpg@aux {}{greek}\ignorespaces Επιδόσεις πρόβλεψης \texttt {ServingType} με προοδευτικά λιγότερη πληροφορία SNR (ίδιο dataset/split με τον Πίνακα~\ref {tab:ml-results}).}}{29}{table.caption.19}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }

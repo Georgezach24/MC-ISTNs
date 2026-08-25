@@ -29,9 +29,12 @@ of multiple consecutive transmissions across a satellite pass, with the
 sub-satellite point moving at its real ground-track speed, derived from
 the Keplerian orbital period, to capture how elevation, channel quality,
 and handovers evolve over time. A first Monte Carlo framework further
-generates a labeled dataset over randomized topologies, used to train an
-early machine learning model (Logistic Regression, Random Forest) that
-predicts the serving node type from candidate-link features.
+generates a labeled dataset over randomized topologies, used to train two
+classifiers (Logistic Regression, Random Forest) in three variants with
+progressively less, more realistic SNR information available: exact,
+instantaneous SNR (unrealistic, useful only as a pipeline sanity check),
+noisy SNR standing in for a real, imperfect measurement, and no SNR at
+all (geometry only).
 
 Results show a clear split between terrestrial and satellite service
 across the three KPIs examined: the satellite offers lower throughput but
@@ -42,9 +45,12 @@ adopting a spatially correlated shadow-fading model (Gudmundson, 1991),
 which brought handovers down to a physically plausible level. What
 remains open is the lack of an explicit outage state: when no candidate
 offers a practically usable SNR, the user is still assigned to whichever
-one is "least bad." This sets the immediate next priority for the work,
-together with moving the machine learning target to something harder and
-less predictable than today's $\argmax(\text{SNR})$.
+one is "least bad." This sets the immediate next priority for the work.
+For machine learning, moving from ideal to realistically available SNR
+drops Random Forest performance from near-perfect to $89.5\%$ accuracy --
+the result this thesis treats as representative of a real deployment,
+rather than the unrealistic $\argmax(\text{SNR})$ of the initial
+experiment.
 
 \vspace{1em}
 \noindent\textbf{Keywords:} multi-connectivity, satellite-terrestrial

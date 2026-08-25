@@ -56,11 +56,22 @@ scikit-learn~\cite{pedregosa2011sklearn} (ταξινομητές, προεπεξ
       LEO (Ενότητα~\ref{sec:meth-temporal}, αποτελέσματα στην
       Ενότητα~\ref{sec:results-temporal}).
   \end{description}
-  \item[\texttt{Model/}] Το δεύτερο σκέλος (Python).
+  \item[\texttt{Model/}] Το δεύτερο σκέλος (Python), τρία εναλλακτικά
+    training scripts πάνω στο ίδιο CSV, καθένα με διαφορετικό σύνολο
+    χαρακτηριστικών εισόδου (Ενότητα~\ref{sec:results-ml-realistic}).
   \begin{description}
     \item[\texttt{train\_model.py}] Φορτώνει το CSV που παράγει ο
-      \texttt{monteCarloDriver.m}, εκπαιδεύει τους δύο ταξινομητές
-      (Ενότητα~\ref{sec:meth-ml}), και αποθηκεύει μετρικές/γραφήματα.
+      \texttt{monteCarloDriver.m}, εκπαιδεύει τους δύο ταξινομητές με
+      ακριβές SNR ως χαρακτηριστικό (Ενότητα~\ref{sec:meth-ml}), και
+      αποθηκεύει μετρικές/γραφήματα στο \texttt{results/}.
+    \item[\texttt{train\_model\_noisy\_snr.py}] Ίδιο pipeline, αλλά με
+      γκαουσιανό θόρυβο προστιθέμενο στο SNR πριν δοθεί στο μοντέλο (η
+      τυπική απόκλιση προέρχεται από τη μετρημένη διακύμανση SNR του
+      Πίνακα~\ref{tab:repeated-runs-summary}, όχι από επινοημένη τιμή).
+      Αποτελέσματα στο \texttt{results\_noisy\_snr/}.
+    \item[\texttt{train\_model\_geometry\_only.py}] Ίδιο pipeline, χωρίς
+      κανένα χαρακτηριστικό SNR ή path loss -- μόνο γεωμετρία/context.
+      Αποτελέσματα στο \texttt{results\_geometry\_only/}.
   \end{description}
 \end{description}
 
@@ -95,5 +106,9 @@ $\rightarrow$ \texttt{μετρικές (JSON) + γραφήματα (PNG)}
 αλλά ντετερμινιστικά καθορισμένο seed ανά επανάληψη (\texttt{rng(r)} για
 το $r$-οστό run, \texttt{rng(step+1)} για το $\text{step}$-οστό χρονικό
 βήμα) στα \texttt{kpiRepeatedRuns.m} και \texttt{temporalPassSimulation.m}
-αντίστοιχα. Αυτό εξασφαλίζει ότι κάθε αριθμητικό αποτέλεσμα που
-παρουσιάζεται στο Κεφάλαιο~\ref{ch:results} είναι πλήρως αναπαραγώγιμο.
+αντίστοιχα. Το ίδιο ισχύει και για τον γκαουσιανό θόρυβο του
+\texttt{train\_model\_noisy\_snr.py} (Ενότητα~\ref{sec:impl-structure}):
+παράγεται από γεννήτρια \texttt{numpy} με σταθερό seed (\texttt{42}), όχι
+από την προεπιλεγμένη, μη-αναπαραγώγιμη γεννήτρια συστήματος. Αυτό
+εξασφαλίζει ότι κάθε αριθμητικό αποτέλεσμα που παρουσιάζεται στο
+Κεφάλαιο~\ref{ch:results} είναι πλήρως αναπαραγώγιμο.

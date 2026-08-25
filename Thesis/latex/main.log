@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  25 AUG 2026 10:40
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.8.11)  25 AUG 2026 10:51
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1217,17 +1217,24 @@ Overfull \hbox (2.38019pt too wide) in paragraph at lines 55--58
 7[], απο-
  []
 
+
+Overfull \hbox (65.29297pt too wide) in paragraph at lines 67--72
+\TU/TimesNewRoman(1)/m/n/12 κύμανση SNR του Πίνακα []5.2[], όχι από επινοημένη 
+τιμή). Αποτελέσματα στο \TU/Consolas(1)/m/n/12 results_noisy_snr/\TU/TimesNewRo
+man(1)/m/n/12 . 
+ []
+
 ) (chapters/ch5_results.tex
-Overfull \hbox (77.68686pt too wide) in paragraph at lines 92--1
+Overfull \hbox (77.68686pt too wide) in paragraph at lines 103--1
 \TU/TimesNewRoman(1)/m/n/12 run, \TU/Consolas(1)/m/n/12 rng(step+1) \TU/TimesNe
 wRoman(1)/m/n/12 για το $[]$-οστό χρονικό βήμα) στα \TU/Consolas(1)/m/n/12 kpiR
 epeatedRuns.m \TU/TimesNewRoman(1)/m/n/12 και \TU/Consolas(1)/m/n/12 temporalPa
 ssSimulation.m
  []
 
-[19]
+[19] [20]
 Κεφάλαιο 5.
-[20
+[21
 
 ]
 File: figures/kpi_hist_Capacity_Mbps.png Graphic file (type bmp)
@@ -1236,12 +1243,12 @@ File: figures/kpi_hist_EnergyPerBit_uJ.png Graphic file (type bmp)
 <figures/kpi_hist_EnergyPerBit_uJ.png>
 File: figures/kpi_hist_SNR_dB.png Graphic file (type bmp)
 <figures/kpi_hist_SNR_dB.png>
- [21] [22]
+ [22] [23]
 File: figures/temporal_SatElevation_deg.png Graphic file (type bmp)
 <figures/temporal_SatElevation_deg.png>
 File: figures/temporal_SNR_dB.png Graphic file (type bmp)
 <figures/temporal_SNR_dB.png>
- [23] [24]
+ [24] [25]
 Overfull \hbox (17.80948pt too wide) in paragraph at lines 233--240
 []\TU/TimesNewRoman(1)/m/n/12 Πάνω σε ένα σύνολο δεδομένων $\OT1/cmr/m/n/12 200
 $ \TU/TimesNewRoman(1)/m/n/12 τυχαιοποιημένων σεναρίων ($\OT1/cmr/m/n/12 1313$ 
@@ -1249,16 +1256,16 @@ $ \TU/TimesNewRoman(1)/m/n/12 τυχαιοποιημένων σεναρίων ($
 TimesNewRoman(1)/m/n/12 )
  []
 
-[25]
+[26]
 File: figures/roc_curve.png Graphic file (type bmp)
 <figures/roc_curve.png>
 File: figures/feature_importance_RandomForest.png Graphic file (type bmp)
 <figures/feature_importance_RandomForest.png>
- [26] [27]
+ [27] [28]
 File: figures/feature_importance_RandomForest_geometry_only.png Graphic file (t
 ype bmp)
 <figures/feature_importance_RandomForest_geometry_only.png>
- [28]) (chapters/ch6_discussion_future_work.tex [29]
+) (chapters/ch6_discussion_future_work.tex [29] [30]
 Κεφάλαιο 6.
 
 Overfull \hbox (5.42023pt too wide) in paragraph at lines 7--9
@@ -1273,55 +1280,55 @@ Overfull \hbox (12.34502pt too wide) in paragraph at lines 11--18
  []
 
 
-Overfull \hbox (1.89975pt too wide) in paragraph at lines 27--37
+Overfull \hbox (1.89975pt too wide) in paragraph at lines 27--46
 []\TU/TimesNewRoman(1)/m/n/12 Εντοπίστηκαν δύο συγκεκριμένοι περιορισμοί του τρ
 έχοντος μοντέλου (Ενότητες []5.3.1[], []5.3.2[]):
  []
 
-[30
+[31
 
 ]
-Overfull \hbox (0.54434pt too wide) in paragraph at lines 53--65
+Overfull \hbox (0.54434pt too wide) in paragraph at lines 62--74
 []\TU/TimesNewRoman(1)/b/n/12 Δορυφορικό κανάλι χωρίς ιονοσφαιρική σπινθηρίδα. 
 \TU/TimesNewRoman(1)/m/n/12 Το μοντέλο FSPL περιλαμβάνει πλέον
  []
 
 
-Overfull \hbox (11.36264pt too wide) in paragraph at lines 53--65
+Overfull \hbox (11.36264pt too wide) in paragraph at lines 62--74
 \TU/TimesNewRoman(1)/m/n/12 ποιούν πλέον συμμετρικά ένα ενιαίο, βαθμωτό κέρδος 
 κεραίας το καθένα (εξισώσεις [], []),
  []
 
 
-Overfull \hbox (1.26398pt too wide) in paragraph at lines 88--96
+Overfull \hbox (1.26398pt too wide) in paragraph at lines 97--105
 []\TU/TimesNewRoman(1)/m/n/12 Ένα χρονικά συσχετισμένο μοντέλο shadow fading αν
 τί για ανεξάρτητο δείγμα (εξίσωση [])
  []
 
-
-Overfull \hbox (22.054pt too wide) in paragraph at lines 96--100
+[32]
+Overfull \hbox (22.054pt too wide) in paragraph at lines 105--109
 []\TU/TimesNewRoman(1)/m/n/12 Φραγμένη χωρητικότητα MCS/CQI αντί για μη-φραγμέν
 η χωρητικότητα Shannon (εξίσωση [],
  []
 
-[31]
-Overfull \hbox (20.27776pt too wide) in paragraph at lines 107--115
+
+Overfull \hbox (20.27776pt too wide) in paragraph at lines 116--124
 \TU/TimesNewRoman(1)/m/n/12 δύο υποψηφίων (Ενότητα []5.5[], Πίνακας []5.5[]): δ
 ύο νέα πειράματα (\TU/Consolas(1)/m/n/12 train_model_noisy_snr.py\TU/TimesNewRo
 man(1)/m/n/12 ,
  []
 
-
-Overfull \hbox (6.74065pt too wide) in paragraph at lines 146--151
+[33]
+Overfull \hbox (6.74065pt too wide) in paragraph at lines 155--160
 []\TU/TimesNewRoman(1)/b/n/12 Πραγματική πολυσυνδεσιμότητα. \TU/TimesNewRoman(1
 )/m/n/12 Επέκταση του κανόνα επιλογής κόμβου πέρα από το single-
  []
 
-[32]) (chapters/ch7_conclusions.tex [33]
+) (chapters/ch7_conclusions.tex [34]
 Κεφάλαιο 7.
-) [34
+) [35
 
-]
+] [36]
 Overfull \hbox (10.92528pt too wide) in paragraph at lines 126--126
 []\TU/TimesNewRoman(1)/m/n/12 X. Li []και []B. Shang, ``Advancing Multi-Connect
 ivity in Satellite-Terrestrial Integrated Networks:
@@ -1358,9 +1365,9 @@ Overfull \hbox (12.92043pt too wide) in paragraph at lines 126--126
 ing in Mobile Radio Systems'', \TU/TimesNewRoman(1)/m/it/12 Electronics
  []
 
-[35
+[37
 
-] (appendix/appendixA_code.tex [36]
+] (appendix/appendixA_code.tex [38]
 Παράρτημα \Greeknumeral {1}.
 
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
@@ -1369,13 +1376,13 @@ File: lstlang1.sty 2025/11/14 1.11b listings language file
 )
 Package hyperref Info: bookmark level for unknown lstlisting defaults to 0 on i
 nput line 18.
- [37
+ [39
 
-] [38] [39]
+] [40] [41]
 (C:\Users\g.zachos\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang1.st
 y
 File: lstlang1.sty 2025/11/14 1.11b listings language file
-)) [40] (main.aux)
+)) [42] (main.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
@@ -1395,4 +1402,4 @@ Here is how much of TeX's memory you used:
  1348 hyphenation exceptions out of 8191
  73i,13n,101p,695b,5436s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (55 pages).
+Output written on main.pdf (57 pages).
