@@ -100,7 +100,7 @@ $\rightarrow$ \texttt{μετρικές (JSON) + γραφήματα (PNG)}
 \section{Αναπαραγωγιμότητα}
 \label{sec:impl-reproducibility}
 
-Όλα τα scripts καλούν \texttt{rng(seed)} με ρητή τιμή σπόρου πριν από κάθε
+Όλα τα scripts καλούν \texttt{rng(seed)} με ρητή τιμή seed πριν από κάθε
 στοχαστική εκτέλεση: σταθερό seed (\texttt{rng(42)}) για το στατικό
 σενάριο αναφοράς και τον Monte Carlo dataset generator, και διαφορετικό,
 αλλά ντετερμινιστικά καθορισμένο seed ανά επανάληψη (\texttt{rng(r)} για

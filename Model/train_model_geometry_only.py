@@ -1,25 +1,10 @@
 """
 Model/train_model_geometry_only.py
 
-Second, harder ML pass on top of the Part 1 simulation. train_model.py
-gives the classifier ground-truth CandBS_SNR_dB/CandSat_SNR_dB, which
-already near-determine the label (ServingType = argmax of the two) - a
-pipeline sanity check, not a realistic prediction problem.
-
-This script removes that shortcut: it drops both candidate SNR columns
-AND both candidate path-loss columns (PathLoss is a near-affine proxy for
-SNR given the fixed per-type EIRP/noise floor in simulateScenario.m, so
-keeping it would let the model reconstruct SNR anyway and reintroduce the
-same shortcut under a different name). What remains is only what a real
-system would know about a link *before* measuring it: geometry
-(CandBS_Distance_m, CandSat_Elevation_deg, CandSat_SlantRange_m,
-CandSat_Visible) and scenario context (NumBS, NumUsers, ScenarioType).
-
-Because the underlying channel is stochastic (per-link LOS/NLOS draw +
-log-normal shadow fading, TR 38.901 SS7.4), geometry alone does not
-determine the winner - a lower accuracy here than in train_model.py is
-the expected, correct outcome, not a regression. The point is realism,
-not the metric.
+Harder pass on train_model.py: drops CandBS_SNR_dB/CandSat_SNR_dB and both
+PathLoss columns (a near-affine SNR proxy) so only geometry/context
+features remain - what a real system knows before measuring a link.
+Lower accuracy than train_model.py is expected, not a regression.
 
 Usage:
     python train_model_geometry_only.py
@@ -53,17 +38,11 @@ ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
 RESULTS_DIR = Path(__file__).resolve().parent / "results_geometry_only"
 
-# Ίδιο κατώφλι με satParameters.MinElevationDeg στο monteCarloDriver.m
-# (TR 38.821 visibility mask) - όχι μια νέα υπόθεση, απλά επαναχρησιμοποίηση.
+# Ίδιο κατώφλι με satParameters.MinElevationDeg στο monteCarloDriver.m.
 MIN_ELEVATION_DEG = 10.0
 
-# CandBS_SNR_dB/CandSat_SNR_dB και CandBS_PathLoss_dB/CandSat_PathLoss_dB
-# αποκλείονται σκόπιμα (βλ. docstring): δίνουν στο μοντέλο την απάντηση, ή
-# ένα σχεδόν-affine ισοδύναμό της. Μένουν μόνο γεωμετρικά/context
-# χαρακτηριστικά, διαθέσιμα σε ένα πραγματικό σύστημα πριν τη μέτρηση SNR.
 FEATURE_COLUMNS_NUMERIC = [
-    # BsLoad/SatLoad exclude σκόπιμα: είναι συνέπεια του ServingType, όχι
-    # ανεξάρτητος predictor (βλ. train_model.py).
+    # BsLoad/SatLoad εξαιρούνται - συνέπεια του ServingType, όχι predictor.
     "NumBS", "NumUsers",
     "CandBS_Distance_m",
     "CandSat_Elevation_deg", "CandSat_SlantRange_m",
@@ -76,18 +55,12 @@ TARGET_COLUMN = "ServingType"
 def load_dataset(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
 
-    # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
-    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR) - εξαιρείται
-    # εδώ, ίδια λογική με το train_model.py.
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
         print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
               f"out of {len(df)} - {'/'.join(CLASS_LABELS)} target only.")
         df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
 
-    # CandSat_Elevation_deg/CandSat_SlantRange_m είναι πάντα πεπερασμένα
-    # (γεωμετρία, όχι SNR/path loss) - το μόνο που χρειάζεται είναι η
-    # boolean σημαία ορατότητας.
     df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
     return df
 
@@ -101,9 +74,7 @@ def build_preprocessor() -> ColumnTransformer:
 
 
 def group_train_test_split(df: pd.DataFrame, test_size=0.25, seed=42):
-    # Split ανά ScenarioID (όχι ανά γραμμή): χρήστες του ίδιου σεναρίου
-    # μοιράζονται τις ίδιες θέσεις BS/δορυφόρου, άρα ένα row-level split θα
-    # διέρρεε γεωμετρία σεναρίου ανάμεσα σε train/test.
+    # Split ανά ScenarioID, όχι ανά γραμμή - αποφυγή διαρροής γεωμετρίας σεναρίου.
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
     train_idx, test_idx = next(splitter.split(df, groups=df["ScenarioID"]))
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)

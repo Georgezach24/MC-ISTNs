@@ -3,12 +3,12 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     figure('Name', '3D Terrestrial & NTN Network', 'Color', 'w', 'Position', [100, 100, 900, 700]);
     hold on; grid on;
     
-    % Ορίζουμε ως σημείο αναφοράς το 1ο BS
+    % Σημείο αναφοράς: το 1ο BS
     lat0 = bs_geo(1,1);
     lon0 = bs_geo(1,2);
     h0   = 0;
-    
-    % Μετατροπή μόνο για X, Y (αγνοούμε το Z του ENU λόγω καμπυλότητας της γης κσι νσ μπορέσουμε ετσι να δούμε όλους τους χρήστες)
+
+    % Μόνο X, Y από το ENU (το Z αγνοείται λόγω καμπυλότητας Γης)
     [xBS, yBS, ~] = geodetic2enu(bs_geo(:,1), bs_geo(:,2), bs_geo(:,3), lat0, lon0, h0, wgs84);
     [xUE, yUE, ~] = geodetic2enu(user_geo(:,1), user_geo(:,2), user_geo(:,3), lat0, lon0, h0, wgs84);
     [xSat, ySat, ~] = geodetic2enu(sat_geo(:,1), sat_geo(:,2), sat_geo(:,3), lat0, lon0, h0, wgs84);
@@ -34,14 +34,10 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     scatter3(xSat, ySat, zSat, 300, 'p', 'MarkerFaceColor', '#EDB120', 'MarkerEdgeColor', 'k', 'DisplayName', 'Satellite (Real Scale)');
     text(xSat(1), ySat(1), zSat(1)*1.2, " LEO Sat", 'FontSize', 11, 'FontWeight', 'bold');
     
-    % Σχεδίαση Γραμμών Σύνδεσης (Με Interpolation για να έχουμε λογαριθμική κλίμακα και να χωράνε όλα στο γράφιμα)
+    % Γραμμές σύνδεσης (interpolation για λογαριθμική κλίμακα Z)
     for u = 1:numUsers
-        % Ένας DualConnectivity χρήστης (SS-SBS, simulateScenario.m)
-        % εξυπηρετείται ΤΑΥΤΟΧΡΟΝΑ από BS και δορυφόρο - σχεδιάζονται και
-        % οι δύο γραμμές σύνδεσης (πράσινη + ματζέντα) αντί για μία. Το
-        % bestNodeVec έχει τη μορφή "BSx+SAT-1" σε αυτή την περίπτωση, οπότε
-        % το BS index εξάγεται πριν το "+" (λειτουργεί ίδια και για το
-        % απλό "BSx" της Terrestrial-only περίπτωσης).
+        % DualConnectivity: σχεδιάζονται και οι δύο γραμμές (πράσινη+ματζέντα).
+        % bestNodeVec="BSx+SAT-1" -> BS index πριν το "+".
         if bestNodeTypeVec(u) == "Terrestrial" || bestNodeTypeVec(u) == "DualConnectivity"
             bsToken = extractBefore(bestNodeVec(u) + "+", "+");
             bs_idx = str2double(extractAfter(bsToken, "BS"));
@@ -66,10 +62,7 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
         end
 
         if bestNodeTypeVec(u) == "Outage"
-            % Κανένας υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR
-            % (simulateScenario.m) - δεν σχεδιάζεται γραμμή σύνδεσης, μόνο
-            % ένα κόκκινο 'x' πάνω στον ήδη σχεδιασμένο χρήστη, ώστε η
-            % απουσία κάλυψης να είναι οπτικά εμφανής αντί για σιωπηλή.
+            % Χωρίς γραμμή σύνδεσης - κόκκινο 'x' πάνω στον χρήστη.
             scatter3(xUE(u), yUE(u), zUE(u), 200, 'x', 'MarkerEdgeColor', 'r', ...
                 'LineWidth', 2.5, 'HandleVisibility', 'off');
         end

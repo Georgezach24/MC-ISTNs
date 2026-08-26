@@ -1,13 +1,11 @@
 clc;
 clear;
-rng(42); % Σταθερός σπόρος RNG για αναπαραγώγιμα αποτελέσματα (LOS draw + shadow fading είναι πλέον στοχαστικά)
+rng(42); % Σταθερό seed - LOS draw/shadow fading είναι στοχαστικά
 %% ------------------ Γεωγραφικές θέσεις [lat lon h(m)] ------------------
-% Παράδειγμα συντεταγμένων κοντά στην Αθήνα
-% BS: [latitude, longitude, height_m] (Τα ύψη θα ενημερωθούν αυτόματα από το σενάριο)
+% Περιοχή Αθήνας. Ύψη BS ενημερώνονται αυτόματα βάσει σεναρίου.
 bs_geo = [37.9838 23.7275 25;
           37.9865 23.7310 25];
 
-% Users: [latitude, longitude, height_m]
 user_geo = [37.9845 23.7288 1.5;
             37.9870 23.7325 1.5;
             37.9825 23.7268 1.5;
@@ -32,12 +30,7 @@ simParameters.Carrier.SubcarrierSpacing = 30;
 simParameters.Carrier.CyclicPrefix = 'Normal';
 simParameters.CarrierFrequency = 3.5e9;     % FR1
 simParameters.TxPower = 43;                 % dBm ανά BS
-simParameters.AntennaGain = 8;              % dBi, κατευθυντικό κέρδος στοιχείου κεραίας BS
-                                             % (3GPP TR 38.901 §7.3, Πίνακας 7.3-1: G_E,max = 8dBi
-                                             % στο υπόδειγμα μοτίβου ακτινοβολίας στοιχείου κεραίας -
-                                             % στοιχειώδες κέρδος, όχι πλήρες array/beamforming gain,
-                                             % ώστε να μείνει συμμετρικό με το επίπεδο μοντελοποίησης
-                                             % της πλευράς του δορυφόρου, βλ. satParameters.EIRP)
+simParameters.AntennaGain = 8;              % dBi, στοιχείο κεραίας (TR 38.901 §7.3, Πίνακας 7.3-1)
 simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain; % dBm
 simParameters.RxNoiseFigure = 5;            % dB
 simParameters.RxAntTemperature = 290;       % K
@@ -70,22 +63,15 @@ satParameters.Bandwidth = 20e6;             % Hz
 satParameters.MinElevationDeg = 10;         % visibility mask
 
 %% ------------------ Parameters (Ενεργειακό μοντέλο) ------------------
-% Γραμμικό μοντέλο κατανάλωσης ισχύος EARTH (Auer et al., "How much energy
-% is needed to run a wireless network?", IEEE Wireless Commun., 2011) για
-% τον σταθμό βάσης: P = NumTrx*(P0 + DeltaP*Pout) σε ενεργή λειτουργία,
-% NumTrx*Psleep σε αδράνεια (τιμές αναφοράς macro cell, Pmax=20W <-> 43dBm
-% ήδη ίδιο με το TxPower του σεναρίου).
-simParameters.Power.NumTrx = 1;      % Αριθμός TRX ανά BS (μονο-sector μοντέλο)
-simParameters.Power.P0     = 130;    % W, σταθερή κατανάλωση σε ενεργή λειτουργία
-simParameters.Power.DeltaP = 4.7;    % κλίση κατανάλωσης ισχύος ως προς Pout
-simParameters.Power.Psleep = 75;     % W, κατανάλωση σε αδράνεια (δεν χρησιμοποιείται ακόμα
-                                      % στο per-user proxy - προορίζεται για μελλοντικό
-                                      % network-wide accounting αδρανών κόμβων)
+% EARTH model (Auer et al. 2011) για BS: P=NumTrx*(P0+DeltaP*Pout).
+simParameters.Power.NumTrx = 1;
+simParameters.Power.P0     = 130;    % W
+simParameters.Power.DeltaP = 4.7;
+simParameters.Power.Psleep = 75;     % W, αδράνεια (δεν χρησιμοποιείται ακόμα)
 
-% Γραμμικό μοντέλο ενισχυτή ισχύος (PA) για τον δορυφόρο: P = Pfix + Pout/EtaPA
-satParameters.Power.Pfix  = 0;       % W, σταθερή κατανάλωση εκτός ενισχυτή (μη τυποποιημένη
-                                      % τιμή για payload - συντηρητική προσέγγιση 0)
-satParameters.Power.EtaPA = 0.4;     % Απόδοση ενισχυτή ισχύος (τυπικό εύρος 0.35-0.5 SSPA/TWTA)
+% Γραμμικό μοντέλο ενισχυτή ισχύος δορυφόρου: P = Pfix + Pout/EtaPA
+satParameters.Power.Pfix  = 0;       % W
+satParameters.Power.EtaPA = 0.4;     % απόδοση PA (τυπικό εύρος 0.35-0.5)
 
 %% ------------------ Εκτέλεση σεναρίου (επιλογή κόμβου + χωρητικότητα) ------------------
 [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
@@ -93,8 +79,6 @@ satParameters.Power.EtaPA = 0.4;     % Απόδοση ενισχυτή ισχύ�
     nodePowerWattsVec, energyPerBitUJVec] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters);
 
-% Συνάρτηση για εμφάνιση του πίνακα (custom συνάρτηση χρήστη).
 array(numUsers, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec)
 
-% Call the visualization
 visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeVec, bestNodeVec)

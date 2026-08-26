@@ -1,23 +1,11 @@
 """
 Model/train_model.py
 
-Baseline ML proof-of-concept for Part 2 of the thesis: given per-user link
-candidate features (best-BS and satellite SNR/distance/elevation, produced by
-PROD/monteCarloDriver.m), predict which connectivity STATE
-(Terrestrial / Satellite / DualConnectivity) the threshold-based baseline in
-simulateScenario.m would select. DualConnectivity means the user is served
-simultaneously by both the best BS and the satellite (SS-SBS-style, see
-CLAUDE.md "dual-connectivity") - the label is a genuine 3-class target, not
-the binary Terrestrial-vs-Satellite choice of the original single-connectivity
-version of this script.
-
-This is a sanity-check model, not the final Part 2 deliverable: since the
-label is essentially a threshold rule on (CandBS_SNR_dB, CandSat_SNR_dB), a
-model given both candidate SNRs is expected to reproduce the rule almost
-perfectly. The point of this run is to validate the dataset pipeline
-end-to-end (MATLAB -> CSV -> Python -> trained model -> metrics) before
-tackling harder Part 2 targets (e.g. predicting from imperfect/estimated SNR,
-joint/fair allocation, or multi-KPI objectives).
+Baseline ML proof-of-concept: predict ServingType (Terrestrial/Satellite/
+DualConnectivity) from per-user candidate-link features (best-BS and
+satellite SNR/distance/elevation). This is a pipeline sanity check, not the
+final Part 2 deliverable - the label is close to a threshold rule on
+(CandBS_SNR_dB, CandSat_SNR_dB), so near-perfect accuracy is expected.
 
 Usage:
     python train_model.py
@@ -51,17 +39,13 @@ ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
-# Ίδιο κατώφλι με satParameters.MinElevationDeg στο monteCarloDriver.m
-# (TR 38.821 visibility mask) - όχι μια νέα υπόθεση, απλά επαναχρησιμοποίηση.
+# Ίδιο κατώφλι με satParameters.MinElevationDeg στο monteCarloDriver.m.
 MIN_ELEVATION_DEG = 10.0
-SENTINEL_SNR_DB = -50.0        # "πρακτικά άχρηστος" όταν ο δορυφόρος δεν είναι ορατός
+SENTINEL_SNR_DB = -50.0
 SENTINEL_PATHLOSS_DB = 300.0
 
 FEATURE_COLUMNS_NUMERIC = [
-    # BsLoad/SatLoad are deliberately excluded: they count users sharing the
-    # SAME node within a scenario, which is a downstream consequence of
-    # ServingType for every user in that scenario (satellite/DC scenarios
-    # mechanically have larger groups) - a circular predictor, not a cause.
+    # BsLoad/SatLoad εξαιρούνται - downstream συνέπεια του ServingType, όχι αιτία.
     "NumBS", "NumUsers",
     "CandBS_SNR_dB", "CandBS_Distance_m", "CandBS_PathLoss_dB",
     "CandSat_SNR_dB", "CandSat_Elevation_deg", "CandSat_SlantRange_m",
@@ -74,18 +58,12 @@ TARGET_COLUMN = "ServingType"
 
 def load_dataset(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
-    # Ο δορυφόρος έχει -Inf SNR / Inf path loss όταν elevation < MinElevationDeg
-    # (visibility mask στο simulateScenario.m). Αντικατάσταση με sentinel τιμές
-    # + ρητό boolean flag, ώστε το μοντέλο να μη σκάει σε μη-πεπερασμένες τιμές.
+    # Δορυφόρος: -Inf SNR/Inf path loss όταν elevation < MinElevationDeg -> sentinel + flag.
     df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
     df["CandSat_SNR_dB"] = df["CandSat_SNR_dB"].replace([np.inf, -np.inf], SENTINEL_SNR_DB)
     df["CandSat_PathLoss_dB"] = df["CandSat_PathLoss_dB"].replace([np.inf, -np.inf], SENTINEL_PATHLOSS_DB)
 
-    # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
-    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR). Εξαιρείται εδώ:
-    # το "ποια/ποιες από τις διαθέσιμες ζεύξεις χρησιμοποιούνται" είναι
-    # διαφορετικό ερώτημα από το "υπάρχει καθόλου κάλυψη" - η ανάμειξή τους
-    # θα αλλοίωνε το 3-κλασικό πρόβλημα Terrestrial/Satellite/DualConnectivity.
+    # Outage (καμία κάλυψη) εξαιρείται - διαφορετικό ερώτημα από ποια ζεύξη χρησιμοποιείται.
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
         print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
@@ -103,9 +81,7 @@ def build_preprocessor() -> ColumnTransformer:
 
 
 def group_train_test_split(df: pd.DataFrame, test_size=0.25, seed=42):
-    # Split ανά ScenarioID (όχι ανά γραμμή): χρήστες του ίδιου σεναρίου
-    # μοιράζονται τις ίδιες θέσεις BS/δορυφόρου, άρα ένα row-level split θα
-    # διέρρεε γεωμετρία σεναρίου ανάμεσα σε train/test.
+    # Split ανά ScenarioID, όχι ανά γραμμή - αποφυγή διαρροής γεωμετρίας σεναρίου.
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
     train_idx, test_idx = next(splitter.split(df, groups=df["ScenarioID"]))
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)

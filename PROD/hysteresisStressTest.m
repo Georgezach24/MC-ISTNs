@@ -1,37 +1,21 @@
 function results = hysteresisStressTest(numSteps, outputDir)
-%HYSTERESISSTRESSTEST Επικυρώνει τη μηχανή υστέρησης/TTT του
-% simulateScenario.m (updateLinkActivation, βλ. σχόλια εκεί) πάνω σε ένα
-% σκόπιμα κατασκευασμένο "boundary" σενάριο, όχι στο κύριο σενάριο
-% αναφοράς (temporalPassSimulation.m): εκεί οι χρήστες είναι ακίνητοι, οπότε
-% το χωρικά συσχετισμένο shadow fading (Gudmundson 1991) "παγώνει" στην
-% τιμή του πρώτου βήματος (ρ=1, καμία νέα τυχαιότητα ανά βήμα) και δεν
-% υπάρχει καθόλου ταλάντωση κοντά στο κατώφλι να καταστείλει η υστέρηση -
-% ένα πριν/μετά πάνω σε εκείνο το σενάριο θα έδειχνε ταυτόσημους αριθμούς.
+%HYSTERESISSTRESSTEST Επικυρώνει τη μηχανή υστέρησης/TTT
+% (updateLinkActivation στο simulateScenario.m) σε ένα σκόπιμα
+% κατασκευασμένο "boundary" σενάριο: το κύριο σενάριο αναφοράς
+% (temporalPassSimulation.m) έχει ακίνητους χρήστες, οπότε το
+% συσχετισμένο shadow fading "παγώνει" (ρ=1) και δεν υπάρχει ταλάντωση
+% κοντά στο κατώφλι να καταστείλει η υστέρηση.
 %
-% Εδώ κατασκευάζεται αντ' αυτού ένας μοναδικός "boundary" χρήστης σε
-% απόσταση ~2750m από έναν BS (UMa, NLOS) - απόσταση συντονισμένη
-% εμπειρικά (μέσω nrPathLoss πάνω στο ΙΔΙΟ μοντέλο, όχι εικασία) ώστε το
-% μέσο SNR να πέφτει ακριβώς πάνω στο minUsableSnrDb (≈-7.53dB) - και ο
-% χρήστης μετακινείται ελαφρώς (~2m/βήμα, τυχαία κατεύθυνση, ίδιο
-% μονοπάτι και στα δύο configs) ώστε το ρ<1 στο correlatedLosState να
-% συνεχίζει να εγχέει γνήσια νέα τυχαιότητα shadow fading ανά βήμα -
-% ίδιο μοντέλο καναλιού με την κύρια προσομοίωση (TR 38.901 §7.4.1,
-% Gudmundson 1991), όχι επινοημένος θόρυβος μέτρησης.
+% Εδώ ένας "boundary" χρήστης στα ~2750m από BS (UMa NLOS, μέσο SNR ≈
+% minUsableSnrDb) μετακινείται ελαφρώς κάθε βήμα (~18m, τυχαία
+% κατεύθυνση) ώστε ρ<1 στο correlatedLosState να εγχέει γνήσια νέα
+% τυχαιότητα shadow fading. Ο δορυφόρος τίθεται ποτέ ορατός
+% (MinElevationDeg=90) ώστε το τεστ να απομονώνει το επίγειο σκέλος.
 %
-% Ο δορυφόρος τίθεται σκόπιμα ΠΟΤΕ ορατός (MinElevationDeg=90), ώστε το
-% τεστ να απομονώνει την απόφαση ενεργοποίησης ΜΟΝΟ στο επίγειο σκέλος.
-% Πρόκειται ρητά για σενάριο ΕΠΙΚΥΡΩΣΗΣ (stress test) του μηχανισμού
-% απόφασης, όχι για μια νέα claim ρεαλισμού πάνω στο ίδιο το φυσικό
-% μοντέλο καναλιού (που παραμένει αμετάβλητο, standards-grounded).
-%
-% Τρέχει ΔΥΟ configs πάνω στο ΙΔΙΟ πρόγραμμα rng ανά βήμα (rng(step) πριν
-% από κάθε κλήση simulateScenario, ίδιο και στα δύο) - άρα ΙΔΙΕΣ
-% πραγματοποιήσεις καναλιού, με μόνη διαφορά το simParameters.Hysteresis:
-%   'off': MarginDb=0, TimeToTriggerSteps=0  (ο ακατέργαστος κανόνας κατωφλίου)
-%   'on' : MarginDb=2, TimeToTriggerSteps=1  (ίδιες τιμές με το κύριο
-%          σενάριο αναφοράς, temporalPassSimulation.m)
-% ώστε η όποια διαφορά στα αποτελέσματα να οφείλεται αποκλειστικά στον
-% μηχανισμό απόφασης, όχι σε διαφορετική τυχαία πραγματοποίηση καναλιού.
+% Τρέχει δύο configs με το ίδιο πρόγραμμα rng(step) (ίδιο κανάλι),
+% διαφέρουν μόνο σε simParameters.Hysteresis:
+%   'off': MarginDb=0, TimeToTriggerSteps=0
+%   'on' : MarginDb=2, TimeToTriggerSteps=1 (ίδιο με temporalPassSimulation.m)
 %
 % Χρήση:
 %   hysteresisStressTest();      % 80 βήματα -> ../Results
@@ -55,7 +39,7 @@ boundaryStartLat = bs_geo(1);
 boundaryStartLon = bs_geo(2) + 2750/(111320*cosd(bs_geo(1)));
 user_geo0 = [boundaryStartLat, boundaryStartLon, 1.5];
 
-sat_geo = [0 0 550e3];   % αδιάφορη θέση - ο δορυφόρος είναι ούτως ή άλλως ποτέ ορατός
+sat_geo = [0 0 550e3];   % αδιάφορη θέση - ποτέ ορατός
 
 simParameters.Carrier = nrCarrierConfig;
 simParameters.Carrier.NSizeGrid = 51;
@@ -81,18 +65,13 @@ satParameters.TxPower = 34;
 satParameters.AntennaGain = 30;
 satParameters.EIRP = satParameters.TxPower + satParameters.AntennaGain;
 satParameters.Bandwidth = 20e6;
-satParameters.MinElevationDeg = 90;   % σκόπιμα ποτέ ορατός - βλ. σχόλιο κεφαλίδας
+satParameters.MinElevationDeg = 90;   % σκόπιμα ποτέ ορατός
 satParameters.Power.Pfix = 0;
 satParameters.Power.EtaPA = 0.4;
 
-% Μονοπάτι κίνησης (~18m/βήμα, τυχαία κατεύθυνση κάθε βήμα) - υπολογισμένο
-% ΜΙΑ φορά, κοινό και στα δύο configs, ανεξάρτητο από το rng(step) του
-% καναλιού. Η correlation distance UMa NLOS είναι 50m (TR 38.901 Πίνακας
-% 7.5-6) - μια μετατόπιση της τάξης των μερικών m/βήμα (αρχική δοκιμή:
-% 2m) αποδείχθηκε πολύ μικρή για ουσιαστική αποσυσχέτιση (ρ=exp(-2/50)
-% ≈0.96, σχεδόν παγωμένο ακόμα και σε 80 βήματα) - 18m/βήμα δίνει ρ≈0.69,
-% αρκετή ανάμειξη ώστε να εμφανιστεί γνήσια ταλάντωση γύρω από το
-% κατώφλι μέσα σε λίγες δεκάδες βήματα.
+% Μονοπάτι κίνησης, κοινό και στα δύο configs. correlation distance UMa
+% NLOS=50m (TR 38.901 Πίνακας 7.5-6) - 18m/βήμα δίνει ρ≈0.69, αρκετό για
+% γνήσια ταλάντωση (2m/βήμα δοκιμάστηκε πρώτα, ρ≈0.96, σχεδόν παγωμένο).
 stepSizeM = 18;
 rng(12345);
 jitterAngles = 2*pi*rand(numSteps,1);

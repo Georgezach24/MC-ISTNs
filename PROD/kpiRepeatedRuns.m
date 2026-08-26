@@ -1,14 +1,8 @@
 function T = kpiRepeatedRuns(numRuns, outputDir)
-%KPIREPEATEDRUNS Τρέχει την ΙΔΙΑ στατική τοπολογία του test_simulation.m
-% (2 terrestrial BS + 1 LEO δορυφόρος, 6 χρήστες) πολλές φορές με
-% διαφορετικό RNG seed κάθε φορά, ώστε να αποτυπωθεί η διακύμανση των KPI
-% που οφείλεται αποκλειστικά στη στοχαστικότητα του καναλιού (LOS draw +
-% shadow fading ανά ζεύξη, TR 38.901 §7.4.1/§7.4.2) - η γεωμετρία
-% (θέσεις BS/χρηστών/δορυφόρου) παραμένει σταθερή σε κάθε run.
-%
-% Σκοπός: απάντηση στο αίτημα του επιβλέποντα να τρέξουμε το τρέχον setup
-% (2 terrestrial BS + 1 LEO) και να δούμε τι αποτελέσματα βγάζει για
-% 2-3 KPIs (throughput, energy per bit, SNR).
+%KPIREPEATEDRUNS Τρέχει την ίδια στατική τοπολογία του test_simulation.m
+% πολλές φορές με διαφορετικό RNG seed, ώστε να αποτυπωθεί η διακύμανση
+% των KPI από τη στοχαστικότητα του καναλιού (LOS/shadow fading) - η
+% γεωμετρία παραμένει σταθερή.
 %
 % Χρήση:
 %   T = kpiRepeatedRuns();          % 500 επαναλήψεις -> ../Results
@@ -36,7 +30,7 @@ user_geo = [37.9845 23.7288 1.5;
             37.0380 23.9550 1.5;
             38.0500 23.9500 1.5];
 
-sat_geo = [38.0200 23.8200 550e3];   % LEO (550 km), γεωμετρία σταθερή σε κάθε run
+sat_geo = [38.0200 23.8200 550e3];   % LEO 550km
 
 numUsers = size(user_geo,1);
 wgs84 = wgs84Ellipsoid;
@@ -81,14 +75,10 @@ satParameters.Power.EtaPA = 0.4;
 allTables = cell(numRuns,1);
 
 for r = 1:numRuns
-    rng(r); % διαφορετικό seed ανά run -> διαφορετικό LOS/shadow-fading draw
+    rng(r); % διαφορετικό seed ανά run
 
-    % Ζητείται η πλήρης λίστα εξόδων (όχι μόνο του νικητή) ώστε να είναι
-    % διαθέσιμα τα per-candidate CandBS_SNR_dB/CandSat_SNR_dB - απαραίτητα
-    % εδώ επειδή, μετά την προσθήκη DualConnectivity, δεν υπάρχει πλέον
-    % εγγυημένα καμιά "Terrestrial"-only γραμμή στη σύνοψη ανά ServingType
-    % (βλ. παρακάτω) από την οποία να αντληθεί η διακύμανση SNR του
-    % επίγειου σκέλους.
+    % Ζητείται και η πλήρης λίστα per-candidate εξόδων (CandBS_SNR_dB/
+    % CandSat_SNR_dB), όχι μόνο ο νικητής - χρειάζονται παρακάτω.
     [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
         bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
         nodePowerWattsVec, energyPerBitUJVec, ...
@@ -111,10 +101,6 @@ T = vertcat(allTables{:});
 writetable(T, fullfile(outputDir, 'kpi_repeated_runs.csv'));
 
 %% ------------------ Σύνοψη ανά τύπο εξυπηρέτησης ------------------
-% Το groupsummary ομαδοποιεί βάσει των ΠΡΑΓΜΑΤΙΚΩΝ τιμών ServingType, άρα
-% τυχόν γραμμές "Outage" (simulateScenario.m - ελάχιστο χρησιμοποιήσιμο
-% SNR) εμφανίζονται αυτόματα ως ξεχωριστή ομάδα, χωρίς να χρειάζεται
-% ρητή διαχείριση εδώ.
 G = groupsummary(T, 'ServingType', {'mean','std','min','max'}, ...
     {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB'});
 disp(G)
@@ -125,21 +111,12 @@ numDual   = sum(T.ServingType == "DualConnectivity");
 fprintf('Outage: %d/%d γραμμές (%.2f%%)\n', numOutage, height(T), 100*numOutage/height(T));
 fprintf('DualConnectivity: %d/%d γραμμές (%.2f%%)\n', numDual, height(T), 100*numDual/height(T));
 
-%% ------------------ Διακύμανση SNR ανά ΖΕΥΞΗ (όχι ανά τύπο εξυπηρέτησης) ------------------
-% Πηγή του noise sigma για το Model/train_model_noisy_snr.py. Πριν το
-% DualConnectivity, η στήλη std_SNR_dB του kpi_summary_by_type.csv (groupby
-% ServingType) αρκούσε, αφού κάθε νικητής κόμβος ήταν ακριβώς μία ζεύξη.
-% Πλέον όμως δεν υπάρχει καμία εγγύηση ότι θα υπάρχουν "Terrestrial"-only
-% γραμμές (στο τρέχον static topology ΔΕΝ υπάρχουν καθόλου - όλοι οι
-% κοντινοί χρήστες παίρνουν DualConnectivity σε κάθε run, βλ.
-% Ενότητα~\ref{sec:results-mc} στη διπλωματική) - το CandBS_SNR_dB/
-% CandSat_SNR_dB όμως υπολογίζεται ΠΑΝΤΑ, ανεξάρτητα από την τελική
-% κατάσταση σύνδεσης, οπότε η διακύμανση ανά ζεύξη αντλείται απευθείας
-% από αυτά αντί από τον νικητή. Περιορίζεται στους ΧΡΗΣΙΜΟΠΟΙΗΣΙΜΟΥΣ
-% υποψηφίους (SNR >= minUsableSnrDb, ίδιο κατώφλι με simulateScenario.m) -
-% χωρίς αυτό τον περιορισμό, οι μακρινοί χρήστες 5-6 (πάντα εκτός εμβέλειας
-% κάθε BS, SNR βαθιά αρνητικό λόγω γεωμετρίας/NLOS και όχι θορύβου
-% μέτρησης) θα διόγκωναν τεχνητά τη std σε μη-ρεαλιστικά επίπεδα.
+%% ------------------ Διακύμανση SNR ανά ζεύξη (όχι ανά τύπο εξυπηρέτησης) ------------------
+% Πηγή noise sigma για Model/train_model_noisy_snr.py. Χρησιμοποιεί το
+% per-candidate CandBS_SNR_dB/CandSat_SNR_dB (πάντα υπολογισμένο,
+% ανεξάρτητα από το ServingType), περιορισμένο σε χρησιμοποιήσιμους
+% υποψηφίους (SNR >= minUsableSnrDb) ώστε μακρινοί, εκτός-εμβέλειας
+% χρήστες να μη διογκώνουν τεχνητά τη std.
 minSpectralEfficiency = 0.2344;
 minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1);   % ≈ -7.53 dB, TS 38.214 MCS 0
 
@@ -153,8 +130,7 @@ disp(linkSnrStd)
 writetable(linkSnrStd, fullfile(outputDir, 'kpi_link_snr_std.csv'));
 
 %% ------------------ Γραφήματα (overlaid histograms ανά τύπο εξυπηρέτησης) ------------------
-% boxplot() απαιτεί Statistics and Machine Learning Toolbox (μη διαθέσιμο
-% εδώ) - χρησιμοποιούμε επικαλυπτόμενα ιστογράμματα (base MATLAB) αντ' αυτού.
+% boxplot() απαιτεί Statistics Toolbox (μη διαθέσιμο) - ιστογράμματα αντ' αυτού.
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB'};
 kpiLabel = {'Throughput (Mbps)','Energy per bit (\muJ/bit)','SNR (dB)'};
 

@@ -1,25 +1,12 @@
 """
 Model/ml_common.py
 
-Shared multiclass evaluation/plotting helpers for the three train_model*.py
-scripts. Until now ServingType was binary (Terrestrial/Satellite, with
-Outage filtered out); PROD/simulateScenario.m now also produces
-"DualConnectivity" rows (SS-SBS-style simultaneous BS+satellite service,
-see CLAUDE.md "Key design decisions" / dual-connectivity), so the target
-is a genuine 3-class problem. The confusion-matrix/F1/ROC-AUC logic below
-is shared (not copy-pasted three times) because the three experiments are
-compared side by side in the thesis (Chapter 5) - divergence between
-copies would make that comparison unreliable.
-
-Metric choices, changed from the previous binary version:
-  - F1: macro-averaged over the 3 classes (was F1 of the "Satellite"
-    class only, which assumed exactly 2 classes and would raise on 3).
-  - ROC-AUC: one-vs-rest per class, macro-averaged manually (not via
-    sklearn's roc_auc_score(multi_class="ovr"), which raises if a class is
-    completely absent from the test fold - a real possibility here, since
-    DualConnectivity/Terrestrial class balance varies a lot between the
-    three experiments' datasets). Classes absent from y_test are skipped
-    and reported as such, instead of crashing the run.
+Shared 3-class (Terrestrial/Satellite/DualConnectivity) evaluation/plotting
+helpers for the three train_model*.py scripts, so their metrics stay
+comparable. F1 and ROC-AUC (one-vs-rest, manual macro-average) are masked
+to classes actually present in y_test, since class balance varies a lot
+between experiments and sklearn's roc_auc_score would raise on an absent
+class.
 """
 from pathlib import Path
 
@@ -60,13 +47,8 @@ def evaluate_model(name, pipeline, X_test, y_test, results, results_dir: Path, t
     y_proba = pipeline.predict_proba(X_test)          # (n_samples, n_classes)
     class_order = list(pipeline.classes_)              # σειρά στηλών του y_proba
 
-    # Μάσκα σε κλάσεις ΠΑΡΟΥΣΕΣ στο y_test: μία απούσα κλάση (π.χ. "Terrestrial"
-    # με 0 γραμμές στο τρέχον dataset - βλ. CLAUDE.md, dual-connectivity
-    # finding) θα εμφάνιζε πάντα 0 precision/recall by convention και θα
-    # τραβούσε τεχνητά κάτω το macro F1/AUC, δίνοντας παραπλανητική εικόνα
-    # "δύσκολου 3-class προβλήματος" ενώ στην πραγματικότητα είναι μια
-    # απλή απουσία δεδομένων. Το ίδιο masking ήδη εφαρμόζεται στο AUC
-    # (macro_ovr_auc) - εδώ εφαρμόζεται και στο F1 για συνέπεια.
+    # Μάσκα σε κλάσεις παρούσες στο y_test - μια απούσα κλάση θα τραβούσε
+    # τεχνητά κάτω το macro F1 (0 precision/recall by convention).
     present_labels = [c for c in CLASS_LABELS if (y_test == c).any()]
 
     acc = accuracy_score(y_test, y_pred)

@@ -24,11 +24,11 @@ for u = 1:numUsers
     userBestSNR  = -Inf;
     userBestNode = "";
 
-    %% ===== Terrestrial BS candidates: kalyteros ypopsifios BS =====
+    %% ===== Terrestrial BS candidates =====
     for b = 1:numBs
         % ... geodetic2enu, groundDistance, d3d ...
 
-        % LOS probability kata TR 38.901 Sec. 7.4.2, oxi statheri global timi
+        % LOS probability, TR 38.901 par. 7.4.2
         pLos  = losProbability38901(groundDistance, user_geo(u,3), ...
                                      simParameters.PathLoss.Scenario);
         isLos = rand() < pLos;
@@ -37,10 +37,10 @@ for u = 1:numUsers
                               simParameters.CarrierFrequency, isLos, ...
                               txPosition, rxPosition);
 
-        % Shadow fading: log-normal deigma me tipiki apoklisi sigmaSF
+        % Shadow fading: log-normal, tipiki apoklisi sigmaSF
         pathLoss = pathLoss + sigmaSF * randn();
 
-        % EIRP = TxPower + AntennaGain (TR 38.901 Table 7.3-1, 8 dBi)
+        % EIRP = TxPower + AntennaGain (TR 38.901 Pinakas 7.3-1)
         snr_db = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
 
         if snr_db > userBestSNR
@@ -59,8 +59,7 @@ for u = 1:numUsers
         lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency;
         satPathLoss = fspl(slantRangeSat, lambdaSat);
 
-        % Atmospheric gas attenuation, TR 38.811 eq (6.6-8) / ITU-R P.676-12
-        % Annex 2 (equivalent-height model) - see gasAttenuationSlantP676
+        % Atmosfairiki aposvesi aerion, TR 38.811 ex. (6.6-8)
         satPathLoss = satPathLoss + gasAttenuationSlantP676( ...
             satParameters.CarrierFrequency, elevSat);
 
@@ -70,7 +69,7 @@ for u = 1:numUsers
         satSnrDb = -Inf;
     end
 
-    %% ===== Apofasi syndesimotitas: tessera katastasiaka montelo SS-SBS =====
+    %% ===== Apofasi syndesimotitas (SS-SBS, tesseris katastaseis) =====
     bsUsable  = userBestSNR >= minUsableSnrDb;
     satUsable = satSnrDb    >= minUsableSnrDb;
 
@@ -102,7 +101,7 @@ end
 (εξίσωση~\eqref{eq:correlated-sf}) αντί να επαναδειγματίζεται ανεξάρτητα.
 
 \begin{lstlisting}[language=Matlab, caption={Απόσπασμα από \texttt{PROD/temporalPassSimulation.m}: ταχύτητα ίχνους εδάφους και χρονικός βρόχος.}]
-muEarth = 3.986004418e14;  % m^3/s^2, varitiki parametros Gis
+muEarth = 3.986004418e14;  % m^3/s^2
 Re      = 6371e3;          % m, mesi aktina Gis
 a       = Re + satAltitude;
 orbitalPeriodS  = 2*pi*sqrt(a^3/muEarth);      % Kepleriani periodos (s)
@@ -116,9 +115,7 @@ while step < maxSteps
 
     rng(step + 1);
 
-    % to channelState perna apo vima se vima (LOS/NLOS + shadow-fading
-    % deigma ana zeuxi BS-xristi), oste na einai xorika sysxetismeno me
-    % to proigoumeno vima (Gudmundson 1991 + 3GPP TR 38.901 Pinakas 7.5-6)
+    % to channelState perna vima-vima, xorika sysxetismeno (Gudmundson 1991)
     [bestNodeVec, bestNodeTypeVec, ~, ~, bestSnrDbVec, capacityMbpsVec, ...
         ~, ~, energyPerBitUJVec, ~, ~, ~, ~, satElevationVec, ~, ~, ...
         channelState] = ...
@@ -148,22 +145,17 @@ end
 
 \begin{lstlisting}[language=Python, caption={Απόσπασμα από \texttt{Model/train\_model.py}: χαρακτηριστικά και grouped train/test split.}]
 FEATURE_COLUMNS_NUMERIC = [
-    # BsLoad/SatLoad exclude skopima: einai synepeia tou ServingType, oxi
-    # anexartitos provlepsis (kyklikos, oxi genikos, predictor).
+    # BsLoad/SatLoad exclude: synepeia tou ServingType, oxi predictor.
     "NumBS", "NumUsers",
     "CandBS_SNR_dB", "CandBS_Distance_m", "CandBS_PathLoss_dB",
     "CandSat_SNR_dB", "CandSat_Elevation_deg", "CandSat_SlantRange_m",
     "CandSat_PathLoss_dB",
 ]
-# ServingType: Terrestrial / Satellite / DualConnectivity (3-class stochos
-# meta tin prosthiki polysyndesimotitas - blepe ml_common.py gia to
-# koino multiclass evaluation logic pou moirazontai kai ta tria scripts).
+# ServingType: Terrestrial/Satellite/DualConnectivity (3-class, vlepe ml_common.py).
 TARGET_COLUMN = "ServingType"
 
 def group_train_test_split(df, test_size=0.25, seed=42):
-    # Split ana ScenarioID (oxi ana grammi): xristes tou idiou senariou
-    # moirazontai tin idia geometria BS/doryforou, ara ena row-level split
-    # tha eferne diarroi geometrias senariou anamesa se train/test.
+    # Split ana ScenarioID, oxi ana grammi - apofygi diarrois geometrias senariou.
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size,
                                   random_state=seed)
     train_idx, test_idx = next(splitter.split(df, groups=df["ScenarioID"]))

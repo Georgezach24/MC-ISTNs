@@ -60,20 +60,37 @@ from the dataset, which in turn noticeably reshaped all three machine
 learning experiments below. Hysteresis and a time-to-trigger were also
 added to the connectivity decision, following the 3GPP TS~38.331 Event~A3
 pattern, and validated on a purpose-built stress-test scenario ($67\%$
-fewer artificial state transitions). Finally, a basic load-based
-fairness mechanism was added: when a base station becomes overloaded,
-users who also have a satellite alternative are preferentially
-disconnected from it, protecting users with no alternative at all --
-with a measured, honestly reported benefit ($+33\%$ capacity for the
-protected group) and a corresponding cost for the other. Full joint
-multi-node optimization now sets the immediate next priority for the
-work. For machine learning, moving
-from ideal to realistically available SNR now leaves Random Forest
-performance nearly unchanged ($99.15\%$ accuracy, vs.\ $99.72\%$ with
-ideal SNR) -- the result this thesis treats as representative of a real
-deployment, not because the problem became generally easy, but because
-multi-connectivity reduced it to an almost purely geometric distinction
-in this scenario.
+fewer artificial state transitions). A load-based
+fairness mechanism was then added, in two variants: a per-base-station
+one, where an overloaded base station preferentially disconnects users
+who also have a satellite alternative, protecting users with no
+alternative at all -- with a measured, honestly reported benefit
+($+33\%$ capacity for the protected group) and a corresponding cost for
+the other; and a network-wide one, which instead looks for the most
+overloaded base station across the whole network and prefers moving a
+user sideways to another, less-loaded base station over dropping it to
+the satellite alone -- letting even users with no satellite alternative
+be actively helped, not just protected. On a purpose-built two-overlapping-cell
+scenario the network-wide variant fully rebalances an overload the
+per-station one cannot touch at all, though again honestly, its
+greedy destination choice can dilute a previously lightly-loaded
+neighbour enough to lower the population's mean capacity even as every
+individually moved user improves. A full joint multi-node optimization
+-- one that weighs aggregate throughput against load balance, rather
+than simply chasing free capacity -- now sets the immediate next
+priority for the work. For machine learning, the three
+experiments spanning exact, noisy, and no SNR at all initially collapsed
+to near-identical accuracy after multi-connectivity was added
+($99.72\%\rightarrow99.15\%\rightarrow99.15\%$, Random Forest) --
+traced to the scenario generator of the time, which never placed a user
+near the actual usable-SNR boundary and had stopped producing any
+terrestrial-only case at all, leaving nothing for a noisy or missing SNR
+reading to actually help resolve. Fixing the generator (genuine
+terrestrial-only cases, near-user placement spanning the real coverage
+edge) restored a real, honestly measured gap: exact SNR reaches
+$100.00\%$ accuracy, noisy SNR $93.12\%$ -- the result this thesis
+treats as representative of a real deployment -- and geometry alone
+$93.93\%$, a clear step below exact SNR rather than a near-tie.
 
 \vspace{1em}
 \noindent\textbf{Keywords:} multi-connectivity, satellite-terrestrial
