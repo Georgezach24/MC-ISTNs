@@ -1,6 +1,7 @@
 clc;
 clear;
-rng(42); % Σταθερός σπόρος RNG για αναπαραγώγιμα αποτελέσματα (LOS draw + shadow fading είναι πλέον στοχαστικά)
+rng(42);            % σταθερός σπόρος RNG για αναπαραγωγιμότητα
+runLabel = '';      % προαιρετικό tag στο όνομα του versioned φακέλου αποτελεσμάτων
 %% ------------------ Γεωγραφικές θέσεις [lat lon h(m)] ------------------
 % Παράδειγμα συντεταγμένων κοντά στην Αθήνα
 % BS: [latitude, longitude, height_m] (Τα ύψη θα ενημερωθούν αυτόματα από το σενάριο)
@@ -16,7 +17,7 @@ user_geo = [37.9845 23.7288 1.5;
             38.0500 23.9500 1.5];
 
 % SATs: [latitude, longitude, altitude_m]
-sat_geo = [38.0200 23.8200 550e3];   % LEO (550 km)
+sat_geo = [38.0200 23.8200 600e3];   % LEO-600 (3GPP TR 38.821 Πίνακας 6.1.1.1-1, στήλη LEO-600)
 
 % User calculations
 numUsers = size(user_geo,1);
@@ -32,12 +33,9 @@ simParameters.Carrier.SubcarrierSpacing = 30;
 simParameters.Carrier.CyclicPrefix = 'Normal';
 simParameters.CarrierFrequency = 3.5e9;     % FR1
 simParameters.TxPower = 43;                 % dBm ανά BS
-simParameters.AntennaGain = 8;              % dBi, κατευθυντικό κέρδος στοιχείου κεραίας BS
-                                             % (3GPP TR 38.901 §7.3, Πίνακας 7.3-1: G_E,max = 8dBi
-                                             % στο υπόδειγμα μοτίβου ακτινοβολίας στοιχείου κεραίας -
-                                             % στοιχειώδες κέρδος, όχι πλήρες array/beamforming gain,
-                                             % ώστε να μείνει συμμετρικό με το επίπεδο μοντελοποίησης
-                                             % της πλευράς του δορυφόρου, βλ. satParameters.EIRP)
+simParameters.AntennaGain = 8;              % dBi, κέρδος στοιχείου κεραίας BS (3GPP TR 38.901
+                                             % §7.3, Πίνακας 7.3-1, G_E,max) - στοιχειώδες κέρδος,
+                                             % όχι πλήρες array/beamforming gain
 simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain; % dBm
 simParameters.RxNoiseFigure = 5;            % dB
 simParameters.RxAntTemperature = 290;       % K
@@ -62,30 +60,29 @@ end
 bs_geo(:, 3) = bs_height_m;
 
 %% ------------------ Parameters (Satellite) ------------------
-satParameters.CarrierFrequency = 2.01e9;     % S-band
-satParameters.TxPower = 34;                 % dBm (Ισχύς ενισχυτή)
-satParameters.AntennaGain = 30;             % dBi (Κέρδος κατευθυντικής κεραίας LEO, TR 38.821)
-satParameters.EIRP = satParameters.TxPower + satParameters.AntennaGain; 
-satParameters.Bandwidth = 20e6;             % Hz
-satParameters.MinElevationDeg = 10;         % visibility mask
+% Reference σύνολο: 3GPP TR 38.821, Set-1, LEO-600, S-band.
+%   Πίνακας 6.1.1.1-1: EIRP density, Tx max gain, altitude.
+%   Πίνακας 6.1.3.2-1: carrier frequency, system bandwidth (link budget).
+% Δεδομένο του προτύπου είναι η πυκνότητα EIRP (dBW/MHz), όχι η ισχύς RF·
+% το EIRP προκύπτει από το bandwidth και το TxPower ως EIRP - AntennaGain.
+satParameters.CarrierFrequency = 2.0e9;      % Hz
+satParameters.Bandwidth = 30e6;              % Hz, system bandwidth S-band
+satParameters.AntennaGain = 30;              % dBi, Tx max gain LEO-600 S-band
+satParameters.EirpDensityDbwPerMHz = 34;     % dBW/MHz
+satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters.Bandwidth/1e6) + 30;  % dBm
+satParameters.TxPower = satParameters.EIRP - satParameters.AntennaGain;  % dBm, ισχύς RF στην είσοδο κεραίας
+satParameters.MinElevationDeg = 10;          % visibility mask
 
 %% ------------------ Parameters (Ενεργειακό μοντέλο) ------------------
-% Γραμμικό μοντέλο κατανάλωσης ισχύος EARTH (Auer et al., "How much energy
-% is needed to run a wireless network?", IEEE Wireless Commun., 2011) για
-% τον σταθμό βάσης: P = NumTrx*(P0 + DeltaP*Pout) σε ενεργή λειτουργία,
-% NumTrx*Psleep σε αδράνεια (τιμές αναφοράς macro cell, Pmax=20W <-> 43dBm
-% ήδη ίδιο με το TxPower του σεναρίου).
-simParameters.Power.NumTrx = 1;      % Αριθμός TRX ανά BS (μονο-sector μοντέλο)
+% BS: μοντέλο EARTH (Auer et al. 2011), P = NumTrx*(P0 + DeltaP*Pout).
+simParameters.Power.NumTrx = 1;      % TRX ανά BS
 simParameters.Power.P0     = 130;    % W, σταθερή κατανάλωση σε ενεργή λειτουργία
-simParameters.Power.DeltaP = 4.7;    % κλίση κατανάλωσης ισχύος ως προς Pout
-simParameters.Power.Psleep = 75;     % W, κατανάλωση σε αδράνεια (δεν χρησιμοποιείται ακόμα
-                                      % στο per-user proxy - προορίζεται για μελλοντικό
-                                      % network-wide accounting αδρανών κόμβων)
+simParameters.Power.DeltaP = 4.7;    % κλίση ως προς Pout
+simParameters.Power.Psleep = 75;     % W, αδράνεια (δεν χρησιμοποιείται ακόμα)
 
-% Γραμμικό μοντέλο ενισχυτή ισχύος (PA) για τον δορυφόρο: P = Pfix + Pout/EtaPA
-satParameters.Power.Pfix  = 0;       % W, σταθερή κατανάλωση εκτός ενισχυτή (μη τυποποιημένη
-                                      % τιμή για payload - συντηρητική προσέγγιση 0)
-satParameters.Power.EtaPA = 0.4;     % Απόδοση ενισχυτή ισχύος (τυπικό εύρος 0.35-0.5 SSPA/TWTA)
+% Δορυφόρος: γραμμικό μοντέλο PA, P = Pfix + Pout/EtaPA.
+satParameters.Power.Pfix  = 0;       % W, κατανάλωση εκτός ενισχυτή· Pfix=0 -> αισιόδοξη υπόθεση
+satParameters.Power.EtaPA = 0.4;     % απόδοση ενισχυτή (τυπικό εύρος 0.35-0.5)
 
 %% ------------------ Εκτέλεση σεναρίου (επιλογή κόμβου + χωρητικότητα) ------------------
 [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
@@ -98,3 +95,34 @@ array(numUsers, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, 
 
 % Call the visualization
 visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeVec, bestNodeVec)
+
+%% ------------------ Versioning αποτελεσμάτων ------------------
+resultsTable = table((1:numUsers)', bestNodeVec, bestNodeTypeVec, bestDistanceVec, ...
+    bestPathLossVec, bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
+    nodePowerWattsVec, energyPerBitUJVec, ...
+    'VariableNames', {'User','ServingNode','ServingType','Distance_m','PathLoss_dB', ...
+    'SNR_dB','Capacity_Mbps','SatElevation_deg','NodePower_W','EnergyPerBit_uJ'});
+tmpDir = tempname; mkdir(tmpDir);
+resultsCsv = fullfile(tmpDir, 'results.csv');
+writetable(resultsTable, resultsCsv);
+figPng = fullfile(tmpDir, 'network_3d.png');
+saveas(gcf, figPng);
+
+runParams = struct();
+runParams.rngSeed          = 42;
+runParams.scenarioType     = scenarioType;
+runParams.bs_geo           = bs_geo;
+runParams.user_geo         = user_geo;
+runParams.sat_geo          = sat_geo;
+runParams.terrestrial      = struct('CarrierFrequency_Hz', simParameters.CarrierFrequency, ...
+    'TxPower_dBm', simParameters.TxPower, 'AntennaGain_dBi', simParameters.AntennaGain, ...
+    'EIRP_dBm', simParameters.EIRP, 'RxNoiseFigure_dB', simParameters.RxNoiseFigure, ...
+    'RxAntTemperature_K', simParameters.RxAntTemperature, ...
+    'NSizeGrid', simParameters.Carrier.NSizeGrid, ...
+    'SubcarrierSpacing_kHz', simParameters.Carrier.SubcarrierSpacing, ...
+    'Scenario', simParameters.PathLoss.Scenario);
+runParams.terrestrial.Power = simParameters.Power;
+runParams.satellite        = satParameters;
+
+saveRunVersion('test_simulation', runParams, {resultsCsv, figPng}, runLabel);
+rmdir(tmpDir, 's');

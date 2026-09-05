@@ -1,21 +1,24 @@
-function datasetTable = monteCarloDriver(numScenarios, outputCsvPath)
+function datasetTable = monteCarloDriver(numScenarios, outputCsvPath, label)
 %MONTECARLODRIVER Παράγει ένα labeled dataset τρέχοντας το simulateScenario
-% πολλές φορές πάνω σε τυχαιοποιημένες τοπολογίες: θέσεις BS/χρηστών,
-% πλήθος BS/χρηστών, γεωμετρία δορυφόρου (θέση/υψόμετρο), και σενάριο
-% TR 38.901 (UMa/UMi). Το ραδιο-configuration (ισχύς, bandwidth, μοντέλα
-% ισχύος κτλ.) παραμένει σταθερό - ίδιο με το test_simulation.m - ώστε το
-% dataset να παραμένει συγκρίσιμο με το single-run σενάριο αναφοράς.
+% πολλές φορές πάνω σε τυχαιοποιημένες τοπολογίες: θέσεις BS/χρηστών, πλήθος
+% BS/χρηστών, υποδορυφορικό σημείο (υψόμετρο σταθερό στο LEO-600), και
+% σενάριο TR 38.901 (UMa/UMi). Το ραδιο-configuration παραμένει σταθερό,
+% ίδιο με το test_simulation.m.
 %
 % Χρήση:
-%   monteCarloDriver()                          % 200 σενάρια -> ../Dataset/dataset.csv
-%   monteCarloDriver(500)                       % 500 σενάρια -> ../Dataset/dataset.csv
-%   T = monteCarloDriver(500, 'C:\out\ds.csv')  % custom πλήθος + διαδρομή
+%   monteCarloDriver()                               % 200 σενάρια -> ../Dataset/dataset.csv
+%   monteCarloDriver(500)                            % 500 σενάρια
+%   T = monteCarloDriver(500, 'C:\out\ds.csv')       % custom πλήθος + διαδρομή
+%   T = monteCarloDriver(500, [], 'tag')             % tag στο όνομα του versioned φακέλου
 
 if nargin < 1 || isempty(numScenarios)
     numScenarios = 200;
 end
 if nargin < 2 || isempty(outputCsvPath)
     outputCsvPath = fullfile(fileparts(mfilename('fullpath')), '..', 'Dataset', 'dataset.csv');
+end
+if nargin < 3
+    label = '';
 end
 
 rng(42); % Σταθερός σπόρος για αναπαραγωγιμότητα ολόκληρου του batch
@@ -31,14 +34,11 @@ numBsRange          = [1 4];      % πλήθος BS ανά σενάριο
 numUsersRange       = [3 10];     % πλήθος χρηστών ανά σενάριο
 bsClusterRadiusKm   = 5;          % ακτίνα τοποθέτησης BS γύρω από το κέντρο
 nearUserRadiusKm    = 1;          % ακτίνα "κοντινών" χρηστών γύρω από τυχαίο BS του σεναρίου
-                                   % (τυπική κάλυψη UMi/UMa ISD - μεγαλύτερη ακτίνα οδηγεί
-                                   % συστηματικά σε NLOS λόγω της TR 38.901 §7.4.2 LOS
-                                   % probability, ευνοώντας τεχνητά τον δορυφόρο)
-farUserRadiusKmRange = [50 150];  % εύρος απόστασης "μακρινών" χρηστών (πρακτικά εκτός εμβέλειας BS)
-farUserProbability  = 0.3;        % πιθανότητα ένας χρήστης να τοποθετηθεί μακριά
+farUserRadiusKmRange = [50 150];  % εύρος απόστασης "μακρινών" χρηστών
+farUserProbability  = 0.3;        % πιθανότητα μακρινού χρήστη
 satLatJitterDeg     = 3;          % τυχαιοποίηση γεωγρ. πλάτους υποδορυφορικού σημείου
 satLonJitterDeg     = 3;          % τυχαιοποίηση γεωγρ. μήκους υποδορυφορικού σημείου
-satAltitudeRangeM   = [500e3 600e3]; % τυπικό εύρος υψομέτρου LEO
+satAltitudeM        = 600e3;      % m, LEO-600 (TR 38.821 Πίν. 6.1.1.1-1)
 
 %% ------------------ Σταθερό ραδιο-configuration (ίδιο με test_simulation.m) ------------------
 simParametersBase.Carrier = nrCarrierConfig;
@@ -60,11 +60,14 @@ simParametersBase.Power.P0     = 130;
 simParametersBase.Power.DeltaP = 4.7;
 simParametersBase.Power.Psleep = 75;
 
-satParametersBase.CarrierFrequency = 2.01e9;
-satParametersBase.TxPower = 34;
+% Δορυφόρος: 3GPP TR 38.821 Set-1, LEO-600, S-band (Πίνακες 6.1.1.1-1 & 6.1.3.2-1).
+% EIRP density (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
+satParametersBase.CarrierFrequency = 2.0e9;
+satParametersBase.Bandwidth = 30e6;
 satParametersBase.AntennaGain = 30;
-satParametersBase.EIRP = satParametersBase.TxPower + satParametersBase.AntennaGain;
-satParametersBase.Bandwidth = 20e6;
+satParametersBase.EirpDensityDbwPerMHz = 34;
+satParametersBase.EIRP = satParametersBase.EirpDensityDbwPerMHz + 10*log10(satParametersBase.Bandwidth/1e6) + 30;
+satParametersBase.TxPower = satParametersBase.EIRP - satParametersBase.AntennaGain;
 satParametersBase.MinElevationDeg = 10;
 satParametersBase.Power.Pfix  = 0;
 satParametersBase.Power.EtaPA = 0.4;
@@ -107,10 +110,10 @@ for s = 1:numScenarios
         end
     end
 
-    % -- Τυχαιοποίηση γεωμετρίας δορυφόρου (υποδορυφορικό σημείο + υψόμετρο) --
+    % -- Υποδορυφορικό σημείο (υψόμετρο σταθερό στο LEO-600) --
     sat_geo = [baseLat + (2*rand()-1)*satLatJitterDeg, ...
                baseLon + (2*rand()-1)*satLonJitterDeg, ...
-               satAltitudeRangeM(1) + diff(satAltitudeRangeM)*rand()];
+               satAltitudeM];
 
     % -- Εκτέλεση σεναρίου --
     [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
@@ -120,11 +123,8 @@ for s = 1:numScenarios
         satSlantRangeVec, satElevationVecAll, satPathLossVec, satSnrDbVecAll] = ...
         simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParametersBase, satParametersBase);
 
-    % Φορτίο κόμβου: πλήθος χρηστών του ΙΔΙΟΥ σεναρίου που εξυπηρετούνται
-    % από τον ίδιο κόμβο (χρήσιμο ως feature "node load" για το Part 2).
-    % Οι χρήστες σε outage (ServingNode="None") δεν μοιράζονται πραγματικό
-    % κόμβο μεταξύ τους - NodeLoad=0 ρητά, αντί να μετρηθούν σαν να
-    % συνδέονται όλοι στο ίδιο "None".
+    % Φορτίο κόμβου = πλήθος χρηστών του σεναρίου στον ίδιο κόμβο (feature για
+    % το Part 2). Outage -> NodeLoad=0.
     nodeLoadVec = nan(numUsers,1);
     for u = 1:numUsers
         if bestNodeTypeVec(u) == "Outage"
@@ -170,13 +170,38 @@ numOutage      = sum(datasetTable.ServingType == "Outage");
 fprintf('Monte-Carlo dataset: %d σενάρια, %d γραμμές χρηστών (%d Terrestrial, %d Satellite, %d Outage) -> %s\n', ...
     numScenarios, height(datasetTable), numTerrestrial, numSatellite, numOutage, outputCsvPath);
 
+%% ------------------ Versioning αποτελεσμάτων ------------------
+runParams = struct();
+runParams.numScenarios   = numScenarios;
+runParams.numUserRows    = height(datasetTable);
+runParams.rngSeed        = 42;
+runParams.baseLat        = baseLat;
+runParams.baseLon        = baseLon;
+runParams.numBsRange     = numBsRange;
+runParams.numUsersRange  = numUsersRange;
+runParams.bsClusterRadiusKm    = bsClusterRadiusKm;
+runParams.nearUserRadiusKm     = nearUserRadiusKm;
+runParams.farUserRadiusKmRange = farUserRadiusKmRange;
+runParams.farUserProbability   = farUserProbability;
+runParams.satLatJitterDeg      = satLatJitterDeg;
+runParams.satLonJitterDeg      = satLonJitterDeg;
+runParams.satAltitudeM         = satAltitudeM;
+runParams.terrestrial   = struct('CarrierFrequency_Hz', simParametersBase.CarrierFrequency, ...
+    'TxPower_dBm', simParametersBase.TxPower, 'AntennaGain_dBi', simParametersBase.AntennaGain, ...
+    'EIRP_dBm', simParametersBase.EIRP, 'RxNoiseFigure_dB', simParametersBase.RxNoiseFigure, ...
+    'RxAntTemperature_K', simParametersBase.RxAntTemperature, ...
+    'NSizeGrid', simParametersBase.Carrier.NSizeGrid, ...
+    'SubcarrierSpacing_kHz', simParametersBase.Carrier.SubcarrierSpacing);
+runParams.terrestrial.Power = simParametersBase.Power;
+runParams.satellite     = satParametersBase;
+
+saveRunVersion('monteCarloDriver', runParams, {outputCsvPath}, label);
+
 end
 
 function [dLat, dLon] = randOffsetDeg(refLat, radiusKm)
-% Τυχαία μετατόπιση [dLat, dLon] σε μοίρες, ομοιόμορφα κατανεμημένη εντός
-% δίσκου ακτίνας radiusKm γύρω από σημείο αναφοράς πλάτους refLat.
-% Επίπεδη (Ευκλείδεια) προσέγγιση γύρω από το refLat - αρκετή ακρίβεια
-% στην τοπική κλίμακα των km που χρησιμοποιείται εδώ.
+% Τυχαία μετατόπιση [dLat, dLon] σε μοίρες, ομοιόμορφα εντός δίσκου ακτίνας
+% radiusKm (επίπεδη προσέγγιση γύρω από το refLat).
 r = radiusKm * sqrt(rand());
 theta = 2*pi*rand();
 dNorthKm = r*cos(theta);

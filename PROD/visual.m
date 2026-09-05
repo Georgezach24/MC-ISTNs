@@ -8,7 +8,7 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     lon0 = bs_geo(1,2);
     h0   = 0;
     
-    % Μετατροπή μόνο για X, Y (αγνοούμε το Z του ENU λόγω καμπυλότητας της γης κσι νσ μπορέσουμε ετσι να δούμε όλους τους χρήστες)
+    % Μετατροπή μόνο X, Y (αγνοούμε το Z του ENU λόγω καμπυλότητας της Γης)
     [xBS, yBS, ~] = geodetic2enu(bs_geo(:,1), bs_geo(:,2), bs_geo(:,3), lat0, lon0, h0, wgs84);
     [xUE, yUE, ~] = geodetic2enu(user_geo(:,1), user_geo(:,2), user_geo(:,3), lat0, lon0, h0, wgs84);
     [xSat, ySat, ~] = geodetic2enu(sat_geo(:,1), sat_geo(:,2), sat_geo(:,3), lat0, lon0, h0, wgs84);
@@ -57,10 +57,7 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
             plot3(xq, yq, zq, 'm-', 'LineWidth', 1.5, 'HandleVisibility', 'off');
 
         elseif bestNodeTypeVec(u) == "Outage"
-            % Κανένας υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR
-            % (simulateScenario.m) - δεν σχεδιάζεται γραμμή σύνδεσης, μόνο
-            % ένα κόκκινο 'x' πάνω στον ήδη σχεδιασμένο χρήστη, ώστε η
-            % απουσία κάλυψης να είναι οπτικά εμφανής αντί για σιωπηλή.
+            % Outage: κόκκινο 'x' πάνω στον χρήστη, χωρίς γραμμή σύνδεσης.
             scatter3(xUE(u), yUE(u), zUE(u), 200, 'x', 'MarkerEdgeColor', 'r', ...
                 'LineWidth', 2.5, 'HandleVisibility', 'off');
         end

@@ -1,25 +1,24 @@
-function T = kpiRepeatedRuns(numRuns, outputDir)
-%KPIREPEATEDRUNS Τρέχει την ΙΔΙΑ στατική τοπολογία του test_simulation.m
-% (2 terrestrial BS + 1 LEO δορυφόρος, 6 χρήστες) πολλές φορές με
-% διαφορετικό RNG seed κάθε φορά, ώστε να αποτυπωθεί η διακύμανση των KPI
-% που οφείλεται αποκλειστικά στη στοχαστικότητα του καναλιού (LOS draw +
-% shadow fading ανά ζεύξη, TR 38.901 §7.4.1/§7.4.2) - η γεωμετρία
-% (θέσεις BS/χρηστών/δορυφόρου) παραμένει σταθερή σε κάθε run.
-%
-% Σκοπός: απάντηση στο αίτημα του επιβλέποντα να τρέξουμε το τρέχον setup
-% (2 terrestrial BS + 1 LEO) και να δούμε τι αποτελέσματα βγάζει για
-% 2-3 KPIs (throughput, energy per bit, SNR).
+function T = kpiRepeatedRuns(numRuns, outputDir, label)
+%KPIREPEATEDRUNS Τρέχει την ίδια στατική τοπολογία του test_simulation.m
+% (2 BS + 1 LEO, 6 χρήστες) πολλές φορές με διαφορετικό RNG seed, ώστε να
+% αποτυπωθεί η διακύμανση των KPI (throughput, energy/bit, SNR) που
+% οφείλεται αποκλειστικά στη στοχαστικότητα του καναλιού (LOS draw + shadow
+% fading). Η γεωμετρία παραμένει σταθερή σε κάθε επανάληψη.
 %
 % Χρήση:
-%   T = kpiRepeatedRuns();          % 500 επαναλήψεις -> ../Results
-%   T = kpiRepeatedRuns(1000);      % 1000 επαναλήψεις
+%   T = kpiRepeatedRuns();               % 500 επαναλήψεις -> ../Results
+%   T = kpiRepeatedRuns(1000);           % 1000 επαναλήψεις
 %   T = kpiRepeatedRuns(500, 'C:\out')
+%   T = kpiRepeatedRuns(500, [], 'tag')  % tag στο όνομα του versioned φακέλου
 
 if nargin < 1 || isempty(numRuns)
     numRuns = 500;
 end
 if nargin < 2 || isempty(outputDir)
     outputDir = fullfile(fileparts(mfilename('fullpath')), '..', 'Results');
+end
+if nargin < 3
+    label = '';
 end
 if ~isfolder(outputDir)
     mkdir(outputDir);
@@ -36,7 +35,7 @@ user_geo = [37.9845 23.7288 1.5;
             37.0380 23.9550 1.5;
             38.0500 23.9500 1.5];
 
-sat_geo = [38.0200 23.8200 550e3];   % LEO (550 km), γεωμετρία σταθερή σε κάθε run
+sat_geo = [38.0200 23.8200 600e3];   % LEO-600 (TR 38.821 Πίνακας 6.1.1.1-1), γεωμετρία σταθερή σε κάθε run
 
 numUsers = size(user_geo,1);
 wgs84 = wgs84Ellipsoid;
@@ -62,11 +61,14 @@ bs_height_m = 25;
 simParameters.PathLoss.EnvironmentHeight = 1;
 bs_geo(:,3) = bs_height_m;
 
-satParameters.CarrierFrequency = 2.01e9;
-satParameters.TxPower = 34;
+% Δορυφόρος: 3GPP TR 38.821 Set-1, LEO-600, S-band (Πίνακες 6.1.1.1-1 & 6.1.3.2-1).
+% EIRP density (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
+satParameters.CarrierFrequency = 2.0e9;
+satParameters.Bandwidth = 30e6;
 satParameters.AntennaGain = 30;
-satParameters.EIRP = satParameters.TxPower + satParameters.AntennaGain;
-satParameters.Bandwidth = 20e6;
+satParameters.EirpDensityDbwPerMHz = 34;
+satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters.Bandwidth/1e6) + 30;
+satParameters.TxPower = satParameters.EIRP - satParameters.AntennaGain;
 satParameters.MinElevationDeg = 10;
 
 simParameters.Power.NumTrx = 1;
@@ -81,7 +83,7 @@ satParameters.Power.EtaPA = 0.4;
 allTables = cell(numRuns,1);
 
 for r = 1:numRuns
-    rng(r); % διαφορετικό seed ανά run -> διαφορετικό LOS/shadow-fading draw
+    rng(r); % διαφορετικό seed ανά επανάληψη
 
     [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
         bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
@@ -103,10 +105,7 @@ T = vertcat(allTables{:});
 writetable(T, fullfile(outputDir, 'kpi_repeated_runs.csv'));
 
 %% ------------------ Σύνοψη ανά τύπο εξυπηρέτησης ------------------
-% Το groupsummary ομαδοποιεί βάσει των ΠΡΑΓΜΑΤΙΚΩΝ τιμών ServingType, άρα
-% τυχόν γραμμές "Outage" (simulateScenario.m - ελάχιστο χρησιμοποιήσιμο
-% SNR) εμφανίζονται αυτόματα ως ξεχωριστή ομάδα, χωρίς να χρειάζεται
-% ρητή διαχείριση εδώ.
+% Τυχόν γραμμές "Outage" εμφανίζονται αυτόματα ως ξεχωριστή ομάδα.
 G = groupsummary(T, 'ServingType', {'mean','std','min','max'}, ...
     {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB'});
 disp(G)
@@ -116,8 +115,6 @@ numOutage = sum(T.ServingType == "Outage");
 fprintf('Outage: %d/%d γραμμές (%.2f%%)\n', numOutage, height(T), 100*numOutage/height(T));
 
 %% ------------------ Γραφήματα (overlaid histograms ανά τύπο εξυπηρέτησης) ------------------
-% boxplot() απαιτεί Statistics and Machine Learning Toolbox (μη διαθέσιμο
-% εδώ) - χρησιμοποιούμε επικαλυπτόμενα ιστογράμματα (base MATLAB) αντ' αυτού.
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB'};
 kpiLabel = {'Throughput (Mbps)','Energy per bit (\muJ/bit)','SNR (dB)'};
 
@@ -141,5 +138,29 @@ for k = 1:numel(kpiList)
 end
 
 fprintf('\nKPI repeated-run results (%d runs, σταθερή τοπολογία) -> %s\n', numRuns, outputDir);
+
+%% ------------------ Versioning αποτελεσμάτων ------------------
+runParams = struct();
+runParams.numRuns      = numRuns;
+runParams.rngScheme    = 'rng(r) ανά επανάληψη r';
+runParams.scenarioType = simParameters.PathLoss.Scenario;
+runParams.bs_geo       = bs_geo;
+runParams.user_geo     = user_geo;
+runParams.sat_geo      = sat_geo;
+runParams.terrestrial  = struct('CarrierFrequency_Hz', simParameters.CarrierFrequency, ...
+    'TxPower_dBm', simParameters.TxPower, 'AntennaGain_dBi', simParameters.AntennaGain, ...
+    'EIRP_dBm', simParameters.EIRP, 'RxNoiseFigure_dB', simParameters.RxNoiseFigure, ...
+    'RxAntTemperature_K', simParameters.RxAntTemperature, ...
+    'NSizeGrid', simParameters.Carrier.NSizeGrid, ...
+    'SubcarrierSpacing_kHz', simParameters.Carrier.SubcarrierSpacing);
+runParams.terrestrial.Power = simParameters.Power;
+runParams.satellite    = satParameters;
+
+outFiles = {fullfile(outputDir, 'kpi_repeated_runs.csv'), ...
+            fullfile(outputDir, 'kpi_summary_by_type.csv')};
+for k = 1:numel(kpiList)
+    outFiles{end+1} = fullfile(outputDir, ['kpi_hist_' kpiList{k} '.png']); %#ok<AGROW>
+end
+saveRunVersion('kpiRepeatedRuns', runParams, outFiles, label);
 
 end

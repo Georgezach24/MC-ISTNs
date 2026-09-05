@@ -1,34 +1,26 @@
-function T = temporalPassSimulation(dtSeconds, outputDir)
-%TEMPORALPASSSIMULATION Τρέχει το ίδιο στατικό σενάριο (2 terrestrial BS,
-% 6 χρήστες) του test_simulation.m αλλά επαναλαμβανόμενα σε διαδοχικά
-% χρονικά βήματα (πολλαπλές "μεταδόσεις"), μετακινώντας το υποδορυφορικό
-% σημείο του LEO κατά μήκος ενός απλοποιημένου ground track ώστε να
-% αποτυπωθεί η κίνηση του δορυφόρου και η μεταβολή του καναλιού
-% (elevation/path loss/SNR) προς κάθε χρήστη με τον χρόνο.
-%
-% Απλοποίηση γεωμετρίας διέλευσης: το υποδορυφορικό σημείο κινείται σε
-% σταθερό γεωγραφικό πλάτος (=πλάτος του κέντρου του BS cluster) προς
-% ανατολάς, με σταθερή ταχύτητα ίση με την ταχύτητα εδάφους (ground-track
-% speed) μιας κυκλικής τροχιάς στο υψόμετρο του δορυφόρου (Κεπλεριανή
-% περίοδος, χωρίς αφαίρεση της περιστροφής της Γης). Δεν είναι πλήρης
-% ορβιτογράφος (SGP4 κτλ.) - αρκεί όμως για να παραχθεί ρεαλιστική
-% χρονική μεταβολή elevation/SNR κατά τη διάρκεια μίας διέλευσης.
-%
-% Η κατάσταση καναλιού (LOS/NLOS + shadow fading ανά ζεύξη) περνάει από
-% βήμα σε βήμα και το νέο δείγμα σκίασης προκύπτει από το προηγούμενο μέσω
-% χωρικής αυτοσυσχέτισης (Gudmundson 1991), αντί να ξαναδειγματίζεται
-% ανεξάρτητα - βλ. correlatedLosState στο simulateScenario.m.
+function T = temporalPassSimulation(dtSeconds, outputDir, label)
+%TEMPORALPASSSIMULATION Τρέχει το στατικό σενάριο του test_simulation.m
+% (2 BS, 6 χρήστες) επαναλαμβανόμενα σε διαδοχικά χρονικά βήματα,
+% μετακινώντας το υποδορυφορικό σημείο του LEO κατά μήκος ενός
+% απλοποιημένου ground track (σταθερό γεωγρ. πλάτος, ground-track speed
+% κυκλικής Κεπλεριανής τροχιάς, χωρίς περιστροφή Γης - όχι πλήρης
+% ορβιτογράφος). Η κατάσταση καναλιού περνάει από βήμα σε βήμα (χωρικά
+% συσχετισμένο shadow fading, βλ. correlatedLosState).
 %
 % Χρήση:
-%   T = temporalPassSimulation();          % dt = 5s -> ../Results
-%   T = temporalPassSimulation(2);         % dt = 2s
+%   T = temporalPassSimulation();              % dt = 5s -> ../Results
+%   T = temporalPassSimulation(2);             % dt = 2s
 %   T = temporalPassSimulation(5, 'C:\out')
+%   T = temporalPassSimulation(5, [], 'tag')   % tag στο όνομα του versioned φακέλου
 
 if nargin < 1 || isempty(dtSeconds)
     dtSeconds = 5;
 end
 if nargin < 2 || isempty(outputDir)
     outputDir = fullfile(fileparts(mfilename('fullpath')), '..', 'Results');
+end
+if nargin < 3
+    label = '';
 end
 if ~isfolder(outputDir)
     mkdir(outputDir);
@@ -67,12 +59,15 @@ simParameters.PathLoss.Scenario = 'UMa';
 simParameters.PathLoss.EnvironmentHeight = 1;
 bs_geo(:,3) = 25;
 
-satAltitude = 550e3;
-satParameters.CarrierFrequency = 2.01e9;
-satParameters.TxPower = 34;
+% Δορυφόρος: 3GPP TR 38.821 Set-1, LEO-600, S-band (Πίνακες 6.1.1.1-1 & 6.1.3.2-1).
+% EIRP density (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
+satAltitude = 600e3;                          % m, LEO-600
+satParameters.CarrierFrequency = 2.0e9;
+satParameters.Bandwidth = 30e6;
 satParameters.AntennaGain = 30;
-satParameters.EIRP = satParameters.TxPower + satParameters.AntennaGain;
-satParameters.Bandwidth = 20e6;
+satParameters.EirpDensityDbwPerMHz = 34;
+satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters.Bandwidth/1e6) + 30;
+satParameters.TxPower = satParameters.EIRP - satParameters.AntennaGain;
 satParameters.MinElevationDeg = 10;
 
 simParameters.Power.NumTrx = 1;
@@ -108,13 +103,9 @@ while step < maxSteps
     subLon = centerLon + offsetKm / (111.320*cosd(centerLat));
     sat_geo = [centerLat, subLon, satAltitude];
 
-    rng(step + 1); % νέο RNG seed ανά χρονικό βήμα (νέα μετάδοση)
+    rng(step + 1); % RNG seed ανά χρονικό βήμα
 
-    % channelState περνάει από βήμα σε βήμα ώστε το shadow fading (και η
-    % κατάσταση LOS/NLOS) κάθε ζεύξης BS-χρήστη να είναι χωρικά συσχετισμένο
-    % με το προηγούμενο βήμα (Gudmundson 1991 + 3GPP TR 38.901 Πίνακας
-    % 7.5-6), αντί να επαναδειγματίζεται ανεξάρτητα κάθε 5s παρόλο που οι
-    % χρήστες/BS είναι ακίνητοι - βλ. correlatedLosState στο simulateScenario.m.
+    % channelState περνάει από βήμα σε βήμα -> χωρικά συσχετισμένο shadow fading.
     [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
         bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
         nodePowerWattsVec, energyPerBitUJVec, ...
@@ -143,7 +134,7 @@ while step < maxSteps
     if refElev >= satParameters.MinElevationDeg
         wasVisible = true;
     elseif wasVisible
-        break; % η διέλευση έληξε (ο δορυφόρος έγινε αόρατος σε όλους μετά από ορατότητα)
+        break; % τέλος διέλευσης (δορυφόρος αόρατος σε όλους μετά από ορατότητα)
     end
 
     t = t + dtSeconds;
@@ -156,11 +147,7 @@ fprintf('Temporal pass simulation: %d χρονικά βήματα (dt=%ds, ~%.0f
     step, dtSeconds, T.Time_s(end), groundSpeedMps, orbitalPeriodS);
 
 %% ------------------ Handovers & outage events ανά χρήστη ------------------
-% Μετάβαση ΠΡΟΣ ή ΑΠΟ ServingNode="None" (outage - simulateScenario.m,
-% ελάχιστο χρησιμοποιήσιμο SNR) δεν μετράει ως handover: δεν αποκτάται
-% νέος κόμβος, χάνεται/ξαναβρίσκεται κάλυψη. Μετράται ξεχωριστά ως
-% "outage event" (μετάβαση ΠΡΟΣ "None"), ώστε τα δύο φαινόμενα να μην
-% συγχέονται στην ίδια μετρική.
+% Μετάβαση προς/από ServingNode="None" μετράται ως outage event, όχι handover.
 fprintf('\n--- Handovers & outage events ανά χρήστη ---\n');
 handoverCounts    = zeros(numUsers,1);
 outageEventCounts = zeros(numUsers,1);
@@ -202,5 +189,30 @@ for k = 1:numel(kpiList)
 end
 
 fprintf('\nTemporal pass simulation results -> %s\n', outputDir);
+
+%% ------------------ Versioning αποτελεσμάτων ------------------
+runParams = struct();
+runParams.dtSeconds       = dtSeconds;
+runParams.numSteps        = step;
+runParams.rngScheme       = 'rng(step+1) ανά χρονικό βήμα';
+runParams.startOffsetKm   = startOffsetKm;
+runParams.satAltitude_m   = satAltitude;
+runParams.orbitalPeriod_s = orbitalPeriodS;
+runParams.groundSpeed_mps = groundSpeedMps;
+runParams.scenarioType    = simParameters.PathLoss.Scenario;
+runParams.bs_geo          = bs_geo;
+runParams.user_geo        = user_geo;
+runParams.terrestrial     = struct('CarrierFrequency_Hz', simParameters.CarrierFrequency, ...
+    'TxPower_dBm', simParameters.TxPower, 'AntennaGain_dBi', simParameters.AntennaGain, ...
+    'EIRP_dBm', simParameters.EIRP, 'RxNoiseFigure_dB', simParameters.RxNoiseFigure, ...
+    'RxAntTemperature_K', simParameters.RxAntTemperature);
+runParams.terrestrial.Power = simParameters.Power;
+runParams.satellite       = satParameters;
+
+outFiles = {fullfile(outputDir, 'temporal_pass_dataset.csv')};
+for k = 1:numel(kpiList)
+    outFiles{end+1} = fullfile(outputDir, ['temporal_' kpiList{k} '.png']); %#ok<AGROW>
+end
+saveRunVersion('temporalPassSimulation', runParams, outFiles, label);
 
 end
