@@ -41,15 +41,17 @@ satLonJitterDeg     = 3;          % τυχαιοποίηση γεωγρ. μήκ�
 satAltitudeM        = 600e3;      % m, LEO-600 (TR 38.821 Πίν. 6.1.1.1-1)
 
 %% ------------------ Σταθερό ραδιο-configuration (ίδιο με test_simulation.m) ------------------
+% Επίγειο: TR 38.901 §7.8 Πίν. 7.8-1. BS gain = element (8 dBi) + array
+% 10·log10(N), N=10, ιδανική στόχευση -> composite 18 dBi. TxPower &
+% EIRP ορίζονται ανά σενάριο μέσα στον βρόχο (UMa 49 / UMi 44 dBm).
 simParametersBase.Carrier = nrCarrierConfig;
 simParametersBase.Carrier.NSizeGrid = 51;
 simParametersBase.Carrier.SubcarrierSpacing = 30;
 simParametersBase.Carrier.CyclicPrefix = 'Normal';
 simParametersBase.CarrierFrequency = 3.5e9;
-simParametersBase.TxPower = 43;
-simParametersBase.AntennaGain = 8;   % dBi, BS antenna element gain (TR 38.901 §7.3, Table 7.3-1, G_E,max)
-simParametersBase.EIRP = simParametersBase.TxPower + simParametersBase.AntennaGain;
-simParametersBase.RxNoiseFigure = 5;
+simParametersBase.AntennaGain = 8;              % dBi, element gain (TR 38.901 §7.3 Πίν. 7.3-1)
+simParametersBase.NumAntennaElements = 10;      % TR 38.901 Πίν. 7.8-1
+simParametersBase.RxNoiseFigure = 9;           % dB, UE downlink NF (TR 38.901 Πίν. 7.8-1)
 simParametersBase.RxAntTemperature = 290;
 
 simParametersBase.PathLossModel = '5G-NR';
@@ -82,12 +84,16 @@ for s = 1:numScenarios
     if rand() < 0.5
         scenarioType = 'UMa';
         bs_height_m = 25;
+        simParametersBase.TxPower = 49;     % dBm, conducted (TR 38.901 Πίν. 7.8-1, UMa)
     else
         scenarioType = 'UMi';
         bs_height_m = 10;
+        simParametersBase.TxPower = 44;     % dBm, conducted (TR 38.901 Πίν. 7.8-1, UMi)
     end
     simParametersBase.PathLoss.Scenario = scenarioType;
     simParametersBase.PathLoss.EnvironmentHeight = 1;
+    simParametersBase.EIRP = simParametersBase.TxPower + simParametersBase.AntennaGain + ...
+                             10*log10(simParametersBase.NumAntennaElements);   % dBm, composite
 
     % -- Τοποθέτηση BS γύρω από το κέντρο --
     bs_geo = zeros(numBs,3);
@@ -187,8 +193,10 @@ runParams.satLatJitterDeg      = satLatJitterDeg;
 runParams.satLonJitterDeg      = satLonJitterDeg;
 runParams.satAltitudeM         = satAltitudeM;
 runParams.terrestrial   = struct('CarrierFrequency_Hz', simParametersBase.CarrierFrequency, ...
-    'TxPower_dBm', simParametersBase.TxPower, 'AntennaGain_dBi', simParametersBase.AntennaGain, ...
-    'EIRP_dBm', simParametersBase.EIRP, 'RxNoiseFigure_dB', simParametersBase.RxNoiseFigure, ...
+    'TxPower_dBm_UMa', 49, 'TxPower_dBm_UMi', 44, ...
+    'AntennaGain_dBi', simParametersBase.AntennaGain, ...
+    'NumAntennaElements', simParametersBase.NumAntennaElements, ...
+    'RxNoiseFigure_dB', simParametersBase.RxNoiseFigure, ...
     'RxAntTemperature_K', simParametersBase.RxAntTemperature, ...
     'NSizeGrid', simParametersBase.Carrier.NSizeGrid, ...
     'SubcarrierSpacing_kHz', simParametersBase.Carrier.SubcarrierSpacing);

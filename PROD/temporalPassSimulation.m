@@ -42,22 +42,27 @@ numBs    = size(bs_geo,1);
 wgs84 = wgs84Ellipsoid;
 
 %% ------------------ Ραδιο-configuration (ίδιο με test_simulation.m) ------------------
+% Επίγειο: TR 38.901 §7.8 Πίν. 7.8-1. BS gain = element (8 dBi) + array
+% 10·log10(N), N=10, ιδανική στόχευση -> composite 18 dBi.
 simParameters.Carrier = nrCarrierConfig;
 simParameters.Carrier.NSizeGrid = 51;
 simParameters.Carrier.SubcarrierSpacing = 30;
 simParameters.Carrier.CyclicPrefix = 'Normal';
 simParameters.CarrierFrequency = 3.5e9;
-simParameters.TxPower = 43;
-simParameters.AntennaGain = 8;   % dBi, BS antenna element gain (TR 38.901 §7.3, Table 7.3-1, G_E,max)
-simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain;
-simParameters.RxNoiseFigure = 5;
+simParameters.AntennaGain = 8;              % dBi, element gain (TR 38.901 §7.3 Πίν. 7.3-1)
+simParameters.NumAntennaElements = 10;      % TR 38.901 Πίν. 7.8-1
+simParameters.RxNoiseFigure = 9;           % dB, UE downlink NF (TR 38.901 Πίν. 7.8-1)
 simParameters.RxAntTemperature = 290;
 
 simParameters.PathLossModel = '5G-NR';
 simParameters.PathLoss = nrPathLossConfig;
 simParameters.PathLoss.Scenario = 'UMa';
 simParameters.PathLoss.EnvironmentHeight = 1;
+simParameters.TxPower = 49;                 % dBm, conducted (TR 38.901 Πίν. 7.8-1, UMa)
 bs_geo(:,3) = 25;
+
+simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain + ...
+                     10*log10(simParameters.NumAntennaElements);   % dBm, composite
 
 % Δορυφόρος: 3GPP TR 38.821 Set-1, LEO-600, S-band (Πίνακες 6.1.1.1-1 & 6.1.3.2-1).
 % EIRP density (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
@@ -204,6 +209,7 @@ runParams.bs_geo          = bs_geo;
 runParams.user_geo        = user_geo;
 runParams.terrestrial     = struct('CarrierFrequency_Hz', simParameters.CarrierFrequency, ...
     'TxPower_dBm', simParameters.TxPower, 'AntennaGain_dBi', simParameters.AntennaGain, ...
+    'NumAntennaElements', simParameters.NumAntennaElements, ...
     'EIRP_dBm', simParameters.EIRP, 'RxNoiseFigure_dB', simParameters.RxNoiseFigure, ...
     'RxAntTemperature_K', simParameters.RxAntTemperature);
 runParams.terrestrial.Power = simParameters.Power;

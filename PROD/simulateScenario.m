@@ -40,6 +40,15 @@ noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 minSpectralEfficiency = 0.2344;                        % bits/s/Hz (MCS 0)
 minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
 
+%% ------------------ Small-scale fading δορυφορικού συνδέσμου ------------------
+% Rician K-factor & shadow fading σ_SF ανά γωνία ανύψωσης, TR 38.811 v15.1.0
+% Πίν. 6.7.2-1a (Dense Urban LOS, S band). Always-LOS· urban params για
+% όλους τους χρήστες (συντηρητικό: urban = περισσότερο fading από rural).
+satFadeElevDeg = [10 20 30 40 50 60 70 80 90];
+satFadeKdB     = [4.4 9.0 9.3 7.9 7.4 7.0 6.9 6.5 6.8];   % μ_K (median)
+satFadeSfStd   = [3.5 3.4 2.9 3.0 3.1 2.7 2.5 2.3 1.2];   % σ_SF [dB]
+terrKdBLos     = 9;   % Rician K επίγειο LOS, TR 38.901 Πίν. 7.5-6 (μ_K, UMa & UMi)
+
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
@@ -137,6 +146,10 @@ for u = 1:numUsers
         end
         sfMat(u,b) = sfSample;
         pathLoss = pathLoss + sfSample;
+
+        % Small-scale fading: Rician (LOS, K=terrKdBLos) ή Rayleigh (NLOS).
+        % Realization i.i.d. ανά κλήση (coherence time ~ ms << βήμα).
+        pathLoss = pathLoss - smallScaleFadingDb(isLos, terrKdBLos);
         pathLossMat(u,b) = pathLoss;
 
         snr_db = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
@@ -173,6 +186,14 @@ for u = 1:numUsers
         % Βροχή/νέφωση & ιονοσφαιρική σπινθηρίδα δεν μοντελοποιούνται.
         gasAttenuationDb = gasAttenuationSlantP676(satParameters.CarrierFrequency, elevSat);
         satPathLoss = satPathLoss + gasAttenuationDb;
+
+        % Large + small scale fading (TR 38.811 Πίν. 6.7.2-1a, elevation-interpolated).
+        % Always-LOS· shadow + fast fading i.i.d. ανά κλήση (ο δορυφόρος κινείται
+        % -> η γεωμετρία σκίασης αποσυσχετίζεται γρήγορα).
+        elevClamped = min(max(elevSat, 10), 90);
+        satShadowDb = interp1(satFadeElevDeg, satFadeSfStd, elevClamped) * randn();
+        satFastFadeDb = smallScaleFadingDb(true, interp1(satFadeElevDeg, satFadeKdB, elevClamped));
+        satPathLoss = satPathLoss + satShadowDb - satFastFadeDb;
 
         satSnrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
     else
@@ -304,6 +325,21 @@ end
 
 % Το AR(1) δείγμα SF ισχύει μόνο αν δεν άλλαξε η κατάσταση LOS/NLOS (αλλάζει το σ_SF).
 useCorrelatedSF = (isLos == prevIsLos);
+end
+
+function fadeDb = smallScaleFadingDb(isLos, KdB)
+% Κέρδος small-scale fading σε dB, με E[|h|^2] = 1.
+%   isLos=false -> Rayleigh: |h|^2 ~ Exp(1)
+%   isLos=true  -> Rician με συντελεστή K (dB)· K->0 ανάγεται ομαλά σε Rayleigh
+if ~isLos
+    fadeDb = 10*log10(-log(rand()));
+else
+    Klin  = 10^(KdB/10);
+    s     = sqrt(Klin/(Klin+1));       % πλάτος LOS συνιστώσας
+    sigma = sqrt(1/(2*(Klin+1)));      % τυπ. απόκλιση ανά διάσταση scatter
+    h     = (s + sigma*randn()) + 1i*(sigma*randn());
+    fadeDb = 20*log10(abs(h));         % s^2 + 2*sigma^2 = 1
+end
 end
 
 function pLos = losProbability38901(d2D, hUT, scenario)

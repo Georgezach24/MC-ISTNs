@@ -26,18 +26,19 @@ numBs    = size(bs_geo,1);
 % WGS84 spheroid
 wgs84 = wgs84Ellipsoid;
 
-%% ------------------ Parameters (Terrestrial NR - 3GPP TR 38.901) ------------------
+%% ------------------ Parameters (Terrestrial NR) ------------------
+% Reference σύνολο: TR 38.901 §7.8 Πίνακας 7.8-1 (large-scale calibration).
+% BS antenna gain = element gain (8 dBi, §7.3 Πίν. 7.3-1) + array gain
+% 10·log10(N) με N=10 στοιχεία ((M,N,P)=(10,1,1), single port) υπό παραδοχή
+% ιδανικής στόχευσης δέσμης -> composite 18 dBi. UE gain = 0 dBi (isotropic).
 simParameters.Carrier = nrCarrierConfig;
 simParameters.Carrier.NSizeGrid = 51;
 simParameters.Carrier.SubcarrierSpacing = 30;
 simParameters.Carrier.CyclicPrefix = 'Normal';
-simParameters.CarrierFrequency = 3.5e9;     % FR1
-simParameters.TxPower = 43;                 % dBm ανά BS
-simParameters.AntennaGain = 8;              % dBi, κέρδος στοιχείου κεραίας BS (3GPP TR 38.901
-                                             % §7.3, Πίνακας 7.3-1, G_E,max) - στοιχειώδες κέρδος,
-                                             % όχι πλήρες array/beamforming gain
-simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain; % dBm
-simParameters.RxNoiseFigure = 5;            % dB
+simParameters.CarrierFrequency = 3.5e9;     % Hz, n78
+simParameters.AntennaGain = 8;              % dBi, element gain (TR 38.901 §7.3 Πίν. 7.3-1)
+simParameters.NumAntennaElements = 10;      % TR 38.901 Πίν. 7.8-1, (M,N,P)=(10,1,1)
+simParameters.RxNoiseFigure = 9;            % dB, UE downlink NF (TR 38.901 Πίν. 7.8-1)
 simParameters.RxAntTemperature = 290;       % K
 
 simParameters.PathLossModel = '5G-NR';
@@ -49,12 +50,18 @@ simParameters.PathLoss.Scenario = scenarioType;
 
 switch scenarioType
     case 'UMa'
-        bs_height_m = 25; 
-        simParameters.PathLoss.EnvironmentHeight = 1; 
+        bs_height_m = 25;
+        simParameters.TxPower = 49;         % dBm, conducted (TR 38.901 Πίν. 7.8-1)
+        simParameters.PathLoss.EnvironmentHeight = 1;
     case 'UMi'
         bs_height_m = 10;
-        simParameters.PathLoss.EnvironmentHeight = 1;       
+        simParameters.TxPower = 44;         % dBm, conducted (TR 38.901 Πίν. 7.8-1)
+        simParameters.PathLoss.EnvironmentHeight = 1;
 end
+
+% Composite BS EIRP: conducted power + element gain + array gain (ιδανική στόχευση)
+simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain + ...
+                     10*log10(simParameters.NumAntennaElements);   % dBm
 
 % Ενημέρωση των υψομέτρων των BS στον πίνακα bs_geo αυτόματα βάσει σεναρίου
 bs_geo(:, 3) = bs_height_m;
@@ -116,6 +123,7 @@ runParams.user_geo         = user_geo;
 runParams.sat_geo          = sat_geo;
 runParams.terrestrial      = struct('CarrierFrequency_Hz', simParameters.CarrierFrequency, ...
     'TxPower_dBm', simParameters.TxPower, 'AntennaGain_dBi', simParameters.AntennaGain, ...
+    'NumAntennaElements', simParameters.NumAntennaElements, ...
     'EIRP_dBm', simParameters.EIRP, 'RxNoiseFigure_dB', simParameters.RxNoiseFigure, ...
     'RxAntTemperature_K', simParameters.RxAntTemperature, ...
     'NSizeGrid', simParameters.Carrier.NSizeGrid, ...
