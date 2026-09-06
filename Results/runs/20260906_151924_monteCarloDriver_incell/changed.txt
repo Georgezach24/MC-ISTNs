@@ -1,0 +1,10 @@
+Σύγκριση vs 20260906_141502_monteCarloDriver_smoke
+
+  - farUserProbability  (ήταν: 0.3)
+  - farUserRadiusKmRange  (ήταν: [50 150])
+  - nearUserRadiusKm  (ήταν: 1)
+  ~ numScenarios : 20  ->  200
+  ~ numUserRows : 134  ->  1267
+  ~ satLatJitterDeg : 3  ->  10
+  ~ satLonJitterDeg : 3  ->  10
+  + userRadiusKmRange = [0.01 5]

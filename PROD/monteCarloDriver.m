@@ -33,11 +33,9 @@ baseLon = 23.7275;
 numBsRange          = [1 4];      % πλήθος BS ανά σενάριο
 numUsersRange       = [3 10];     % πλήθος χρηστών ανά σενάριο
 bsClusterRadiusKm   = 5;          % ακτίνα τοποθέτησης BS γύρω από το κέντρο
-nearUserRadiusKm    = 1;          % ακτίνα "κοντινών" χρηστών γύρω από τυχαίο BS του σεναρίου
-farUserRadiusKmRange = [50 150];  % εύρος απόστασης "μακρινών" χρηστών
-farUserProbability  = 0.3;        % πιθανότητα μακρινού χρήστη
-satLatJitterDeg     = 3;          % τυχαιοποίηση γεωγρ. πλάτους υποδορυφορικού σημείου
-satLonJitterDeg     = 3;          % τυχαιοποίηση γεωγρ. μήκους υποδορυφορικού σημείου
+userRadiusKmRange   = [0.01 5];   % απόσταση χρήστη από τον BS αναφοράς του
+satLatJitterDeg     = 10;         % τυχαιοποίηση γεωγρ. πλάτους υποδορυφορικού σημείου
+satLonJitterDeg     = 10;         % τυχαιοποίηση γεωγρ. μήκους υποδορυφορικού σημείου
 satAltitudeM        = 600e3;      % m, LEO-600 (TR 38.821 Πίν. 6.1.1.1-1)
 
 %% ------------------ Σταθερό ραδιο-configuration (ίδιο με test_simulation.m) ------------------
@@ -102,18 +100,16 @@ for s = 1:numScenarios
         bs_geo(b,:) = [baseLat + dLat, baseLon + dLon, bs_height_m];
     end
 
-    % -- Τοποθέτηση χρηστών: είτε κοντά σε τυχαίο BS, είτε μακριά (μόνο δορυφόρος) --
+    % -- Τοποθέτηση χρηστών εντός της κυψέλης ενός BS αναφοράς --
+    % Όλοι οι χρήστες βρίσκονται εντός του πεδίου ισχύος των UMa/UMi, ώστε η
+    % επιλογή κόμβου να κρίνεται από την ποιότητα της ζεύξης και όχι από την
+    % απόσταση. Το εύρος [10 m, 5 km] καλύπτει και τις δύο πλευρές του σημείου
+    % όπου το επίγειο SNR συναντά το δορυφορικό.
     user_geo = zeros(numUsers,3);
     for u = 1:numUsers
-        if rand() < farUserProbability
-            radiusKm = farUserRadiusKmRange(1) + diff(farUserRadiusKmRange)*rand();
-            [dLat, dLon] = randOffsetDeg(baseLat, radiusKm);
-            user_geo(u,:) = [baseLat + dLat, baseLon + dLon, 1.5];
-        else
-            refB = randi(numBs);
-            [dLat, dLon] = randOffsetDeg(bs_geo(refB,1), nearUserRadiusKm);
-            user_geo(u,:) = [bs_geo(refB,1) + dLat, bs_geo(refB,2) + dLon, 1.5];
-        end
+        refB = randi(numBs);
+        [dLat, dLon] = randOffsetDeg(bs_geo(refB,1), userRadiusKmRange);
+        user_geo(u,:) = [bs_geo(refB,1) + dLat, bs_geo(refB,2) + dLon, 1.5];
     end
 
     % -- Υποδορυφορικό σημείο (υψόμετρο σταθερό στο LEO-600) --
@@ -186,9 +182,7 @@ runParams.baseLon        = baseLon;
 runParams.numBsRange     = numBsRange;
 runParams.numUsersRange  = numUsersRange;
 runParams.bsClusterRadiusKm    = bsClusterRadiusKm;
-runParams.nearUserRadiusKm     = nearUserRadiusKm;
-runParams.farUserRadiusKmRange = farUserRadiusKmRange;
-runParams.farUserProbability   = farUserProbability;
+runParams.userRadiusKmRange    = userRadiusKmRange;
 runParams.satLatJitterDeg      = satLatJitterDeg;
 runParams.satLonJitterDeg      = satLonJitterDeg;
 runParams.satAltitudeM         = satAltitudeM;
@@ -208,9 +202,15 @@ saveRunVersion('monteCarloDriver', runParams, {outputCsvPath}, label);
 end
 
 function [dLat, dLon] = randOffsetDeg(refLat, radiusKm)
-% Τυχαία μετατόπιση [dLat, dLon] σε μοίρες, ομοιόμορφα εντός δίσκου ακτίνας
-% radiusKm (επίπεδη προσέγγιση γύρω από το refLat).
-r = radiusKm * sqrt(rand());
+% Τυχαία μετατόπιση [dLat, dLon] σε μοίρες, ομοιόμορφα ως προς το εμβαδόν.
+% Το radiusKm είναι είτε βαθμωτό (δίσκος [0, R]) είτε ζεύγος [rmin rmax]
+% (δακτύλιος): r = sqrt(rmin^2 + U*(rmax^2 - rmin^2)), theta = 2*pi*V.
+if isscalar(radiusKm)
+    rMin = 0; rMax = radiusKm;
+else
+    rMin = radiusKm(1); rMax = radiusKm(2);
+end
+r = sqrt(rMin^2 + rand()*(rMax^2 - rMin^2));
 theta = 2*pi*rand();
 dNorthKm = r*cos(theta);
 dEastKm  = r*sin(theta);
