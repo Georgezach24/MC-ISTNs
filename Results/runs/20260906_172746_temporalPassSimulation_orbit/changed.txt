@@ -1,0 +1,12 @@
+Σύγκριση vs 20260906_171350_temporalPassSimulation_sm
+
+  ~ dtSeconds : 20  ->  5
+  ~ groundSpeed_mps : 6910.8882  ->  6908.0185
+  + inclination_deg = 53
+  ~ numSteps : 21  ->  135
+  + omegaEarth_rads = 7.292115e-05
+  ~ orbitalPeriod_s : 5792.3341  ->  5801.2318
+  + raan_deg = -10.296345
+  + semiMajorAxis_m = 6978137
+  - startOffsetKm  (ήταν: -1500)
+  + u0_deg = 20.411029
