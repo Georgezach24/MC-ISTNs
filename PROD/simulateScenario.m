@@ -3,7 +3,8 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
     nodePowerWattsVec, energyPerBitUJVec, ...
     bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
     satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec, ...
-    newChannelState, networkEnergy] = ...
+    newChannelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
+    bsUnavailReasonVec, satUnavailReasonVec] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, prevChannelState)
 % Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SNR και
 % υπολογίζει χωρητικότητα/ενέργεια μετά την κατανομή εύρους ζώνης.
@@ -40,6 +41,12 @@ noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 minSpectralEfficiency = 0.2344;                        % bits/s/Hz (MCS 0)
 minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
 
+%% ------------------ Κατώφλι σε επίπεδο υπηρεσίας ------------------
+% 5ο εκατοστημόριο φασματικής απόδοσης χρήστη, Dense Urban-eMBB DL:
+% 0.3 bit/s/Hz (TR 37.910 Πίν. 5.4.1.1.1-1, απαίτηση ITU-R M.2410).
+% Ορίζεται επί του ΣΥΝΟΛΙΚΟΥ εύρους καναλιού, άρα SE_ζεύξης >= 0.3*L.
+targetNormalizedSe = 0.3;   % bit/s/Hz
+
 %% ------------------ Ισχύς εκπομπής ανά αλυσίδα πομποδέκτη ------------------
 % Το μοντέλο EARTH (Auer et al. 2011, εξ. 1) ορίζει P_out ΑΝΑ αλυσίδα, με
 % ανώτατο όριο P_max = 20 W για μακροκυψελικό σταθμό (Πίν. 2).
@@ -73,6 +80,10 @@ bestElevationDegVec = nan(numUsers,1);
 bestBsSnrDbVec      = nan(numUsers,1);
 bestBsDistanceVec   = nan(numUsers,1);
 bestBsPathLossVec   = nan(numUsers,1);
+serviceStateVec     = strings(numUsers,1);
+throughputMbpsVec   = zeros(numUsers,1);
+bsUnavailReasonVec  = strings(numUsers,1);
+satUnavailReasonVec = strings(numUsers,1);
 
 % Διαγνωστικοί πίνακες
 groundDistanceMat = nan(numUsers,numBs);
@@ -193,6 +204,12 @@ for u = 1:numUsers
     % NaN όταν καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
     if isfinite(userBestSNR)
         bestBsSnrDbVec(u) = userBestSNR;
+        if userBestSNR < minUsableSnrDb
+            bsUnavailReasonVec(u) = "BelowSnrFloor";
+        end
+    else
+        % Καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
+        bsUnavailReasonVec(u) = "OutOfModelRange";
     end
     bestBsDistanceVec(u) = userBestDistance;
     bestBsPathLossVec(u) = userBestPathLoss;
@@ -230,6 +247,10 @@ for u = 1:numUsers
     else
         satPathLoss = inf;
         satSnrDb = -Inf;
+        satUnavailReasonVec(u) = "NotVisible";
+    end
+    if satUnavailReasonVec(u) == "" && satSnrDb < minUsableSnrDb
+        satUnavailReasonVec(u) = "BelowSnrFloor";
     end
 
     satPathLossVec(u) = satPathLoss;
@@ -264,9 +285,15 @@ for u = 1:numUsers
     % Outage: μηδενική χωρητικότητα/ισχύς, ενέργεια/bit = Inf. Παραλείπονται
     % πριν το usersOnThisNode ώστε να μη μετρηθούν σαν να μοιράζονται κόμβο.
     if bestNodeTypeVec(u) == "Outage"
-        capacityMbpsVec(u)   = 0;
-        nodePowerWattsVec(u) = 0;
+        % Καμία ενεργή ζεύξη: η χωρητικότητα δεν ορίζεται (δεν υπάρχει ζεύξη
+        % να τη φέρει), η παραδοθείσα ρυθμαπόδοση είναι μηδενική, και η
+        % ενέργεια ανά παραδοθέν bit απροσδιόριστη. Η κατανάλωση των κόμβων
+        % συνεχίζεται και προσμετράται στο ισοζύγιο δικτύου παρακάτω.
+        capacityMbpsVec(u)   = NaN;
+        throughputMbpsVec(u) = 0;
+        nodePowerWattsVec(u) = NaN;
         energyPerBitUJVec(u) = Inf;
+        serviceStateVec(u)   = "Outage";
         continue;
     end
 
@@ -297,7 +324,16 @@ for u = 1:numUsers
     spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
     capacity = B_user * spectralEfficiency;   % bits/s
 
-    capacityMbpsVec(u) = capacity * 1e-6;    % Mbps
+    capacityMbpsVec(u)   = capacity * 1e-6;    % Mbps
+    throughputMbpsVec(u) = capacity * 1e-6;    % ενεργή ζεύξη -> παραδίδεται
+
+    % Κατάσταση υπηρεσίας: το κριτήριο ορίζεται επί του συνολικού εύρους
+    % καναλιού, οπότε σφίγγει καθώς αυξάνεται ο φόρτος του κόμβου.
+    if (capacity / nodeBW) >= targetNormalizedSe
+        serviceStateVec(u) = "Served";
+    else
+        serviceStateVec(u) = "BelowTarget";
+    end
 
     % Ενεργειακό proxy: ισομερής κατανομή ισχύος κόμβου ανά χρήστη (ίδια λογική
     % με το bandwidth split), διαιρεμένη με τον ρυθμό bit του χρήστη -> µJ/bit
@@ -311,7 +347,7 @@ end
 % ανά χρήστη) και συνολικό ρυθμό, οπότε αποτυπώνει τη σύνθεση των χρηστών.
 % Δίνονται δύο εμβέλειες: πλήρης κόμβος και μόνο ενισχυτής (συμμετρική).
 networkEnergy = struct();
-totalRateBps      = sum(capacityMbpsVec(isfinite(capacityMbpsVec))) * 1e6;
+totalRateBps      = sum(throughputMbpsVec) * 1e6;   % παραδοθέντα bits
 pOutSatW          = 10^((satParameters.TxPower - 30)/10);
 bsFullW           = simParameters.Power.NumTrx * (simParameters.Power.P0 + simParameters.Power.DeltaP*pOutPerChainW);
 bsRfW             = simParameters.Power.NumTrx * simParameters.Power.DeltaP * pOutPerChainW;
@@ -339,6 +375,10 @@ networkEnergy.IdleBs          = idleBs;
 networkEnergy.SatActive       = satActive;
 networkEnergy.BitPerJoule     = totalRateBps / networkEnergy.TotalPower_W;
 networkEnergy.BitPerJouleRf   = totalRateBps / networkEnergy.TotalPowerRf_W;
+networkEnergy.ServedUsers     = sum(serviceStateVec == "Served");
+networkEnergy.BelowTargetUsers= sum(serviceStateVec == "BelowTarget");
+networkEnergy.OutageUsers     = sum(serviceStateVec == "Outage");
+networkEnergy.TargetNormSe    = targetNormalizedSe;
 
 %% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
 % Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
