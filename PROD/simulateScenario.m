@@ -98,23 +98,28 @@ for u = 1:numUsers
 
     %% ===== Terrestrial BS candidates =====
     for b = 1:numBs
-        lat0 = bs_geo(b,1);
-        lon0 = bs_geo(b,2);
-        h0   = 0;
-
-        [xBS, yBS, zBS] = geodetic2enu(bs_geo(b,1), bs_geo(b,2), bs_geo(b,3), ...
-                                       lat0, lon0, h0, wgs84);
-        [xUE, yUE, zUE] = geodetic2enu(user_geo(u,1), user_geo(u,2), user_geo(u,3), ...
-                                       lat0, lon0, h0, wgs84);
-
-        txPosition = [xBS; yBS; zBS];
-        rxPosition = [xUE; yUE; zUE];
-
+        % Οριζόντια απόσταση (γεωδαιτική) και φυσικά ύψη κεραιών. Η γεωμετρία
+        % για τη nrPathLoss κατασκευάζεται απευθείας από αυτά: η κατακόρυφη
+        % συντεταγμένη ENU αποκλίνει από το ύψος κεραίας λόγω καμπυλότητας.
         groundDistance = distance(bs_geo(b,1), bs_geo(b,2), ...
                                   user_geo(u,1), user_geo(u,2), wgs84);
-        d3d = norm(rxPosition - txPosition);
+        hBs = bs_geo(b,3);
+        hUt = user_geo(u,3);
+        d3d = hypot(groundDistance, hBs - hUt);
+
+        txPosition = [0; 0; hBs];
+        rxPosition = [groundDistance; 0; hUt];
+
         groundDistanceMat(u,b) = groundDistance;
         range3DMat(u,b)        = d3d;
+
+        % Πεδίο ισχύος UMa/UMi (TR 38.901 Πίν. 7.4.1-1). Εκτός ορίων η ζεύξη
+        % δεν υπολογίζεται: το SNR μένει NaN, ώστε να ξεχωρίζει από ζεύξη που
+        % υπολογίστηκε και βρέθηκε ανεπαρκής.
+        if ~isValidTerrestrialLink(groundDistance, hUt, simParameters.CarrierFrequency)
+            sfMat(u,b) = 0;
+            continue;
+        end
 
         % LOS ανά ζεύξη βάσει πιθανότητας απόστασης (TR 38.901 §7.4.2).
         pLos = losProbability38901(groundDistance, user_geo(u,3), simParameters.PathLoss.Scenario);
@@ -164,7 +169,10 @@ for u = 1:numUsers
     end
 
     % Στιγμιότυπο του καλύτερου υποψήφιου BS πριν τη σύγκριση με τον δορυφόρο (per-candidate διαγνωστικό).
-    bestBsSnrDbVec(u)   = userBestSNR;
+    % NaN όταν καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
+    if isfinite(userBestSNR)
+        bestBsSnrDbVec(u) = userBestSNR;
+    end
     bestBsDistanceVec(u) = userBestDistance;
     bestBsPathLossVec(u) = userBestPathLoss;
 
@@ -342,6 +350,15 @@ else
     h     = (s + sigma*randn()) + 1i*(sigma*randn());
     fadeDb = 20*log10(abs(h));         % s^2 + 2*sigma^2 = 1
 end
+end
+
+function isValid = isValidTerrestrialLink(d2D, hUT, fcHz)
+% Πεδίο ισχύος των μοντέλων UMa/UMi (TR 38.901 Πίν. 7.4.1-1, στήλη
+% "Applicability range"): 10m <= d2D <= 5km, 1.5m <= hUT <= 22.5m.
+% Η συχνότητα ελέγχεται ως προς το εύρος του ίδιου του μοντέλου (§7.4.1).
+isValid = d2D  >= 10   && d2D  <= 5000 && ...
+          hUT  >= 1.5  && hUT  <= 22.5 && ...
+          fcHz >= 0.5e9 && fcHz <= 100e9;
 end
 
 function [b0, m, omega] = shadowedRicianElevParams(elevDeg)
