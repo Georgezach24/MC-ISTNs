@@ -78,7 +78,7 @@ satParameters.AntennaGain = 30;              % dBi, Tx max gain LEO-600 S-band
 satParameters.EirpDensityDbwPerMHz = 34;     % dBW/MHz
 satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters.Bandwidth/1e6) + 30;  % dBm
 satParameters.TxPower = satParameters.EIRP - satParameters.AntennaGain;  % dBm, ισχύς RF στην είσοδο κεραίας
-satParameters.MinElevationDeg = 10;          % visibility mask
+satParameters.MinElevationDeg = 20;          % μάσκα ορατότητας
 
 %% ------------------ Parameters (Ενεργειακό μοντέλο) ------------------
 % BS: μοντέλο EARTH (Auer et al. 2011), P = NumTrx*(P0 + DeltaP*Pout).

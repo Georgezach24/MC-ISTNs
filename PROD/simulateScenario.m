@@ -40,14 +40,12 @@ noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 minSpectralEfficiency = 0.2344;                        % bits/s/Hz (MCS 0)
 minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
 
-%% ------------------ Small-scale fading δορυφορικού συνδέσμου ------------------
-% Rician K-factor & shadow fading σ_SF ανά γωνία ανύψωσης, TR 38.811 v15.1.0
-% Πίν. 6.7.2-1a (Dense Urban LOS, S band). Always-LOS· urban params για
-% όλους τους χρήστες (συντηρητικό: urban = περισσότερο fading από rural).
-satFadeElevDeg = [10 20 30 40 50 60 70 80 90];
-satFadeKdB     = [4.4 9.0 9.3 7.9 7.4 7.0 6.9 6.5 6.8];   % μ_K (median)
-satFadeSfStd   = [3.5 3.4 2.9 3.0 3.1 2.7 2.5 2.3 1.2];   % σ_SF [dB]
-terrKdBLos     = 9;   % Rician K επίγειο LOS, TR 38.901 Πίν. 7.5-6 (μ_K, UMa & UMi)
+%% ------------------ Διαλείψεις δορυφορικής ζεύξης ------------------
+% Shadowed Rician (Abdi et al. 2003). Η σκίαση περιέχεται ήδη στο μοντέλο
+% (τυχαίο πλάτος LOS κατά Nakagami-m), οπότε δεν προστίθεται χωριστός
+% λογαριθμοκανονικός όρος. Παράμετροι (b0,m,Ω) από την ανύψωση, εξ. (19).
+satFadeElevRangeDeg = [20 80];   % πεδίο ισχύος της προσαρμογής της εξ. (19)
+terrKdBLos          = 9;         % Rician K επίγειο LOS, TR 38.901 Πίν. 7.5-6
 
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
@@ -187,13 +185,17 @@ for u = 1:numUsers
         gasAttenuationDb = gasAttenuationSlantP676(satParameters.CarrierFrequency, elevSat);
         satPathLoss = satPathLoss + gasAttenuationDb;
 
-        % Large + small scale fading (TR 38.811 Πίν. 6.7.2-1a, elevation-interpolated).
-        % Always-LOS· shadow + fast fading i.i.d. ανά κλήση (ο δορυφόρος κινείται
-        % -> η γεωμετρία σκίασης αποσυσχετίζεται γρήγορα).
-        elevClamped = min(max(elevSat, 10), 90);
-        satShadowDb = interp1(satFadeElevDeg, satFadeSfStd, elevClamped) * randn();
-        satFastFadeDb = smallScaleFadingDb(true, interp1(satFadeElevDeg, satFadeKdB, elevClamped));
-        satPathLoss = satPathLoss + satShadowDb - satFastFadeDb;
+        % Shadowed Rician· i.i.d. ανά κλήση (ο δορυφόρος κινείται -> η γεωμετρία
+        % σκίασης αποσυσχετίζεται γρήγορα). Η ανύψωση περιορίζεται στο πεδίο
+        % ισχύος της προσαρμογής· εναλλακτικά σταθερή κατάσταση σκίασης μέσω
+        % satParameters.ShadowingState (για ανάλυση ευαισθησίας).
+        if isfield(satParameters, 'ShadowingState') && ~isempty(satParameters.ShadowingState)
+            [b0, mNak, omega] = shadowedRicianStateParams(satParameters.ShadowingState);
+        else
+            elevClamped = min(max(elevSat, satFadeElevRangeDeg(1)), satFadeElevRangeDeg(2));
+            [b0, mNak, omega] = shadowedRicianElevParams(elevClamped);
+        end
+        satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega);
 
         satSnrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
     else
@@ -339,6 +341,63 @@ else
     sigma = sqrt(1/(2*(Klin+1)));      % τυπ. απόκλιση ανά διάσταση scatter
     h     = (s + sigma*randn()) + 1i*(sigma*randn());
     fadeDb = 20*log10(abs(h));         % s^2 + 2*sigma^2 = 1
+end
+end
+
+function [b0, m, omega] = shadowedRicianElevParams(elevDeg)
+% Παράμετροι Shadowed Rician από τη γωνία ανύψωσης (Abdi et al. 2003, εξ. 19).
+% Προσαρμογή πολυωνύμων σε πειραματικά δεδομένα, ισχύει για 20° < θ < 80°.
+th = elevDeg;
+b0    = -4.7943e-8*th^3 + 5.5784e-6*th^2 - 2.1344e-4*th + 3.2710e-2;
+m     =  6.3739e-5*th^3 + 5.8533e-4*th^2 - 1.5973e-1*th + 3.5156;
+omega =  1.4428e-5*th^3 - 2.3798e-3*th^2 + 1.2702e-1*th - 1.4864;
+end
+
+function [b0, m, omega] = shadowedRicianStateParams(state)
+% Σταθερές καταστάσεις σκίασης (Abdi et al. 2003, Πίν. III) - ανάλυση ευαισθησίας.
+switch lower(string(state))
+    case "light"
+        b0 = 0.158; m = 19.4;  omega = 1.29;
+    case "average"
+        b0 = 0.126; m = 10.1;  omega = 0.835;
+    case "heavy"
+        b0 = 0.063; m = 0.739; omega = 8.97e-4;
+    otherwise
+        error('shadowedRicianStateParams:UnknownState', ...
+            'Άγνωστη κατάσταση σκίασης "%s" - δεκτές: "light", "average", "heavy".', state);
+end
+end
+
+function fadeDb = shadowedRicianFadingDb(b0, m, omega)
+% Κέρδος Shadowed Rician σε dB (Abdi et al. 2003, εξ. 1): σκεδαζόμενη
+% συνιστώσα Rayleigh μέσης ισχύος 2*b0 συν συνιστώσα LOS με πλάτος
+% κατά Nakagami-m μέσης ισχύος omega. E[|h|^2] = omega + 2*b0 < 1, δηλαδή
+% η μέση εξασθένηση λόγω σκίασης περιέχεται στο ίδιο το μοντέλο.
+losAmp  = sqrt(gammaRand(m, omega/m));            % |Z|, E[Z^2] = omega
+scatter = sqrt(b0)*(randn() + 1i*randn());        % E[|A|^2] = 2*b0
+fadeDb  = 20*log10(abs(losAmp + scatter));
+end
+
+function x = gammaRand(shape, scale)
+% Δείγμα από κατανομή Gamma (Marsaglia & Tsang 2000). Υλοποιείται τοπικά
+% ώστε να μη χρειάζεται το Statistics Toolbox· δέχεται και shape < 1.
+if shape < 1
+    x = gammaRand(shape + 1, scale) * rand()^(1/shape);
+    return;
+end
+d = shape - 1/3;
+c = 1/sqrt(9*d);
+while true
+    v = -1;
+    while v <= 0
+        z = randn();
+        v = (1 + c*z)^3;
+    end
+    u = rand();
+    if log(u) < 0.5*z^2 + d - d*v + d*log(v)
+        x = d*v*scale;
+        return;
+    end
 end
 end
 

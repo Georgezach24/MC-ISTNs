@@ -73,7 +73,7 @@ satParameters.AntennaGain = 30;
 satParameters.EirpDensityDbwPerMHz = 34;
 satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters.Bandwidth/1e6) + 30;
 satParameters.TxPower = satParameters.EIRP - satParameters.AntennaGain;
-satParameters.MinElevationDeg = 10;
+satParameters.MinElevationDeg = 20;
 
 simParameters.Power.NumTrx = 1;
 simParameters.Power.P0     = 130;
