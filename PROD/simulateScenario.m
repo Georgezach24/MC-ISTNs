@@ -68,6 +68,7 @@ pathLossMat       = nan(numUsers,numBs);
 snrDbMat          = nan(numUsers,numBs);
 pLosMat           = nan(numUsers,numBs);
 losMat            = false(numUsers,numBs);
+losLatentMat      = zeros(numUsers,numBs);
 sfMat             = nan(numUsers,numBs);
 satSlantRangeVec  = nan(numUsers,1);
 satElevationVec   = nan(numUsers,1);
@@ -75,6 +76,7 @@ satPathLossVec    = nan(numUsers,1);
 satSnrDbVec       = nan(numUsers,1);
 
 hasPrevState = ~isempty(prevChannelState) && ...
+    isfield(prevChannelState, 'LosLatent') && ...
     isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
 
 %% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SNR) ------------------
@@ -124,16 +126,22 @@ for u = 1:numUsers
         % LOS ανά ζεύξη βάσει πιθανότητας απόστασης (TR 38.901 §7.4.2).
         pLos = losProbability38901(groundDistance, user_geo(u,3), simParameters.PathLoss.Scenario);
         if hasPrevState
-            prevIsLos = prevChannelState.IsLOS(u,b);
-            prevSF    = prevChannelState.ShadowFading_dB(u,b);
+            prevIsLos  = prevChannelState.IsLOS(u,b);
+            prevSF     = prevChannelState.ShadowFading_dB(u,b);
+            prevLatent = prevChannelState.LosLatent(u,b);
         else
-            prevIsLos = false;
-            prevSF    = 0;
+            prevIsLos  = false;
+            prevSF     = 0;
+            prevLatent = 0;
         end
-        [isLos, rho, useCorrelatedSF] = correlatedLosState(pLos, userMoveDistance, ...
-            simParameters.PathLoss.Scenario, hasPrevState, prevIsLos);
-        pLosMat(u,b) = pLos;
-        losMat(u,b)  = isLos;
+        [isLos, losLatent] = spatiallyConsistentLos(pLos, userMoveDistance, ...
+            hasPrevState, prevLatent);
+        rho = shadowFadingCorrelation(userMoveDistance, ...
+            simParameters.PathLoss.Scenario, isLos);
+        useCorrelatedSF = hasPrevState && (isLos == prevIsLos);
+        pLosMat(u,b)     = pLos;
+        losMat(u,b)      = isLos;
+        losLatentMat(u,b) = losLatent;
 
         [pathLoss, sigmaSF] = nrPathLoss(simParameters.PathLoss, ...
                               simParameters.CarrierFrequency, ...
@@ -289,52 +297,39 @@ end
 % Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
 newChannelState.UserGeo         = user_geo;
 newChannelState.IsLOS           = losMat;
+newChannelState.LosLatent       = losLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
 
 end
 
-function [isLos, rho, useCorrelatedSF] = correlatedLosState(pLos, moveDistance, scenario, hasPrevState, prevIsLos)
-% Συσχετισμένη κατάσταση LOS/NLOS ζεύξης BS-χρήστη μεταξύ διαδοχικών κλήσεων.
-% ρ(Δd) = exp(-Δd/d_corr), Gudmundson (1991)· d_corr από TR 38.901 v16.1.0
-% Πίν. 7.5-6 (SF correlation distance): UMa LOS=37/NLOS=50, UMi LOS=10/NLOS=13 m.
-% Το ίδιο ρ χρησιμοποιείται και ως πιθανότητα διατήρησης της προηγούμενης
-% κατάστασης LOS/NLOS (το TR 38.901 δεν ορίζει ξεχωριστό d_corr γι' αυτήν).
+function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)
+% Χωρικά συνεπής κατάσταση LOS/NLOS (TR 38.901 §7.6.3.3): η κατάσταση
+% προκύπτει συγκρίνοντας μια χωρικά συσχετισμένη ομοιόμορφη μεταβλητή με την
+% πιθανότητα LOS. Η υποκείμενη γκαουσιανή μεταβλητή εξελίσσεται ως AR(1) με
+% εκθετική συσχέτιση (§7.4.4, εξ. 7.4-5) και απόσταση συσχέτισης 50 m για την
+% κατάσταση LOS/NLOS (Πίν. 7.6.3.1-2, UMa & UMi).
+dCorrLos = 50;
 if ~hasPrevState
-    isLos = rand() < pLos;
-    rho = 0;
-    useCorrelatedSF = false;
-    return;
+    latent = randn();
+else
+    r = exp(-moveDistance / dCorrLos);
+    latent = r*prevLatent + sqrt(1 - r^2)*randn();
+end
+u = 0.5*erfc(-latent/sqrt(2));   % γκαουσιανή -> ομοιόμορφη στο (0,1)
+isLos = u < pLos;
 end
 
-if prevIsLos
-    switch scenario
-        case 'UMa'
-            dCorr = 37;
-        case 'UMi'
-            dCorr = 10;
-        otherwise
-            dCorr = 37;
-    end
-else
-    switch scenario
-        case 'UMa'
-            dCorr = 50;
-        case 'UMi'
-            dCorr = 13;
-        otherwise
-            dCorr = 50;
-    end
+function rho = shadowFadingCorrelation(moveDistance, scenario, isLos)
+% Συντελεστής αυτοσυσχέτισης σκίασης, TR 38.901 §7.4.4 εξ. (7.4-5):
+% R(Δd) = exp(-Δd/d_corr). Αποστάσεις συσχέτισης από τον Πίν. 7.5-6:
+% UMa LOS=37/NLOS=50 m, UMi LOS=10/NLOS=13 m.
+switch scenario
+    case 'UMi'
+        dCorr = 10*isLos + 13*~isLos;
+    otherwise
+        dCorr = 37*isLos + 50*~isLos;
 end
 rho = exp(-moveDistance / dCorr);
-
-if rand() < rho
-    isLos = prevIsLos;
-else
-    isLos = rand() < pLos;
-end
-
-% Το AR(1) δείγμα SF ισχύει μόνο αν δεν άλλαξε η κατάσταση LOS/NLOS (αλλάζει το σ_SF).
-useCorrelatedSF = (isLos == prevIsLos);
 end
 
 function fadeDb = smallScaleFadingDb(isLos, KdB)
