@@ -85,7 +85,7 @@ satParameters.MinElevationDeg = 20;          % μάσκα ορατότητας
 
 %% ------------------ Parameters (Ενεργειακό μοντέλο) ------------------
 % BS: μοντέλο EARTH (Auer et al. 2011), P = NumTrx*(P0 + DeltaP*Pout).
-simParameters.Power.NumTrx = 1;      % TRX ανά BS
+simParameters.Power.NumTrx = 4;   % αλυσίδες πομποδέκτη ανά τομέα· P_out/αλυσίδα <= 20 W (EARTH Πίν. 2)
 simParameters.Power.P0     = 130;    % W, σταθερή κατανάλωση σε ενεργή λειτουργία
 simParameters.Power.DeltaP = 4.7;    % κλίση ως προς Pout
 simParameters.Power.Psleep = 75;     % W, αδράνεια (δεν χρησιμοποιείται ακόμα)

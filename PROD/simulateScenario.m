@@ -3,7 +3,7 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
     nodePowerWattsVec, energyPerBitUJVec, ...
     bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
     satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec, ...
-    newChannelState] = ...
+    newChannelState, networkEnergy] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, prevChannelState)
 % Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SNR και
 % υπολογίζει χωρητικότητα/ενέργεια μετά την κατανομή εύρους ζώνης.
@@ -39,6 +39,19 @@ noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 % "λιγότερο κακό" κόμβο. = Shannon-ισοδύναμο SNR του MCS 0 (TS 38.214 Πίν. 5.1.3.1-2).
 minSpectralEfficiency = 0.2344;                        % bits/s/Hz (MCS 0)
 minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
+
+%% ------------------ Ισχύς εκπομπής ανά αλυσίδα πομποδέκτη ------------------
+% Το μοντέλο EARTH (Auer et al. 2011, εξ. 1) ορίζει P_out ΑΝΑ αλυσίδα, με
+% ανώτατο όριο P_max = 20 W για μακροκυψελικό σταθμό (Πίν. 2).
+pOutTotalW    = 10^((simParameters.TxPower - 30)/10);
+pOutPerChainW = pOutTotalW / simParameters.Power.NumTrx;
+earthPmaxW    = 20;
+if pOutPerChainW > earthPmaxW
+    warning('simulateScenario:EarthOutOfRange', ...
+        ['Ισχύς ανά αλυσίδα %.1f W > P_max = %.0f W του μοντέλου EARTH ' ...
+         '(Auer et al. 2011, Πίν. 2). Αύξησε το simParameters.Power.NumTrx.'], ...
+        pOutPerChainW, earthPmaxW);
+end
 
 %% ------------------ Διαλείψεις δορυφορικής ζεύξης ------------------
 % Shadowed Rician (Abdi et al. 2003). Η σκίαση περιέχεται ήδη στο μοντέλο
@@ -266,9 +279,8 @@ for u = 1:numUsers
     % (Auer et al. 2011) για BS, γραμμικό μοντέλο ενισχυτή ισχύος για δορυφόρο.
     if bestNodeTypeVec(u) == "Terrestrial"
         nodeBW = BW_bs;
-        pOutW  = 10^((simParameters.TxPower - 30)/10);
         nodePowerW = simParameters.Power.NumTrx * ...
-            (simParameters.Power.P0 + simParameters.Power.DeltaP * pOutW);
+            (simParameters.Power.P0 + simParameters.Power.DeltaP * pOutPerChainW);
     else
         nodeBW = satParameters.Bandwidth;
         pOutW  = 10^((satParameters.TxPower - 30)/10);
@@ -292,6 +304,41 @@ for u = 1:numUsers
     nodePowerWattsVec(u) = nodePowerW;
     energyPerBitUJVec(u) = (nodePowerW / usersOnThisNode) / capacity * 1e6;
 end
+
+%% ------------------ Ενεργειακή απόδοση σε επίπεδο δικτύου ------------------
+% Η ενέργεια ανά bit της (eq. energy-per-bit) είναι ανεξάρτητη του πλήθους
+% χρηστών: το L_n απλοποιείται. Ο δείκτης bit/J αθροίζει ισχύ ΑΝΑ ΚΟΜΒΟ (όχι
+% ανά χρήστη) και συνολικό ρυθμό, οπότε αποτυπώνει τη σύνθεση των χρηστών.
+% Δίνονται δύο εμβέλειες: πλήρης κόμβος και μόνο ενισχυτής (συμμετρική).
+networkEnergy = struct();
+totalRateBps      = sum(capacityMbpsVec(isfinite(capacityMbpsVec))) * 1e6;
+pOutSatW          = 10^((satParameters.TxPower - 30)/10);
+bsFullW           = simParameters.Power.NumTrx * (simParameters.Power.P0 + simParameters.Power.DeltaP*pOutPerChainW);
+bsRfW             = simParameters.Power.NumTrx * simParameters.Power.DeltaP * pOutPerChainW;
+bsSleepW          = simParameters.Power.NumTrx * simParameters.Power.Psleep;
+satFullW          = satParameters.Power.Pfix + pOutSatW/satParameters.Power.EtaPA;
+satRfW            = pOutSatW / satParameters.Power.EtaPA;
+
+activeBs  = 0;
+for b = 1:numBs
+    if any(bestNodeVec == "BS" + string(b))
+        activeBs = activeBs + 1;
+    end
+end
+idleBs    = numBs - activeBs;
+satActive = any(bestNodeTypeVec == "Satellite");
+
+% Πλήρης εμβέλεια: ενεργοί BS κατά EARTH, αδρανείς σε Psleep. Ο δορυφόρος δεν
+% έχει αντίστοιχο μέγεθος αδράνειας, οπότε προσμετράται μόνο όταν εξυπηρετεί.
+networkEnergy.TotalPower_W    = activeBs*bsFullW + idleBs*bsSleepW + satActive*satFullW;
+% Συμμετρική εμβέλεια: μόνο το τμήμα που εξαρτάται από τον ενισχυτή, και στα δύο σκέλη.
+networkEnergy.TotalPowerRf_W  = activeBs*bsRfW + satActive*satRfW;
+networkEnergy.TotalRate_bps   = totalRateBps;
+networkEnergy.ActiveBs        = activeBs;
+networkEnergy.IdleBs          = idleBs;
+networkEnergy.SatActive       = satActive;
+networkEnergy.BitPerJoule     = totalRateBps / networkEnergy.TotalPower_W;
+networkEnergy.BitPerJouleRf   = totalRateBps / networkEnergy.TotalPowerRf_W;
 
 %% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
 % Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.

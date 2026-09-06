@@ -1,0 +1,5 @@
+Σύγκριση vs 20260906_144048_temporalPassSimulation_gud2
+
+  ~ dtSeconds : 5  ->  20
+  ~ numSteps : 80  ->  21
+  ~ terrestrial.Power.NumTrx : 1  ->  4

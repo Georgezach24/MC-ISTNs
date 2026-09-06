@@ -76,12 +76,12 @@ satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters
 satParameters.TxPower = satParameters.EIRP - satParameters.AntennaGain;
 satParameters.MinElevationDeg = 20;
 
-simParameters.Power.NumTrx = 1;
+simParameters.Power.NumTrx = 4;   % αλυσίδες πομποδέκτη ανά τομέα· P_out/αλυσίδα <= 20 W (EARTH Πίν. 2)
 simParameters.Power.P0     = 130;
 simParameters.Power.DeltaP = 4.7;
 simParameters.Power.Psleep = 75;
 
-satParameters.Power.Pfix  = 0;
+satParameters.Power.Pfix  = 0;       % W, εκτός ενισχυτή· Pfix=0 -> αισιόδοξη υπόθεση
 satParameters.Power.EtaPA = 0.4;
 
 %% ------------------ Επαναλαμβανόμενα runs ------------------

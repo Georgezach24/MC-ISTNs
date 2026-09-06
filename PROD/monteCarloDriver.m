@@ -55,7 +55,7 @@ simParametersBase.RxAntTemperature = 290;
 simParametersBase.PathLossModel = '5G-NR';
 simParametersBase.PathLoss = nrPathLossConfig;
 
-simParametersBase.Power.NumTrx = 1;
+simParametersBase.Power.NumTrx = 4;   % αλυσίδες πομποδέκτη ανά τομέα· P_out/αλυσίδα <= 20 W (EARTH Πίν. 2)
 simParametersBase.Power.P0     = 130;
 simParametersBase.Power.DeltaP = 4.7;
 simParametersBase.Power.Psleep = 75;
@@ -69,7 +69,7 @@ satParametersBase.EirpDensityDbwPerMHz = 34;
 satParametersBase.EIRP = satParametersBase.EirpDensityDbwPerMHz + 10*log10(satParametersBase.Bandwidth/1e6) + 30;
 satParametersBase.TxPower = satParametersBase.EIRP - satParametersBase.AntennaGain;
 satParametersBase.MinElevationDeg = 20;
-satParametersBase.Power.Pfix  = 0;
+satParametersBase.Power.Pfix  = 0;   % W, εκτός ενισχυτή· Pfix=0 -> αισιόδοξη υπόθεση
 satParametersBase.Power.EtaPA = 0.4;
 
 %% ------------------ Κύριος βρόχος Monte-Carlo ------------------

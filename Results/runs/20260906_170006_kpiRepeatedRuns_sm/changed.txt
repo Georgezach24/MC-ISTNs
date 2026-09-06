@@ -1,0 +1,4 @@
+Σύγκριση vs 20260906_164549_kpiRepeatedRuns_sm
+
+  ~ numRuns : 5  ->  3
+  ~ terrestrial.Power.NumTrx : 1  ->  4
