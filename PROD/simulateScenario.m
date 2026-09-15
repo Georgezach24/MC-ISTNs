@@ -37,14 +37,17 @@ noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 
 %% ------------------ Ελάχιστο χρησιμοποιήσιμο SNR (κατάσταση outage) ------------------
 % Κάτω από αυτό -> ο χρήστης θεωρείται outage αντί να ανατεθεί στον
-% "λιγότερο κακό" κόμβο. = Shannon-ισοδύναμο SNR του MCS 0 (TS 38.214 Πίν. 5.1.3.1-2).
+% "λιγότερο κακό" κόμβο. = Shannon-ισοδύναμο SNR του MCS 0 (TS 38.214 Πίν. 5.1.3.1-1).
 minSpectralEfficiency = 0.2344;                        % bits/s/Hz (MCS 0)
 minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
 
 %% ------------------ Κατώφλι σε επίπεδο υπηρεσίας ------------------
-% 5ο εκατοστημόριο φασματικής απόδοσης χρήστη, Dense Urban-eMBB DL:
-% 0.3 bit/s/Hz (TR 37.910 Πίν. 5.4.1.1.1-1, απαίτηση ITU-R M.2410).
-% Ορίζεται επί του ΣΥΝΟΛΙΚΟΥ εύρους καναλιού, άρα SE_ζεύξης >= 0.3*L.
+% 5ο εκατοστημόριο φασματικής απόδοσης χρήστη (απαίτηση ITU-R M.2410, όπως
+% παρατίθεται στο TR 37.910). Η τιμή εξαρτάται από το περιβάλλον:
+% 0.3 bit/s/Hz για Indoor Hotspot-eMBB DL (Πίν. 5.4.1.1.1-1) και
+% 0.225 bit/s/Hz για Dense Urban-eMBB DL (Πίν. 5.4.1.2.1-1). Εφαρμόζεται η
+% αυστηρότερη τιμή. Ορίζεται επί του ΣΥΝΟΛΙΚΟΥ εύρους καναλιού, άρα
+% SE_ζεύξης >= targetNormalizedSe * L.
 targetNormalizedSe = 0.3;   % bit/s/Hz
 
 %% ------------------ Ισχύς εκπομπής ανά αλυσίδα πομποδέκτη ------------------
@@ -318,8 +321,8 @@ for u = 1:numUsers
     B_user = nodeBW / usersOnThisNode;
 
     % Χωρητικότητα Shannon, με clamp στη μέγιστη φασματική απόδοση του NR
-    % (MCS 27 / 256QAM, TS 38.214 Πίν. 5.1.3.1-2) ώστε να μην υπερεκτιμάται σε υψηλό SNR.
-    maxSpectralEfficiency = 5.5547;   % bits/s/Hz (MCS 27)
+    % (MCS 28 / 64QAM, TS 38.214 Πίν. 5.1.3.1-1) ώστε να μην υπερεκτιμάται σε υψηλό SNR.
+    maxSpectralEfficiency = 5.5547;   % bits/s/Hz (MCS 28, 64QAM)
     snr_lin = 10^(bestSnrDbVec(u)/10);
     spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
     capacity = B_user * spectralEfficiency;   % bits/s

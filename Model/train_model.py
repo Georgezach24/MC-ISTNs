@@ -44,6 +44,7 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
 )
+from sklearn.inspection import permutation_importance
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -54,7 +55,7 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 # Ίδιο κατώφλι με satParameters.MinElevationDeg στο monteCarloDriver.m
 # (TR 38.821 visibility mask) - όχι μια νέα υπόθεση, απλά επαναχρησιμοποίηση.
-MIN_ELEVATION_DEG = 10.0
+MIN_ELEVATION_DEG = 20.0
 SENTINEL_SNR_DB = -50.0        # "πρακτικά άχρηστος" όταν ο δορυφόρος δεν είναι ορατός
 SENTINEL_PATHLOSS_DB = 300.0
 
@@ -92,6 +93,18 @@ def load_dataset(path: Path) -> pd.DataFrame:
         print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
               f"out of {len(df)} - binary Terrestrial/Satellite target only.")
         df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
+
+    # Ζεύξεις εκτός του πεδίου ισχύος των UMa/UMi (BsUnavailReason =
+    # "OutOfModelRange") δεν έχουν υπολογισμένο επίγειο υποψήφιο: τα
+    # CandBS_* είναι NaN εξ ορισμού. Πρόκειται για περιορισμό της
+    # προσομοίωσης και όχι για φυσική κατάσταση προς πρόβλεψη (βλ. κεφ.
+    # μεθοδολογίας, διάκριση αιτίων μη διαθεσιμότητας), οπότε οι γραμμές
+    # αυτές εξαιρούνται αντί να τους αποδοθεί τεχνητή τιμή.
+    numOutOfRange = int(df["BsUnavailReason"].eq("OutOfModelRange").sum()) if "BsUnavailReason" in df.columns else 0
+    if numOutOfRange:
+        print(f"Excluding {numOutOfRange} rows with no valid terrestrial candidate "
+              f"(outside UMa/UMi validity range) out of {len(df)}.")
+        df = df[~df["BsUnavailReason"].eq("OutOfModelRange")].reset_index(drop=True)
     return df
 
 
@@ -197,6 +210,22 @@ def main():
             fig.tight_layout()
             fig.savefig(RESULTS_DIR / "feature_importance_RandomForest.png", dpi=150)
             plt.close(fig)
+
+            # Σπουδαιότητα χαρακτηριστικών: η impurity-based μετρική είναι
+            # μεροληπτική υπέρ συνεχών/συσχετισμένων χαρακτηριστικών, οπότε
+            # καταγράφεται και permutation importance πάνω στο σύνολο
+            # ελέγχου (10 επαναλήψεις), το οποίο μετρά την πτώση απόδοσης
+            # όταν ένα χαρακτηριστικό ανακατευθεί.
+            perm = permutation_importance(pipeline, X_test, y_test, n_repeats=10,
+                                          random_state=42, scoring="accuracy")
+            results[name]["feature_importance_impurity"] = {
+                all_feature_names[i]: float(importances[i]) for i in order
+            }
+            results[name]["feature_importance_permutation"] = {
+                feature_cols[i]: {"mean": float(perm.importances_mean[i]),
+                                  "std": float(perm.importances_std[i])}
+                for i in np.argsort(perm.importances_mean)[::-1]
+            }
 
     fig, ax = plt.subplots(figsize=(5, 5))
     for name, (y_true, y_proba) in roc_curves.items():

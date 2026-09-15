@@ -1,65 +1,104 @@
 {
   "LogisticRegression": {
-    "accuracy": 0.8693181818181818,
-    "f1_satellite": 0.8345323741007195,
-    "roc_auc": 0.8913580246913579,
+    "accuracy": 0.8102415857939294,
+    "f1_satellite": 0.8695898964098198,
+    "roc_auc": 0.8583949252097198,
     "classification_report": {
       "Satellite": {
-        "precision": 1.0,
-        "recall": 0.7160493827160493,
-        "f1-score": 0.8345323741007195,
-        "support": 162.0
+        "precision": 0.8357883251500273,
+        "recall": 0.9062407571724342,
+        "f1-score": 0.8695898964098198,
+        "support": 3381.0
       },
       "Terrestrial": {
-        "precision": 0.8050847457627118,
-        "recall": 1.0,
-        "f1-score": 0.892018779342723,
-        "support": 190.0
+        "precision": 0.7306711979609176,
+        "recall": 0.5882352941176471,
+        "f1-score": 0.6517620310723758,
+        "support": 1462.0
       },
-      "accuracy": 0.8693181818181818,
+      "accuracy": 0.8102415857939294,
       "macro avg": {
-        "precision": 0.902542372881356,
-        "recall": 0.8580246913580247,
-        "f1-score": 0.8632755767217213,
-        "support": 352.0
+        "precision": 0.7832297615554724,
+        "recall": 0.7472380256450406,
+        "f1-score": 0.7606759637410978,
+        "support": 4843.0
       },
       "weighted avg": {
-        "precision": 0.8947900616332819,
-        "recall": 0.8693181818181818,
-        "f1-score": 0.865561967839301,
-        "support": 352.0
+        "precision": 0.8040556718461911,
+        "recall": 0.8102415857939294,
+        "f1-score": 0.8038322381146839,
+        "support": 4843.0
       }
     }
   },
   "RandomForest": {
-    "accuracy": 0.8721590909090909,
-    "f1_satellite": 0.847457627118644,
-    "roc_auc": 0.9329272254710851,
+    "accuracy": 0.8120999380549246,
+    "f1_satellite": 0.873046875,
+    "roc_auc": 0.8566354752214335,
     "classification_report": {
       "Satellite": {
-        "precision": 0.9398496240601504,
-        "recall": 0.7716049382716049,
-        "f1-score": 0.847457627118644,
-        "support": 162.0
+        "precision": 0.8262476894639557,
+        "recall": 0.9254658385093167,
+        "f1-score": 0.873046875,
+        "support": 3381.0
       },
       "Terrestrial": {
-        "precision": 0.8310502283105022,
-        "recall": 0.9578947368421052,
-        "f1-score": 0.8899755501222494,
-        "support": 190.0
+        "precision": 0.7613636363636364,
+        "recall": 0.5499316005471956,
+        "f1-score": 0.6386020651310564,
+        "support": 1462.0
       },
-      "accuracy": 0.8721590909090909,
+      "accuracy": 0.8120999380549246,
       "macro avg": {
-        "precision": 0.8854499261853264,
-        "recall": 0.8647498375568551,
-        "f1-score": 0.8687165886204467,
-        "support": 352.0
+        "precision": 0.793805662913796,
+        "recall": 0.7376987195282562,
+        "f1-score": 0.7558244700655282,
+        "support": 4843.0
       },
       "weighted avg": {
-        "precision": 0.8811226774907381,
-        "recall": 0.8721590909090909,
-        "f1-score": 0.8704076423762719,
-        "support": 352.0
+        "precision": 0.8066605563578918,
+        "recall": 0.8120999380549246,
+        "f1-score": 0.8022729100963463,
+        "support": 4843.0
+      }
+    },
+    "feature_importance_impurity": {
+      "CandBS_Distance_m": 0.5183059819841088,
+      "CandSat_SlantRange_m": 0.17981298911490098,
+      "CandSat_Elevation_deg": 0.17678449045220218,
+      "CandSat_Visible_True": 0.059092987580085354,
+      "NumUsers": 0.030938916135144864,
+      "NumBS": 0.0270167275505526,
+      "ScenarioType_UMi": 0.008047907183005205
+    },
+    "feature_importance_permutation": {
+      "CandBS_Distance_m": {
+        "mean": 0.1525500722692546,
+        "std": 0.0032514444962915066
+      },
+      "CandSat_Elevation_deg": {
+        "mean": 0.015155895106339046,
+        "std": 0.002991091300802288
+      },
+      "CandSat_SlantRange_m": {
+        "mean": 0.012099938054924642,
+        "std": 0.0028629081168593034
+      },
+      "CandSat_Visible": {
+        "mean": 0.0021474292793723037,
+        "std": 0.001360913239998688
+      },
+      "ScenarioType": {
+        "mean": 0.00045426388602105573,
+        "std": 0.0014969703869825968
+      },
+      "NumBS": {
+        "mean": -6.194507536650961e-05,
+        "std": 0.001394490522808428
+      },
+      "NumUsers": {
+        "mean": -0.0012389015073301479,
+        "std": 0.0012993708628992154
       }
     }
   }

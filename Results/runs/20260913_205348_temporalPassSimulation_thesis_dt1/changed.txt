@@ -1,0 +1,4 @@
+Σύγκριση vs 20260913_205328_temporalPassSimulation_thesis_dt2
+
+  ~ dtSeconds : 2  ->  1
+  ~ numSteps : 334  ->  667
