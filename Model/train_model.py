@@ -59,12 +59,12 @@ MIN_ELEVATION_DEG = 20.0
 SENTINEL_SNR_DB = -50.0        # "πρακτικά άχρηστος" όταν ο δορυφόρος δεν είναι ορατός
 SENTINEL_PATHLOSS_DB = 300.0
 
-# Το dataset είναι χρονοσειρά με βήμα 1 s: διαδοχικά δείγματα του ίδιου χρήστη
-# είναι σχεδόν ταυτόσημα (ο χρήστης μετακινείται 0.83 m). Για την εκπαίδευση
-# κρατάμε ένα δείγμα κάθε ML_SAMPLE_STRIDE βήματα, ώστε τα δείγματα να μην
-# είναι σχεδόν αντίγραφα μεταξύ τους. Η πλήρης ανάλυση παραμένει στο CSV και
-# χρησιμοποιείται από τους δείκτες της προσομοίωσης.
-ML_SAMPLE_STRIDE = 10
+# Η υποδειγματοληψία στον χρόνο γίνεται ΣΤΗΝ ΠΗΓΗ: το runSimulation.m
+# προχωρά με βήμα 1 s αλλά γράφει μία γραμμή κάθε datasetStride βήματα
+# (5 s), γιατί διαδοχικά δείγματα του ίδιου χρήστη απέχουν 0.83 m και είναι
+# σχεδόν ταυτόσημα. Εδώ δεν χρειάζεται επιπλέον αραίωση· άλλαξε το μόνο αν
+# θέλεις ακόμη πιο αραιό δείγμα.
+ML_SAMPLE_STRIDE = 1
 
 FEATURE_COLUMNS_NUMERIC = [
     # NodeLoad is deliberately excluded: it's the count of users sharing the
@@ -119,6 +119,46 @@ def load_dataset(path: Path) -> pd.DataFrame:
               f"(outside UMa/UMi validity range) out of {len(df)}.")
         df = df[~df["BsUnavailReason"].eq("OutOfModelRange")].reset_index(drop=True)
     return df
+
+
+SNR_MIN_DB = 10 * np.log10(2 ** 0.2344 - 1)   # -7.5346 dB, MCS 0 (TS 38.214 Πίν. 5.1.3.1-1)
+
+
+def label_identity_check(path: Path) -> dict:
+    """Έλεγχος ταυτότητας της ετικέτας (σημείο 15 της αξιολόγησης).
+
+    Εφαρμόζει τον ΙΔΙΟ τον κανόνα δημιουργίας των ετικετών απευθείας στα δύο
+    υποψήφια SNR -- μάσκα ορατότητας, argmax με τις ισοπαλίες να πηγαίνουν στον
+    επίγειο (στο simulateScenario.m ο δορυφόρος κερδίζει μόνο με `>`), και το
+    κατώφλι ελάχιστου χρησιμοποιήσιμου SNR -- και το συγκρίνει με την
+    καταγεγραμμένη ετικέτα. Τρέχει στα ΑΚΑΤΕΡΓΑΣΤΑ δεδομένα, πριν από κάθε
+    φιλτράρισμα, ώστε να καλύπτει και τις γραμμές εκτός κάλυψης.
+
+    Αν ο κανόνας δεν αναπαράγει τις ετικέτες, υπάρχει ασυνέπεια δεδομένων ή
+    υλοποίησης. Αν τις αναπαράγει, τότε η ετικέτα είναι εξ ορισμού συνάρτηση
+    δύο χαρακτηριστικών εισόδου, και η ακρίβεια της παραλλαγής με ακριβές SNR
+    είναι έλεγχος ροής δεδομένων, όχι αποτέλεσμα πρόβλεψης.
+    """
+    raw = pd.read_csv(path, usecols=["CandBS_SNR_dB", "CandSat_SNR_dB",
+                                     "CandSat_Elevation_deg", "ServingType"])
+    bs = raw["CandBS_SNR_dB"].fillna(-np.inf).to_numpy()
+    sat = raw["CandSat_SNR_dB"].to_numpy()
+    sat = np.where(raw["CandSat_Elevation_deg"].to_numpy() >= MIN_ELEVATION_DEG, sat, -np.inf)
+    sat = np.where(np.isnan(sat), -np.inf, sat)
+
+    sat_wins = sat > bs                      # ισοπαλία -> επίγειος, όπως στη MATLAB
+    best = np.where(sat_wins, sat, bs)
+    predicted = np.where(best < SNR_MIN_DB, "Outage",
+                         np.where(sat_wins, "Satellite", "Terrestrial"))
+
+    actual = raw["ServingType"].to_numpy()
+    matches = int((predicted == actual).sum())
+    total = len(actual)
+    print(f"\nLabel identity check (SNR_min = {SNR_MIN_DB:.4f} dB): "
+          f"rule reproduces {matches}/{total} labels "
+          f"({100*matches/total:.4f}%, {total-matches} mismatches)")
+    return {"snr_min_db": float(SNR_MIN_DB), "rows": total,
+            "matches": matches, "mismatches": total - matches}
 
 
 def build_preprocessor() -> ColumnTransformer:
@@ -179,6 +219,8 @@ def main():
             "to generate the dataset (see PROD/runSimulation.m)."
         )
 
+    label_check = label_identity_check(DATASET_PATH)
+
     df = load_dataset(DATASET_PATH)
     train_df, test_df = group_train_test_split(df)
 
@@ -198,7 +240,7 @@ def main():
         "RandomForest": RandomForestClassifier(n_estimators=300, max_depth=12, random_state=42),
     }
 
-    results = {}
+    results = {"label_identity_check": label_check}
     roc_curves = {}
     for name, clf in models.items():
         pipeline = Pipeline([

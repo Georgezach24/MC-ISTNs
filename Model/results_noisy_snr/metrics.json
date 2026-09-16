@@ -1,0 +1,109 @@
+{
+  "noise_sigma_dB": {
+    "Terrestrial": 9.525947575396792,
+    "Satellite": 4.56141041972583
+  },
+  "LogisticRegression": {
+    "accuracy": 0.9378408939736597,
+    "f1_satellite": 0.8721701661993023,
+    "roc_auc": 0.9840534212067661,
+    "classification_report": {
+      "Satellite": {
+        "precision": 0.8562411871348956,
+        "recall": 0.8887030455083978,
+        "f1-score": 0.8721701661993023,
+        "support": 14349.0
+      },
+      "Terrestrial": {
+        "precision": 0.9647017218133191,
+        "recall": 0.9532400026208312,
+        "f1-score": 0.958936614302977,
+        "support": 45787.0
+      },
+      "accuracy": 0.9378408939736597,
+      "macro avg": {
+        "precision": 0.9104714544741074,
+        "recall": 0.9209715240646146,
+        "f1-score": 0.9155533902511397,
+        "support": 60136.0
+      },
+      "weighted avg": {
+        "precision": 0.9388220455445168,
+        "recall": 0.9378408939736597,
+        "f1-score": 0.9382333456479346,
+        "support": 60136.0
+      }
+    }
+  },
+  "RandomForest": {
+    "accuracy": 0.940002660635892,
+    "f1_satellite": 0.8772705626233077,
+    "roc_auc": 0.9844372825417493,
+    "classification_report": {
+      "Satellite": {
+        "precision": 0.856867565951226,
+        "recall": 0.8986688967872326,
+        "f1-score": 0.8772705626233077,
+        "support": 14349.0
+      },
+      "Terrestrial": {
+        "precision": 0.9677512364983255,
+        "recall": 0.9529560792364645,
+        "f1-score": 0.9602966745163634,
+        "support": 45787.0
+      },
+      "accuracy": 0.940002660635892,
+      "macro avg": {
+        "precision": 0.9123094012247758,
+        "recall": 0.9258124880118486,
+        "f1-score": 0.9187836185698355,
+        "support": 60136.0
+      },
+      "weighted avg": {
+        "precision": 0.9412933778332941,
+        "recall": 0.940002660635892,
+        "f1-score": 0.940485884314929,
+        "support": 60136.0
+      }
+    },
+    "feature_importance_impurity": {
+      "CandSat_SNR_noisy_dB": 0.2934938557746768,
+      "CandSat_Elevation_deg": 0.2105175136863782,
+      "CandSat_Visible_True": 0.1576962063430793,
+      "CandSat_SlantRange_m": 0.12579588866289465,
+      "CandBS_Distance_m": 0.11013893123595017,
+      "CandBS_SNR_noisy_dB": 0.09802699144070208,
+      "NumUsers": 0.004330612856318905
+    },
+    "feature_importance_permutation": {
+      "CandSat_SNR_noisy_dB": {
+        "mean": 0.12135991752028734,
+        "std": 0.0005865786722656147
+      },
+      "CandBS_Distance_m": {
+        "mean": 0.0394173207396568,
+        "std": 0.0007178711074736278
+      },
+      "CandBS_SNR_noisy_dB": {
+        "mean": 0.03127577491020358,
+        "std": 0.0010602402431501609
+      },
+      "CandSat_Elevation_deg": {
+        "mean": 0.015581348942397244,
+        "std": 0.00035966284184491096
+      },
+      "CandSat_Visible": {
+        "mean": 0.005387787681255829,
+        "std": 0.0003227049451445283
+      },
+      "CandSat_SlantRange_m": {
+        "mean": 0.0031611680191566127,
+        "std": 0.00034757738772078257
+      },
+      "NumUsers": {
+        "mean": 7.649328189438532e-05,
+        "std": 0.0001753864157700687
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "LogisticRegression": {
+    "accuracy": 0.9177364640148996,
+    "f1_satellite": 0.8347308990077841,
+    "roc_auc": 0.9713142343399781,
+    "classification_report": {
+      "Satellite": {
+        "precision": 0.8016555441478439,
+        "recall": 0.8706530071782006,
+        "f1-score": 0.8347308990077841,
+        "support": 14349.0
+      },
+      "Terrestrial": {
+        "precision": 0.9583408152271503,
+        "recall": 0.9324917553017232,
+        "f1-score": 0.9452395975160229,
+        "support": 45787.0
+      },
+      "accuracy": 0.9177364640148996,
+      "macro avg": {
+        "precision": 0.8799981796874972,
+        "recall": 0.9015723812399619,
+        "f1-score": 0.8899852482619035,
+        "support": 60136.0
+      },
+      "weighted avg": {
+        "precision": 0.9209542754719792,
+        "recall": 0.9177364640148996,
+        "f1-score": 0.9188712106114281,
+        "support": 60136.0
+      }
+    }
+  },
+  "RandomForest": {
+    "accuracy": 0.9184182519622189,
+    "f1_satellite": 0.8390631150767616,
+    "roc_auc": 0.9715028613427503,
+    "classification_report": {
+      "Satellite": {
+        "precision": 0.7926247288503254,
+        "recall": 0.8912816224127117,
+        "f1-score": 0.8390631150767616,
+        "support": 14349.0
+      },
+      "Terrestrial": {
+        "precision": 0.9645462603122656,
+        "recall": 0.9269224889160679,
+        "f1-score": 0.9453601817614826,
+        "support": 45787.0
+      },
+      "accuracy": 0.9184182519622189,
+      "macro avg": {
+        "precision": 0.8785854945812955,
+        "recall": 0.9091020556643898,
+        "f1-score": 0.892211648419122,
+        "support": 60136.0
+      },
+      "weighted avg": {
+        "precision": 0.9235242093785923,
+        "recall": 0.9184182519622189,
+        "f1-score": 0.9199967287573076,
+        "support": 60136.0
+      }
+    },
+    "feature_importance_impurity": {
+      "CandSat_Elevation_deg": 0.37795945041592327,
+      "CandSat_Visible_True": 0.23119752064998494,
+      "CandSat_SlantRange_m": 0.20700237505957772,
+      "CandBS_Distance_m": 0.1780885437906415,
+      "NumUsers": 0.0057521100838724545
+    },
+    "feature_importance_permutation": {
+      "CandSat_Elevation_deg": {
+        "mean": 0.10004323533324462,
+        "std": 0.0006176404910362573
+      },
+      "CandBS_Distance_m": {
+        "mean": 0.07046527870160965,
+        "std": 0.0006241184375133908
+      },
+      "CandSat_Visible": {
+        "mean": 0.03008015165624579,
+        "std": 0.0005636437393139732
+      },
+      "CandSat_SlantRange_m": {
+        "mean": 0.009722961287747755,
+        "std": 0.00043395251265651997
+      },
+      "NumUsers": {
+        "mean": 0.0003974324863641909,
+        "std": 0.0001755833862682739
+      }
+    }
+  }
+}

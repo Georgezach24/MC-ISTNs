@@ -1,0 +1,14 @@
+Σύγκριση vs 20260916_165344_runSimulation
+
+  ~ checksRun : 1005  ->  189210
+  ~ converged : false  ->  true
+  ~ convergedAtPass : NaN  ->  210
+  ~ maxPasses : 5  ->  600
+  ~ maxWalkPerPass_m : 166.66667  ->  750
+  ~ minPasses : 9999  ->  30
+  ~ numPasses : 5  ->  210
+  ~ numRows : 1517  ->  243807
+  ~ passWindow_s : 200  ->  900
+  ~ raanSpan_deg : 17.831485  ->  18.755561
+  ~ simulatedTime_s : 1000  ->  189000
+  ~ userRadiusRange_m : [176.66667 4833.3333]  ->  [760 4250]

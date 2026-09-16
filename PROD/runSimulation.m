@@ -35,10 +35,18 @@ function [convTable, summary] = runSimulation(opts)
 %   runSimulation(struct('maxPasses',10))             % σύντομο τρέξιμο δοκιμής
 %   runSimulation(struct('ciTolerance',0.005))        % αυστηρότερη σύγκλιση
 %
+% Η προσομοίωση προχωρά πάντα με βήμα dtSeconds και όλοι οι δείκτες
+% υπολογίζονται σε αυτή την ανάλυση. Στο αρχείο όμως γράφεται μία γραμμή κάθε
+% datasetStride βήματα: διαδοχικά δείγματα του ίδιου χρήστη απέχουν 0.83 m και
+% είναι σχεδόν ταυτόσημα, οπότε η πλήρης ανάλυση θα παρήγαγε αρχείο εκατοντάδων
+% MB χωρίς να προσθέτει πληροφορία. Η διέλευση αναφοράς αποθηκεύεται χωριστά σε
+% πλήρη ανάλυση, όπου χρειάζεται για τις χρονοσειρές.
+%
 % Έξοδοι:
-%   Dataset/dataset.csv      μία γραμμή ανά (διέλευση, βήμα, χρήστη)
-%   Results/convergence.csv  καμπύλη σύγκλισης ανά διέλευση
-%   Results/*.png            χρονοσειρές διέλευσης αναφοράς + καμπύλη σύγκλισης
+%   Dataset/dataset.csv        μία γραμμή ανά (διέλευση, δείγμα, χρήστη)
+%   Results/reference_pass.csv η διέλευση αναφοράς σε πλήρη ανάλυση 1 s
+%   Results/convergence.csv    καμπύλη σύγκλισης ανά διέλευση
+%   Results/*.png              χρονοσειρές διέλευσης αναφοράς + καμπύλη σύγκλισης
 
 %% ------------------ Επιλογές ------------------
 if nargin < 1 || isempty(opts)
@@ -53,6 +61,8 @@ def = struct( ...
     'maxPasses',    600, ...    % ασφαλιστικό άνω όριο
     'ciTolerance',  0.05, ...   % σχετικό ημιεύρος 95% CI (δείκτες ρυθμού/ενέργειας)
     'ciToleranceFrac', 0.02, ...% απόλυτο ημιεύρος 95% CI (δείκτες ποσοστού)
+    'datasetStride', 5, ...     % κάθε πόσα βήματα γράφεται γραμμή στο dataset
+    'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
     'outputDir',    fullfile(thisDir, '..', 'Results'), ...
@@ -71,8 +81,42 @@ datasetDir = fileparts(opts.datasetPath);
 if ~isempty(datasetDir) && ~isfolder(datasetDir)
     mkdir(datasetDir);
 end
-if isfile(opts.datasetPath)
-    delete(opts.datasetPath);
+refPassCsv     = fullfile(opts.outputDir, 'reference_pass.csv');
+checkpointPath = fullfile(opts.outputDir, 'runSimulation_checkpoint.mat');
+
+% Σημείο ελέγχου: μια μεγάλη εκτέλεση μπορεί να διακοπεί (π.χ. από έλλειψη
+% μνήμης στο μηχάνημα). Αν υπάρχει συμβατό σημείο ελέγχου, η εκτέλεση
+% συνεχίζει από την επόμενη διέλευση αντί να ξαναρχίσει από την αρχή.
+resumeState = [];
+if opts.resume && isfile(checkpointPath) && isfile(opts.datasetPath)
+    S = load(checkpointPath);
+    if isfield(S,'ckpt') && checkpointMatches(S.ckpt.opts, opts)
+        % Το σημείο ελέγχου γράφεται αμέσως μετά την εγγραφή της διέλευσης στο
+        % CSV. Αν η διακοπή έπεσε ακριβώς ανάμεσα στα δύο, το CSV έχει μία
+        % διέλευση παραπάνω από όση ξέρει το σημείο ελέγχου· τότε η συνέχιση θα
+        % παρήγαγε διπλές γραμμές, οπότε σταματάμε αντί να το αγνοήσουμε.
+        lastInCsv = max(readmatrix(opts.datasetPath, 'Range', 'A:A', ...
+            'NumHeaderLines', 1));
+        if lastInCsv ~= S.ckpt.passIdx
+            error('runSimulation:CheckpointMismatch', ...
+                ['Το CSV φτάνει ως τη διέλευση %d ενώ το σημείο ελέγχου ως τη %d. ' ...
+                 'Η προηγούμενη εκτέλεση διακόπηκε σε ακατάλληλη στιγμή. Σβήσε τα ' ...
+                 '%s και %s και ξεκίνα από την αρχή.'], ...
+                lastInCsv, S.ckpt.passIdx, opts.datasetPath, checkpointPath);
+        end
+        resumeState = S.ckpt;
+        fprintf('Συνέχιση από σημείο ελέγχου: %d διελεύσεις ήδη ολοκληρωμένες.\n', ...
+            resumeState.passIdx);
+    else
+        fprintf(['Βρέθηκε σημείο ελέγχου με διαφορετικές παραμέτρους - ' ...
+                 'αγνοείται και η εκτέλεση ξεκινά από την αρχή.\n']);
+    end
+end
+
+if isempty(resumeState)
+    if isfile(opts.datasetPath),  delete(opts.datasetPath);  end
+    if isfile(refPassCsv),        delete(refPassCsv);        end
+    if isfile(checkpointPath),    delete(checkpointPath);    end
 end
 
 wgs84 = wgs84Ellipsoid;
@@ -218,6 +262,18 @@ passIdx = 0;
 refPassTable = table();
 refSnapshot = struct();
 
+if ~isempty(resumeState)
+    passIdx     = resumeState.passIdx;
+    passKpi(1:passIdx,:) = resumeState.passKpi;
+    convRows(1:passIdx)  = resumeState.convRows;
+    totalRows   = resumeState.totalRows;
+    checksRun   = resumeState.checksRun;
+    refSnapshot = resumeState.refSnapshot;
+    if isfile(refPassCsv)
+        refPassTable = readtable(refPassCsv, 'TextType', 'string');
+    end
+end
+
 while passIdx < opts.maxPasses
     passIdx = passIdx + 1;
 
@@ -250,7 +306,14 @@ while passIdx < opts.maxPasses
     tStart  = tPeakS - opts.passWindowS/2;
     numSteps = floor(opts.passWindowS/opts.dtSeconds) + 1;
 
-    passRows = cell(numSteps,1);
+    % Προδέσμευση σε απλούς πίνακες αντί για συσσώρευση αντικειμένων table:
+    % ένα table ανά βήμα σήμαινε ~900 αντικείμενα ανά διέλευση και εξαντλούσε
+    % τη μνήμη σε μεγάλες εκτελέσεις. Ο πίνακας φτιάχνεται μία φορά, στο τέλος.
+    nRowsPass = numSteps * numUsers;
+    numBuf = zeros(nRowsPass, 25);
+    strBuf = strings(nRowsPass, 6);
+    rowPtr = 0;
+
     prevServingNode = strings(numUsers,1);
     channelState = [];   % πρώτο βήμα της διέλευσης: ανεξάρτητο δείγμα
     stepBitPerJouleRf = nan(numSteps,1);
@@ -308,26 +371,19 @@ while passIdx < opts.maxPasses
 
         stepBitPerJouleRf(s) = networkEnergy.BitPerJouleRf;
 
-        passRows{s} = table( ...
+        idx = rowPtr + (1:numUsers);
+        numBuf(idx,:) = [ ...
             repmat(passIdx,numUsers,1), repmat(s,numUsers,1), repmat(t-tStart,numUsers,1), ...
             (1:numUsers)', repmat(numUsers,numUsers,1), ...
             user_geo(:,1), user_geo(:,2), walkAzimuthDeg, ...
-            bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
-            bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
-            nodePowerWattsVec, energyPerBitUJVec, nodeLoadVec, ...
-            deliveredMbpsVec, serviceStateVec, bsReasonVec, satReasonVec, ...
-            linkStateVec, interruptionMsVec, ...
+            bestDistanceVec, bestPathLossVec, bestSnrDbVec, capacityMbpsVec, ...
+            bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec, nodeLoadVec, ...
+            deliveredMbpsVec, interruptionMsVec, ...
             bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
-            satSnrDbVec, satElevationVec, satSlantRangeVec, satPathLossVec, ...
-            'VariableNames', {'PassID','Step','Time_s','UserID','NumUsers', ...
-            'UserLat','UserLon','WalkAzimuth_deg', ...
-            'ServingNode','ServingType','Distance_m','PathLoss_dB', ...
-            'SNR_dB','Capacity_Mbps','SatElevation_deg', ...
-            'NodePower_W','EnergyPerBit_uJ','NodeLoad', ...
-            'Throughput_Mbps','ServiceState','BsUnavailReason','SatUnavailReason', ...
-            'LinkState','Interruption_ms', ...
-            'CandBS_SNR_dB','CandBS_Distance_m','CandBS_PathLoss_dB', ...
-            'CandSat_SNR_dB','CandSat_Elevation_deg','CandSat_SlantRange_m','CandSat_PathLoss_dB'});
+            satSnrDbVec, satElevationVec, satSlantRangeVec, satPathLossVec];
+        strBuf(idx,:) = [bestNodeVec, bestNodeTypeVec, serviceStateVec, ...
+            bsReasonVec, satReasonVec, linkStateVec];
+        rowPtr = rowPtr + numUsers;
 
         % --- Στιγμιότυπο μέγιστης προσέγγισης της διέλευσης αναφοράς ---
         if passIdx == 1 && abs(t - tPeakS) <= opts.dtSeconds/2
@@ -351,22 +407,29 @@ while passIdx < opts.maxPasses
         end
     end
 
-    passTable = vertcat(passRows{:});
+    % -- Δείκτες της διέλευσης: υπολογίζονται σε ΠΛΗΡΗ ανάλυση 1 s --
+    % (η υποδειγματοληψία αφορά μόνο το τι γράφεται στο αρχείο)
+    servedFull = strBuf(:,2) ~= "Outage";
+    passKpi(passIdx,1) = mean(numBuf(servedFull,12), 'omitnan');   % Capacity_Mbps
+    passKpi(passIdx,2) = mean(numBuf(servedFull,11), 'omitnan');   % SNR_dB
+    passKpi(passIdx,3) = mean(strBuf(:,3) == "Served");
+    passKpi(passIdx,4) = mean(strBuf(:,2) == "Satellite");
+    passKpi(passIdx,5) = mean(stepBitPerJouleRf, 'omitnan');
+
+    % -- Εγγραφή: κρατούνται τα βήματα 1, 1+stride, ... --
+    keep = mod(numBuf(:,2) - 1, opts.datasetStride) == 0;
+    passTable = buildPassTable(numBuf(keep,:), strBuf(keep,:));
     if passIdx == 1
         writetable(passTable, opts.datasetPath);
-        refPassTable = passTable;
+        % Η διέλευση αναφοράς αποθηκεύεται και σε πλήρη ανάλυση, για τις
+        % χρονοσειρές: εκεί χρειάζεται κάθε βήμα, όχι δείγμα.
+        refPassTable = buildPassTable(numBuf, strBuf);
+        writetable(refPassTable, refPassCsv);
     else
         writetable(passTable, opts.datasetPath, 'WriteMode', 'append');
     end
     totalRows = totalRows + height(passTable);
-
-    % -- Δείκτες της διέλευσης --
-    served = passTable.ServingType ~= "Outage";
-    passKpi(passIdx,1) = mean(passTable.Capacity_Mbps(served), 'omitnan');
-    passKpi(passIdx,2) = mean(passTable.SNR_dB(served), 'omitnan');
-    passKpi(passIdx,3) = mean(passTable.ServiceState == "Served");
-    passKpi(passIdx,4) = mean(passTable.ServingType == "Satellite");
-    passKpi(passIdx,5) = mean(stepBitPerJouleRf, 'omitnan');
+    clear numBuf strBuf passTable;
 
     % -- Σύγκλιση: 95% CI του μέσου όρου πάνω στις διελεύσεις --
     relHw = nan(1,numKpi);
@@ -395,11 +458,19 @@ while passIdx < opts.maxPasses
     end
 
     if mod(passIdx,10) == 0 || passIdx <= 3 || converged
-        fprintf('  Διέλευση %3d | γραμμές %8d | χωρητ. %6.2f Mbps | served %5.1f%% | sat %5.1f%% | max rel.CI %.4f\n', ...
+        fprintf('  Διέλευση %3d | γραμμές %8d | χωρητ. %6.2f Mbps | served %5.1f%% | sat %5.1f%% | max rel.CI %.4f | μνήμη %5.2f GB\n', ...
             passIdx, totalRows, mean(passKpi(1:passIdx,1),'omitnan'), ...
             100*mean(passKpi(1:passIdx,3),'omitnan'), ...
-            100*mean(passKpi(1:passIdx,4),'omitnan'), max(relHw(kpiInStopRule)));
+            100*mean(passKpi(1:passIdx,4),'omitnan'), max(relHw(kpiInStopRule)), ...
+            matlabMemoryGb());
     end
+
+    % Σημείο ελέγχου μετά από κάθε διέλευση: λίγα KB, ώστε μια διακοπή να
+    % κοστίζει το πολύ μία διέλευση αντί για ολόκληρη την εκτέλεση.
+    ckpt = struct('passIdx', passIdx, 'passKpi', passKpi(1:passIdx,:), ...
+        'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
+        'checksRun', checksRun, 'refSnapshot', refSnapshot, 'opts', opts);
+    save(checkpointPath, 'ckpt');
 
     if converged
         break;
@@ -465,7 +536,10 @@ if ~isempty(fieldnames(refSnapshot))
     close(gcf);
 end
 
-outFiles = {opts.datasetPath, convCsv, fullfile(opts.outputDir,'network_3d.png')};
+% Το dataset ΔΕΝ αντιγράφεται στον versioned φάκελο: είναι δεκάδες MB και το
+% Results/runs/ παρακολουθείται από το git. Αντ' αυτού καταγράφεται το άθροισμα
+% ελέγχου SHA-256 του, που το συνδέει με τη συγκεκριμένη εκτέλεση και το commit.
+outFiles = {refPassCsv, convCsv, fullfile(opts.outputDir,'network_3d.png')};
 
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB','SatElevation_deg'};
 kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SNR (dB)','Γωνία ανύψωσης (deg)'};
@@ -512,6 +586,11 @@ runParams.passWindow_s     = opts.passWindowS;
 runParams.numPasses        = numPasses;
 runParams.simulatedTime_s  = simulatedTimeS;
 runParams.numRows          = totalRows;
+runParams.datasetPath      = opts.datasetPath;
+runParams.datasetBytes     = dir(opts.datasetPath).bytes;
+runParams.datasetSha256    = fileSha256(opts.datasetPath);
+runParams.datasetStride    = opts.datasetStride;
+runParams.datasetSampling_s = opts.datasetStride*opts.dtSeconds;
 runParams.converged        = converged;
 runParams.convergedAtPass  = convergedAtPass;
 runParams.ciTolerance      = opts.ciTolerance;
@@ -556,14 +635,100 @@ runParams.sources          = struct( ...
 
 saveRunVersion('runSimulation', runParams, outFiles, opts.label);
 
+% Η εκτέλεση ολοκληρώθηκε: το σημείο ελέγχου δεν χρειάζεται πια.
+if isfile(checkpointPath)
+    delete(checkpointPath);
+end
+
 end
 
 % =====================================================================
 % Τοπικές συναρτήσεις
 % =====================================================================
 
+function tf = checkpointMatches(a, b)
+% Το σημείο ελέγχου χρησιμοποιείται μόνο αν οι παράμετροι που καθορίζουν τι
+% παράγει η εκτέλεση είναι ίδιες. Οτιδήποτε άλλο (π.χ. label) δεν πειράζει.
+keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
+        'ciTolerance','ciToleranceFrac','minPasses','maxPasses','datasetPath'};
+tf = true;
+for k = 1:numel(keys)
+    if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
+        tf = false;
+        return;
+    end
+end
+end
+
+function h = fileSha256(path)
+% SHA-256 ενός αρχείου, ως συμβολοσειρά δεκαεξαδικών. Συνδέει το παραγόμενο
+% σύνολο δεδομένων με τη συγκεκριμένη εκτέλεση και το commit που καταγράφει το
+% saveRunVersion, χωρίς να χρειάζεται αντίγραφο του αρχείου στον φάκελο.
+try
+    md = java.security.MessageDigest.getInstance('SHA-256');
+    fid = fopen(path, 'r');
+    if fid < 0
+        h = '';
+        return;
+    end
+    cleaner = onCleanup(@() fclose(fid));
+    while true
+        chunk = fread(fid, 1e7, '*uint8');
+        if isempty(chunk)
+            break;
+        end
+        md.update(chunk);
+    end
+    h = lower(reshape(dec2hex(typecast(md.digest(), 'uint8')).', 1, []));
+catch
+    h = '';   % π.χ. MATLAB χωρίς JVM
+end
+end
+
+function g = matlabMemoryGb()
+% Μνήμη που κρατά η MATLAB, σε GB. Χρήσιμο σε μεγάλες εκτελέσεις: αν ο
+% αριθμός ανεβαίνει σταθερά ανά διέλευση, κάτι συσσωρεύεται και δεν
+% ελευθερώνεται. Η συνάρτηση memory υπάρχει μόνο σε Windows.
+try
+    m = memory;
+    g = m.MemUsedMATLAB / 2^30;
+catch
+    g = NaN;
+end
+end
+
 function s = ternary(cond, a, b)
 if cond, s = a; else, s = b; end
+end
+
+function T = buildPassTable(numBuf, strBuf)
+% Φτιάχνει τον πίνακα μιας διέλευσης από τους δύο προδεσμευμένους πίνακες.
+% Οι στήλες του numBuf είναι, με τη σειρά: PassID, Step, Time_s, UserID,
+% NumUsers, UserLat, UserLon, WalkAzimuth_deg, Distance_m, PathLoss_dB,
+% SNR_dB, Capacity_Mbps, SatElevation_deg, NodePower_W, EnergyPerBit_uJ,
+% NodeLoad, Throughput_Mbps, Interruption_ms, CandBS_SNR_dB,
+% CandBS_Distance_m, CandBS_PathLoss_dB, CandSat_SNR_dB,
+% CandSat_Elevation_deg, CandSat_SlantRange_m, CandSat_PathLoss_dB.
+% Του strBuf: ServingNode, ServingType, ServiceState, BsUnavailReason,
+% SatUnavailReason, LinkState.
+T = table(numBuf(:,1), numBuf(:,2), numBuf(:,3), numBuf(:,4), numBuf(:,5), ...
+    numBuf(:,6), numBuf(:,7), numBuf(:,8), ...
+    strBuf(:,1), strBuf(:,2), ...
+    numBuf(:,9), numBuf(:,10), numBuf(:,11), numBuf(:,12), numBuf(:,13), ...
+    numBuf(:,14), numBuf(:,15), numBuf(:,16), numBuf(:,17), ...
+    strBuf(:,3), strBuf(:,4), strBuf(:,5), strBuf(:,6), ...
+    numBuf(:,18), ...
+    numBuf(:,19), numBuf(:,20), numBuf(:,21), ...
+    numBuf(:,22), numBuf(:,23), numBuf(:,24), numBuf(:,25), ...
+    'VariableNames', {'PassID','Step','Time_s','UserID','NumUsers', ...
+    'UserLat','UserLon','WalkAzimuth_deg', ...
+    'ServingNode','ServingType','Distance_m','PathLoss_dB', ...
+    'SNR_dB','Capacity_Mbps','SatElevation_deg', ...
+    'NodePower_W','EnergyPerBit_uJ','NodeLoad', ...
+    'Throughput_Mbps','ServiceState','BsUnavailReason','SatUnavailReason', ...
+    'LinkState','Interruption_ms', ...
+    'CandBS_SNR_dB','CandBS_Distance_m','CandBS_PathLoss_dB', ...
+    'CandSat_SNR_dB','CandSat_Elevation_deg','CandSat_SlantRange_m','CandSat_PathLoss_dB'});
 end
 
 function validateUserState(user_geo, bs_geo, wgs84, ueHeightM, d2dMin, d2dMax, passIdx, stepIdx)
