@@ -35,45 +35,56 @@ For a set of geographic positions (base stations, users, one satellite):
 ## Running
 
 ```matlab
-run('PROD/test_simulation.m')      % single reference scenario
+addpath('PROD'); runSimulation()
 ```
 
 or from a shell with MATLAB on `PATH`:
 
 ```
-matlab -batch "run('PROD/test_simulation.m')"
+matlab -batch "addpath('PROD'); runSimulation()"
 ```
 
-Prints the per-user table (serving node, distance, path loss, SNR, capacity, satellite elevation, node power, energy per bit), opens the 3D figure, and saves a versioned run folder under `Results/runs/`.
-
-### Generating a dataset (Monte-Carlo driver)
+There is **one** simulation and it runs **once**. It produces every number in the thesis and the ML training set from the same execution. Options are passed as a struct:
 
 ```matlab
-monteCarloDriver()                    % 200 randomized scenarios -> Dataset/dataset.csv
-monteCarloDriver(1000)                % 1000 scenarios
-monteCarloDriver(500, [], 'tag')      % tag the versioned run folder
+runSimulation(struct('maxPasses', 10))          % quick check
+runSimulation(struct('ciTolerance', 0.02))      % tighter convergence
+runSimulation(struct('label', 'v2'))            % tag the versioned run folder
 ```
 
-Randomizes BS/user counts and positions, the sub-satellite point (±10° lat/lon), and the UMa/UMi scenario; keeps the radio configuration fixed and identical to `test_simulation.m`. Users are placed uniformly in an annulus around a reference BS, inside the terrestrial models' validity range. One CSV row per user per scenario, with scenario metadata, geometry, per-user metrics, node load, service state, unavailability reasons, and the `CandBS_*`/`CandSat_*` per-candidate diagnostics (so a model can learn the comparison instead of reading off the winner). `Dataset/` is gitignored — it's generated output.
+### How the simulated time is structured
 
-### KPI variance over repeated runs
+The run is a loop over **satellite passes**; inside each pass a 1 s time loop advances both the satellite and the users. Every timing choice is taken from a standard rather than picked:
 
-```matlab
-kpiRepeatedRuns()                     % 500 repeats of the same topology -> Results/
-```
+| Quantity | Value | Source |
+|---|---|---|
+| Elementary window | one pass, 900 s | TR 38.821 Table 4.2-3 NOTE 1 — "a period of time corresponding to the visibility time of the satellite" |
+| Time step | 1 s | ITU-R M.2412-0 Annex 1 §5.3.2 (UE displacement below 1 m per step) and TR 38.821 §7.3.2.1.4 Table 7.3.2.1.4-1 (fastest LEO mobility timescale 6.61 s) |
+| User speed / direction | 3 km/h, fixed per pass, uniformly random azimuth | ITU-R M.2412-0 §8.4, TABLE 5 b)/c) — "fixed and identical speed of all UEs of the same mobility class, randomly and uniformly distributed direction" |
+| Total duration | until the KPIs converge | ITU-R M.2412-0 §7.1 — "a sufficient number of drops … to ensure convergence" plus "the width of confidence intervals"; extended to satellite evaluation by ITU-R M.2514-0 §8.2.4 |
 
-Re-runs the *same* static topology with a different seed each time, isolating variance caused by channel stochasticity from variance caused by topology. Writes per-run rows, a summary grouped by serving type, and overlaid histograms.
+No standard fixes a total duration — TR 38.821's own NTN system-level calibration table (6.1.1.1-5) has no duration field at all. The stopping rule is therefore a convergence criterion: the loop ends when the 95% confidence-interval half-width of the tracked KPIs, computed **across passes**, falls below 5% (relative, for rate and energy metrics) or 2 percentage points (absolute, for fractions). The convergence trace is saved as a result in its own right (`Results/convergence.csv` and `convergence.png`), which is what makes the sample size defensible instead of arbitrary.
 
-> Caveat: grouping by serving type compares different users and geometries, not the same users under different policies — it does not by itself isolate a terrestrial-vs-satellite effect. A paired, per-policy comparison is still to be implemented.
+Each pass is an independent *drop* in the ITU-R sense: users are re-dropped at new positions and the channel state is reset between passes, while being threaded step-to-step **within** a pass. `PassID` is therefore the unit for the ML train/test split, for confidence intervals, and for any per-repeat aggregation — users inside one pass are not independent observations.
 
-### Satellite pass over time
+Pass geometry varies: the RAAN is offset per pass so transits range from grazing (peak elevation at the 20° mask) to near-zenith. The largest useful offset is found numerically at startup rather than assumed.
 
-```matlab
-temporalPassSimulation()              % dt = 5 s -> Results/
-temporalPassSimulation(1)             % dt = 1 s
-```
+### Moving users, and what is checked every step
 
-Steps the same static BS/user topology through time while the satellite moves along a **circular Keplerian orbit**: the state is propagated in an inertial frame and converted to geodetic coordinates through an explicit Earth-rotation step, so orbital speed and ground-track geometry come from one consistent model. Channel state (LOS + shadow fading) is threaded step to step. Handovers are recorded as explicit link-state transitions with an interruption cost of 2·RTT (TR 38.821 §7.3.2.1.1) deducted from delivered throughput. The run stops when the satellite leaves visibility after a pass. Writes a per-step CSV, per-KPI time-series plots, and per-user handover / outage-event / lost-time counts.
+Users walk continuously during a pass. That is also what activates the correlated shadow fading and the spatially-consistent LOS state — with static users the per-step displacement was zero and both models were inert.
+
+Because the users move, the run asserts on **every step of every pass** that their state is what it should be: antenna height still exactly 1.5 m, coordinates finite and in range, and every user still holding at least one terrestrial link inside the TR 38.901 Table 7.4.1-1 validity box (10 m ≤ d2D ≤ 5 km). It also checks the outputs for consistency — outage rows carry no capacity, zero throughput and zero load; served rows carry finite positive capacity, finite SNR and load ≥ 1. Any violation aborts the run naming the pass, step and user. Initial radii are sampled so that no walk can leave the validity box, so these assertions are a check rather than a correction.
+
+### Outputs
+
+| File | Content |
+|---|---|
+| `Dataset/dataset.csv` | one row per pass/step/user — geometry, per-candidate diagnostics, serving decision, capacity, delivered throughput, service state, link state, energy. Feeds both the results and the ML side. Gitignored. |
+| `Results/convergence.csv` | per-pass running means and CI half-widths of the tracked KPIs |
+| `Results/convergence.png` | the convergence curve against the stopping threshold |
+| `Results/temporal_*.png` | time series over the reference pass |
+| `Results/network_3d.png` | topology and serving links at closest approach |
+| `Results/runs/<timestamp>_runSimulation[_label]/` | versioned copy of all of the above plus the exact parameters |
 
 ### Verification scripts
 
@@ -86,7 +97,7 @@ Both print explicit pass/fail lines and write CSV/PNG. `geometryValidation` conf
 
 ### Result versioning
 
-Every script ends by calling `saveRunVersion`, producing:
+Every run ends by calling `saveRunVersion`, producing:
 
 ```
 Results/runs/<YYYYMMDD_HHMMSS>_<script>[_<label>]/
@@ -105,29 +116,21 @@ pip install -r Model/requirements.txt
 python Model/train_model.py
 ```
 
-Three passes on the generated dataset — exact SNR (pipeline sanity check), geometry-only, and noisy SNR — predicting the serving type from candidate-level features, split by scenario. See `Model/README.md`.
-
-> **Currently out of sync:** the committed dataset predates the physical-model corrections listed below, and the scripts hardcode an older elevation mask. Regenerate the dataset and realign the scripts before quoting any ML number.
+Three passes on the generated dataset — exact SNR (pipeline sanity check), geometry-only, and noisy SNR — predicting the serving type from candidate-level features, split **by pass** (`PassID`) so no pass contributes to both train and test. Because the dataset is a 1 s time series, the training scripts decimate it (one sample every 10 s) so consecutive rows are not near-duplicates. See `Model/README.md`.
 
 ## Project structure
 
 ```
 PROD/
   simulateScenario.m        Core: link budget, fading, node selection, allocation, energy, service state
-  test_simulation.m         Entry point — single reference scenario
-  monteCarloDriver.m        Batch driver over randomized topologies -> labeled CSV
-  kpiRepeatedRuns.m         Repeats one topology to characterize channel-driven KPI variance
-  temporalPassSimulation.m  Time-stepped LEO pass with handover cost accounting
+  runSimulation.m           The entry point — one run: passes, moving users, convergence, dataset
   geometryValidation.m      Regression check on link geometry / antenna heights
   energyModelValidation.m   Check of how the energy metrics depend on user count
   saveRunVersion.m          Versioned run folders (parameters, commit, diff, outputs)
   array.m                   Prints the per-user results table
   visual.m                  3D plot of base stations, users, satellite, serving links
-  istn.zip                  Archived snapshot of an earlier version
-Βοηθητικά Έργαλεία/
-  graph.m                   Standalone plot of measured RX power vs. distance (not part of the pipeline)
-Results/runs/               Versioned outputs of every script (tracked in git)
-Dataset/                    CSV output of monteCarloDriver.m (generated, gitignored)
+Results/runs/               Versioned outputs of every run (tracked in git)
+Dataset/                    CSV output of runSimulation.m (generated, gitignored)
 Model/                      Part 2: Python training scripts, metrics and plots
 ```
 

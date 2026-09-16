@@ -4,7 +4,7 @@ function runDir = saveRunVersion(scriptName, params, outputFiles, label)
 %
 %   runDir = saveRunVersion(scriptName, params, outputFiles, label)
 %
-% scriptName  : char, π.χ. 'test_simulation'
+% scriptName  : char, π.χ. 'runSimulation'
 % params      : struct με τις παραμέτρους του run που θέλουμε να καταγραφούν
 % outputFiles : cellstr με πλήρεις διαδρομές αρχείων που παρήγαγε το run
 %               (αντιγράφονται στον φάκελο)· {} ή [] αν κανένα

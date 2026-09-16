@@ -1,0 +1,17 @@
+Σύγκριση vs 20260916_151333_runSimulation_probe
+
+  ~ checksRun : 7208  ->  242
+  ~ ciTolerance : 0.01  ->  9
+  + ciToleranceFrac = 9
+  ~ converged : false  ->  true
+  ~ convergedAtPass : NaN  ->  2
+  ~ maxPasses : 8  ->  2
+  ~ maxWalkPerPass_m : 750  ->  100
+  ~ minPasses : 999  ->  2
+  ~ numPasses : 8  ->  2
+  ~ numRows : 45951  ->  1815
+  ~ passWindow_s : 900  ->  120
+  ~ raanSpan_deg : 18.755561  ->  16.569145
+  ~ simulatedTime_s : 7200  ->  240
+  + stopRuleKpis = MeanCapacity_Mbps, FracServed, FracSatellite, MeanBitPerJouleRf
+  ~ userRadiusRange_m : [760 4250]  ->  [110 4900]

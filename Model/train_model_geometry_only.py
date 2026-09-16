@@ -13,7 +13,7 @@ keeping it would let the model reconstruct SNR anyway and reintroduce the
 same shortcut under a different name). What remains is only what a real
 system would know about a link *before* measuring it: geometry
 (CandBS_Distance_m, CandSat_Elevation_deg, CandSat_SlantRange_m,
-CandSat_Visible) and scenario context (NumBS, NumUsers, ScenarioType).
+CandSat_Visible) and scenario context (NumUsers).
 
 Because the underlying channel is stochastic (per-link LOS/NLOS draw +
 log-normal shadow fading, TR 38.901 SS7.4), geometry alone does not
@@ -60,7 +60,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
 RESULTS_DIR = Path(__file__).resolve().parent / "results_geometry_only"
 
-# Ίδιο κατώφλι με satParameters.MinElevationDeg στο monteCarloDriver.m
+# Ίδιο κατώφλι με satParameters.MinElevationDeg στο runSimulation.m
 # (TR 38.821 visibility mask) - όχι μια νέα υπόθεση, απλά επαναχρησιμοποίηση.
 MIN_ELEVATION_DEG = 20.0
 
@@ -68,20 +68,33 @@ MIN_ELEVATION_DEG = 20.0
 # αποκλείονται σκόπιμα (βλ. docstring): δίνουν στο μοντέλο την απάντηση, ή
 # ένα σχεδόν-affine ισοδύναμό της. Μένουν μόνο γεωμετρικά/context
 # χαρακτηριστικά, διαθέσιμα σε ένα πραγματικό σύστημα πριν τη μέτρηση SNR.
+# Το dataset είναι χρονοσειρά με βήμα 1 s: διαδοχικά δείγματα του ίδιου χρήστη
+# είναι σχεδόν ταυτόσημα (ο χρήστης μετακινείται 0.83 m). Για την εκπαίδευση
+# κρατάμε ένα δείγμα κάθε ML_SAMPLE_STRIDE βήματα, ώστε τα δείγματα να μην
+# είναι σχεδόν αντίγραφα μεταξύ τους. Η πλήρης ανάλυση παραμένει στο CSV και
+# χρησιμοποιείται από τους δείκτες της προσομοίωσης.
+ML_SAMPLE_STRIDE = 10
+
 FEATURE_COLUMNS_NUMERIC = [
     # NodeLoad exclude σκόπιμα: είναι συνέπεια του ServingType, όχι
     # ανεξάρτητος predictor (βλ. train_model.py).
-    "NumBS", "NumUsers",
+    "NumUsers",
     "CandBS_Distance_m",
     "CandSat_Elevation_deg", "CandSat_SlantRange_m",
 ]
-FEATURE_COLUMNS_CATEGORICAL = ["ScenarioType"]
+FEATURE_COLUMNS_CATEGORICAL = []  # το σενάριο διάδοσης είναι σταθερό (UMa)
 FEATURE_COLUMNS_BOOL = ["CandSat_Visible"]
 TARGET_COLUMN = "ServingType"
 
 
 def load_dataset(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
+    # Υποδειγματοληψία στον χρόνο (βλ. ML_SAMPLE_STRIDE).
+    if ML_SAMPLE_STRIDE > 1 and "Step" in df.columns:
+        before = len(df)
+        df = df[df["Step"] % ML_SAMPLE_STRIDE == 1].reset_index(drop=True)
+        print(f"Time decimation: kept {len(df)} of {before} rows "
+              f"(1 sample every {ML_SAMPLE_STRIDE} s)")
 
     # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
     # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR) - εξαιρείται
@@ -120,11 +133,11 @@ def build_preprocessor() -> ColumnTransformer:
 
 
 def group_train_test_split(df: pd.DataFrame, test_size=0.25, seed=42):
-    # Split ανά ScenarioID (όχι ανά γραμμή): χρήστες του ίδιου σεναρίου
+    # Split ανά PassID (όχι ανά γραμμή): χρήστες του ίδιου σεναρίου
     # μοιράζονται τις ίδιες θέσεις BS/δορυφόρου, άρα ένα row-level split θα
     # διέρρεε γεωμετρία σεναρίου ανάμεσα σε train/test.
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
-    train_idx, test_idx = next(splitter.split(df, groups=df["ScenarioID"]))
+    train_idx, test_idx = next(splitter.split(df, groups=df["PassID"]))
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)
 
 
@@ -165,16 +178,16 @@ def main():
 
     if not DATASET_PATH.exists():
         raise FileNotFoundError(
-            f"{DATASET_PATH} not found - run monteCarloDriver.m in MATLAB first "
-            "to generate the dataset (see PROD/monteCarloDriver.m)."
+            f"{DATASET_PATH} not found - run runSimulation.m in MATLAB first "
+            "to generate the dataset (see PROD/runSimulation.m)."
         )
 
     df = load_dataset(DATASET_PATH)
     train_df, test_df = group_train_test_split(df)
 
-    print(f"Loaded {len(df)} user-rows from {df['ScenarioID'].nunique()} scenarios")
-    print(f"Train: {len(train_df)} rows ({train_df['ScenarioID'].nunique()} scenarios)")
-    print(f"Test:  {len(test_df)} rows ({test_df['ScenarioID'].nunique()} scenarios)")
+    print(f"Loaded {len(df)} user-rows from {df['PassID'].nunique()} passes")
+    print(f"Train: {len(train_df)} rows ({train_df['PassID'].nunique()} passes)")
+    print(f"Test:  {len(test_df)} rows ({test_df['PassID'].nunique()} passes)")
     print(f"Class balance (all data): "
           f"{(df[TARGET_COLUMN] == 'Terrestrial').mean():.1%} Terrestrial / "
           f"{(df[TARGET_COLUMN] == 'Satellite').mean():.1%} Satellite")

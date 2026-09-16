@@ -13,9 +13,10 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 %
 % prevChannelState (προαιρετικό, 7ο όρισμα): αν δοθεί, LOS/NLOS και shadow
 % fading κάθε ζεύξης συσχετίζονται χωρικά με την προηγούμενη κλήση αντί για
-% i.i.d. δειγματοληψία. Το περνάνε μόνο callers που προσομοιώνουν διαδοχικές
-% μεταδόσεις της ίδιας τοπολογίας (temporalPassSimulation.m)· οι υπόλοιποι
-% (test_simulation.m, monteCarloDriver.m, kpiRepeatedRuns.m) το παραλείπουν.
+% i.i.d. δειγματοληψία. Το περνάει το runSimulation.m μέσα σε κάθε διέλευση
+% (διαδοχικά βήματα 1 s με κινούμενους χρήστες) και το μηδενίζει στην αρχή
+% κάθε νέας διέλευσης, ώστε οι διελεύσεις να είναι ανεξάρτητες μεταξύ τους.
+% Τα scripts επαλήθευσης το παραλείπουν.
 if nargin < 7
     prevChannelState = [];
 end

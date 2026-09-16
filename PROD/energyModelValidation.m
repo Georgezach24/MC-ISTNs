@@ -26,7 +26,7 @@ end
 
 wgs84 = wgs84Ellipsoid;
 
-%% ------------------ Παράμετροι (ίδιες με το test_simulation.m) ------------------
+%% ------------------ Παράμετροι (ίδιες με το runSimulation.m) ------------------
 baseLat = 37.9838;
 baseLon = 23.7275;
 bs_geo  = [baseLat baseLon 25];

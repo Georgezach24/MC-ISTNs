@@ -12,22 +12,17 @@ Here the candidate SNRs are kept as features, but each one has Gaussian
 noise added before the model ever sees it, standing in for "a slightly
 stale / imperfect measurement report" rather than the exact instantaneous
 value. The noise magnitude is not an invented fudge factor: it is the
-*actual measured* run-to-run SNR standard deviation from 500 repeated
-stochastic realizations of the same static topology
-(kpiRepeatedRuns.m -> Results/kpi_summary_by_type.csv), i.e. empirically
-"how differently would a second, independent measurement of this same
-link read" under this simulation's own channel model (TR 38.901 LOS/NLOS
-draw + shadow fading for the terrestrial side). CandBS_PathLoss_dB /
-CandSat_PathLoss_dB are still dropped (near-affine proxies for the exact
-SNR, would reintroduce the shortcut train_model_geometry_only.py removes).
+*actual measured* SNR standard deviation per serving type, computed from
+the same unified run that produced the dataset (runSimulation.m), i.e.
+empirically "how differently would a second, independent measurement of
+this same link read" under this simulation's own channel model (TR 38.901
+LOS/NLOS draw + shadow fading terrestrially, shadowed-Rician on the
+satellite side). CandBS_PathLoss_dB / CandSat_PathLoss_dB are still
+dropped (near-affine proxies for the exact SNR, would reintroduce the
+shortcut train_model_geometry_only.py removes).
 
-Terrestrial sigma = 13.6668 dB, satellite sigma = 0.0881 dB (both from
-Results/kpi_summary_by_type.csv, columns std_SNR_dB). The satellite
-figure is small because this simulation's satellite channel is
-deterministic given geometry (no fading model on that side yet - see
-CLAUDE.md Standards section); it is used as-is rather than inflated,
-since inventing a larger number would not be grounded in anything the
-project has actually modeled or measured.
+Both sigmas are printed at run time rather than hard-coded, so they always
+match the dataset actually being trained on.
 
 Usage:
     python train_model_noisy_snr.py
@@ -66,16 +61,21 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
-KPI_SUMMARY_PATH = ROOT / "Results" / "kpi_summary_by_type.csv"
 RESULTS_DIR = Path(__file__).resolve().parent / "results_noisy_snr"
 
 MIN_ELEVATION_DEG = 20.0
 SENTINEL_SNR_DB = -50.0  # πρακτικά άχρηστος, ίδιο sentinel με το train_model.py
 NOISE_SEED = 42
 
+# Το dataset είναι χρονοσειρά με βήμα 1 s: διαδοχικά δείγματα του ίδιου χρήστη
+# είναι σχεδόν ταυτόσημα (ο χρήστης μετακινείται 0.83 m). Για την εκπαίδευση
+# κρατάμε ένα δείγμα κάθε ML_SAMPLE_STRIDE βήματα. Η πλήρης ανάλυση παραμένει
+# στο CSV και χρησιμοποιείται από τους δείκτες της προσομοίωσης.
+ML_SAMPLE_STRIDE = 10
+
 FEATURE_COLUMNS_NUMERIC = [
     # NodeLoad exclude σκόπιμα (βλ. train_model.py) - κυκλικός predictor.
-    "NumBS", "NumUsers",
+    "NumUsers",
     "CandBS_Distance_m",
     "CandSat_Elevation_deg", "CandSat_SlantRange_m",
     # "Θορυβώδεις" εκδοχές του SNR αντί για το ακριβές (βλ. docstring) -
@@ -83,21 +83,32 @@ FEATURE_COLUMNS_NUMERIC = [
     # train_model_geometry_only.py.
     "CandBS_SNR_noisy_dB", "CandSat_SNR_noisy_dB",
 ]
-FEATURE_COLUMNS_CATEGORICAL = ["ScenarioType"]
+FEATURE_COLUMNS_CATEGORICAL = []  # το σενάριο διάδοσης είναι σταθερό (UMa)
 FEATURE_COLUMNS_BOOL = ["CandSat_Visible"]
 TARGET_COLUMN = "ServingType"
 
 
-def load_noise_sigmas(path: Path) -> dict:
-    kpi = pd.read_csv(path).set_index("ServingType")
+def load_noise_sigmas(df: pd.DataFrame) -> dict:
+    """Τυπική απόκλιση του SNR ανά τύπο εξυπηρέτησης, υπολογισμένη από το ίδιο
+    το σύνολο δεδομένων. Παλαιότερα διαβαζόταν από το kpi_summary_by_type.csv
+    που παρήγαγε χωριστό script· τώρα που η προσομοίωση είναι ενιαία, ο ίδιος
+    αριθμός προκύπτει από πολύ μεγαλύτερο δείγμα της ίδιας εκτέλεσης."""
+    g = df.groupby("ServingType")["SNR_dB"].std()
     return {
-        "Terrestrial": kpi.loc["Terrestrial", "std_SNR_dB"],
-        "Satellite": kpi.loc["Satellite", "std_SNR_dB"],
+        "Terrestrial": float(g.loc["Terrestrial"]),
+        "Satellite": float(g.loc["Satellite"]),
     }
 
 
-def load_dataset(path: Path, sigma_bs: float, sigma_sat: float) -> pd.DataFrame:
+def load_dataset(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
+
+    # Υποδειγματοληψία στον χρόνο (βλ. ML_SAMPLE_STRIDE).
+    if ML_SAMPLE_STRIDE > 1 and "Step" in df.columns:
+        before = len(df)
+        df = df[df["Step"] % ML_SAMPLE_STRIDE == 1].reset_index(drop=True)
+        print(f"Time decimation: kept {len(df)} of {before} rows "
+              f"(1 sample every {ML_SAMPLE_STRIDE} s)")
 
     # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
     # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR) - εξαιρείται
@@ -126,7 +137,11 @@ def load_dataset(path: Path, sigma_bs: float, sigma_sat: float) -> pd.DataFrame:
     # mask). Sentinel πριν προστεθεί θόρυβος, ώστε ο θόρυβος να μην
     # μετατρέψει ένα -Inf σε έναν πεπερασμένο, παραπλανητικό αριθμό.
     df["CandSat_SNR_dB"] = df["CandSat_SNR_dB"].replace([np.inf, -np.inf], SENTINEL_SNR_DB)
+    return df
 
+
+def add_snr_noise(df: pd.DataFrame, sigma_bs: float, sigma_sat: float) -> pd.DataFrame:
+    """Προσθέτει γκαουσιανό θόρυβο μέτρησης στα δύο υποψήφια SNR."""
     rng = np.random.default_rng(NOISE_SEED)
     df["CandBS_SNR_noisy_dB"] = df["CandBS_SNR_dB"] + rng.normal(0.0, sigma_bs, size=len(df))
     df["CandSat_SNR_noisy_dB"] = df["CandSat_SNR_dB"] + rng.normal(0.0, sigma_sat, size=len(df))
@@ -143,7 +158,7 @@ def build_preprocessor() -> ColumnTransformer:
 
 def group_train_test_split(df: pd.DataFrame, test_size=0.25, seed=42):
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
-    train_idx, test_idx = next(splitter.split(df, groups=df["ScenarioID"]))
+    train_idx, test_idx = next(splitter.split(df, groups=df["PassID"]))
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)
 
 
@@ -184,25 +199,19 @@ def main():
 
     if not DATASET_PATH.exists():
         raise FileNotFoundError(
-            f"{DATASET_PATH} not found - run monteCarloDriver.m in MATLAB first "
-            "to generate the dataset (see PROD/monteCarloDriver.m)."
+            f"{DATASET_PATH} not found - run runSimulation.m in MATLAB first "
+            "to generate the dataset (see PROD/runSimulation.m)."
         )
-    if not KPI_SUMMARY_PATH.exists():
-        raise FileNotFoundError(
-            f"{KPI_SUMMARY_PATH} not found - run kpiRepeatedRuns.m in MATLAB first "
-            "to generate the noise-sigma source (see PROD/kpiRepeatedRuns.m)."
-        )
-
-    sigmas = load_noise_sigmas(KPI_SUMMARY_PATH)
-    print(f"Noise sigma (from {KPI_SUMMARY_PATH.relative_to(ROOT)}): "
+    df = load_dataset(DATASET_PATH)
+    sigmas = load_noise_sigmas(df)
+    print(f"Noise sigma (empirical, from the dataset itself): "
           f"Terrestrial={sigmas['Terrestrial']:.4f} dB, Satellite={sigmas['Satellite']:.4f} dB")
-
-    df = load_dataset(DATASET_PATH, sigmas["Terrestrial"], sigmas["Satellite"])
+    df = add_snr_noise(df, sigmas["Terrestrial"], sigmas["Satellite"])
     train_df, test_df = group_train_test_split(df)
 
-    print(f"Loaded {len(df)} user-rows from {df['ScenarioID'].nunique()} scenarios")
-    print(f"Train: {len(train_df)} rows ({train_df['ScenarioID'].nunique()} scenarios)")
-    print(f"Test:  {len(test_df)} rows ({test_df['ScenarioID'].nunique()} scenarios)")
+    print(f"Loaded {len(df)} user-rows from {df['PassID'].nunique()} passes")
+    print(f"Train: {len(train_df)} rows ({train_df['PassID'].nunique()} passes)")
+    print(f"Test:  {len(test_df)} rows ({test_df['PassID'].nunique()} passes)")
     print(f"Class balance (all data): "
           f"{(df[TARGET_COLUMN] == 'Terrestrial').mean():.1%} Terrestrial / "
           f"{(df[TARGET_COLUMN] == 'Satellite').mean():.1%} Satellite")
