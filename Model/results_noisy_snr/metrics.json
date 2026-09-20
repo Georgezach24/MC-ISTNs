@@ -3,6 +3,15 @@
     "Terrestrial": 9.525947575396792,
     "Satellite": 4.56141041972583
   },
+  "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+  "split": {
+    "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+    "group_column": "PassID",
+    "test_size": 0.25,
+    "seed": 42,
+    "n_train_rows": 163388,
+    "n_test_rows": 60136
+  },
   "LogisticRegression": {
     "accuracy": 0.9378408939736597,
     "f1_satellite": 0.8721701661993023,
@@ -33,7 +42,11 @@
         "f1-score": 0.9382333456479346,
         "support": 60136.0
       }
-    }
+    },
+    "predictions_file": "predictions_LogisticRegression.csv",
+    "pipeline_file": "pipeline_LogisticRegression.joblib",
+    "pipeline_sha256": "c4f1dcf64d72024951e6ceda093837ff1e1a796ea9c91b1fa66f89ee25669415",
+    "pipeline_bytes": 1901
   },
   "RandomForest": {
     "accuracy": 0.940002660635892,
@@ -66,6 +79,10 @@
         "support": 60136.0
       }
     },
+    "predictions_file": "predictions_RandomForest.csv",
+    "pipeline_file": "pipeline_RandomForest.joblib",
+    "pipeline_sha256": "a719c89ae00f20f3a696f860e3dfb31e1f784e469fb4b8323996e79f7886d308",
+    "pipeline_bytes": 15915081,
     "feature_importance_impurity": {
       "CandSat_SNR_noisy_dB": 0.2934938557746768,
       "CandSat_Elevation_deg": 0.2105175136863782,

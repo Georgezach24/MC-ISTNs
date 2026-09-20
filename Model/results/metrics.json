@@ -1,4 +1,19 @@
 {
+  "label_identity_check": {
+    "snr_min_db": -7.534586387911515,
+    "rows": 243807,
+    "matches": 243807,
+    "mismatches": 0
+  },
+  "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+  "split": {
+    "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+    "group_column": "PassID",
+    "test_size": 0.25,
+    "seed": 42,
+    "n_train_rows": 163388,
+    "n_test_rows": 60136
+  },
   "LogisticRegression": {
     "accuracy": 0.9989357456432088,
     "f1_satellite": 0.9977725184463316,
@@ -29,7 +44,11 @@
         "f1-score": 0.9989361776917632,
         "support": 60136.0
       }
-    }
+    },
+    "predictions_file": "predictions_LogisticRegression.csv",
+    "pipeline_file": "pipeline_LogisticRegression.joblib",
+    "pipeline_sha256": "9ff39070c85daa06478d2fa181e667c43add2591f120549575dec022f6cb6a1d",
+    "pipeline_bytes": 1985
   },
   "RandomForest": {
     "accuracy": 0.9991851802580817,
@@ -62,6 +81,10 @@
         "support": 60136.0
       }
     },
+    "predictions_file": "predictions_RandomForest.csv",
+    "pipeline_file": "pipeline_RandomForest.joblib",
+    "pipeline_sha256": "baa6c2dbf2f58ffea52fee843f148337a32cbdb9f5ec1e004a6eef3d375db81d",
+    "pipeline_bytes": 3896881,
     "feature_importance_impurity": {
       "CandSat_SNR_dB": 0.23264694560487595,
       "CandSat_PathLoss_dB": 0.22937061046569496,

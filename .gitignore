@@ -5,3 +5,7 @@ Model/.venv/
 Thesis/
 Plots/
 lables.txt
+
+# Τα εκπαιδευμένα pipelines (δεκάδες MB, ξαναγράφονται σε κάθε εκπαίδευση).
+# Το SHA-256 και το μέγεθός τους καταγράφονται στο metrics.json.
+Model/results*/pipeline_*.joblib

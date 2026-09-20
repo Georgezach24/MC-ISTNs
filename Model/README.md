@@ -92,14 +92,28 @@ python train_model_noisy_snr.py
 python train_model_geometry_only.py
 ```
 
-Requires `Dataset/dataset.csv` — generate it first with `runSimulation()` in MATLAB. Outputs land in `results/`, `results_noisy_snr/`, `results_geometry_only/` (metrics JSON + confusion matrices + ROC + importance plots).
+Requires `Dataset/dataset.csv` — generate it first with `runSimulation()` in MATLAB. Outputs land in `results/`, `results_noisy_snr/`, `results_geometry_only/`: metrics JSON, confusion matrices, ROC and importance plots, plus the reproducibility artefacts described below (`split.json`, `predictions_<Model>.csv`, `pipeline_<Model>.joblib`).
 
 `MIN_ELEVATION_DEG` in all three scripts must match `satParameters.MinElevationDeg` in the simulation (currently 20°); it is used to derive the `CandSat_Visible` flag and inside the label identity check.
+
+## Reproducibility artefacts
+
+Every run writes, next to `metrics.json`, everything needed to re-check a published number without retraining:
+
+| File | Contents |
+|---|---|
+| `split.json` | the dataset SHA-256, the grouping column (`PassID`), test fraction and seed, row counts, and the explicit list of which passes went to training and which to test |
+| `predictions_<Model>.csv` | one row per test sample: `PassID`, `Step`, `UserID`, `y_true`, `y_pred`, `proba_satellite` |
+| `pipeline_<Model>.joblib` | the whole fitted pipeline — preprocessing and classifier together, not the classifier alone |
+
+The split is no longer implicit in the code: `SPLIT_TEST_SIZE` and `SPLIT_SEED` are module constants used both by `group_train_test_split` and by what `split.json` reports, so the two cannot disagree. The dataset hash in `split.json` is the same SHA-256 that `runSimulation.m` records in `params.txt`, which ties a set of metrics to one specific dataset file rather than to a filename.
+
+Both halves were checked. Accuracy recomputed directly from each `predictions_<Model>.csv` reproduces every figure in the table above exactly — 0.9989/0.9992, 0.9378/0.9400, 0.9177/0.9184 on the same 60,136 test rows. And reloading `results_geometry_only/pipeline_RandomForest.joblib`, then applying it to the test passes listed in `split.json`, returns predictions identical to the saved ones, row for row. So both the metrics and the model that produced them can be audited from the files, without retraining.
+
+The `.joblib` files are 2 KB (Logistic Regression) to 16 MB (Random Forest, 300 trees) and are rewritten on every training run, so they are **not** tracked in git — `.gitignore` excludes `Model/results*/pipeline_*.joblib`. Their SHA-256 and byte size are recorded in `metrics.json` instead, so a `.joblib` file on disk can be matched against the results it produced. Loading one needs the same scikit-learn version as `requirements.txt`.
 
 ## What this does not show
 
 The target is the decision of the simulation's own rule, not a network outcome. Nothing here demonstrates that a learned decision improves throughput, availability or energy — that requires evaluating the model's decisions against the reference rule on those metrics.
 
 The dataset now *has* a temporal dimension, which the previous one did not, so predicting a transition before it happens is finally possible in principle. It is not what these three scripts do: they classify the current step from current features. Turning this into a genuine prediction task — label a user by what happens Δt ahead, using only information available at decision time — is the open next step, and it must keep the split at whole-pass granularity.
-
-Still missing on the reproducibility side: saving the fitted pipelines and the per-sample test predictions, so metrics can be recomputed without retraining.

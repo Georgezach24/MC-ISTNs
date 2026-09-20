@@ -28,6 +28,7 @@ Usage:
     python train_model_noisy_snr.py
 """
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -42,6 +43,7 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import joblib
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -87,6 +89,11 @@ FEATURE_COLUMNS_NUMERIC = [
 FEATURE_COLUMNS_CATEGORICAL = []  # το σενάριο διάδοσης είναι σταθερό (UMa)
 FEATURE_COLUMNS_BOOL = ["CandSat_Visible"]
 TARGET_COLUMN = "ServingType"
+
+# Παράμετροι διαχωρισμού, ορισμένοι μία φορά ώστε το split.json να μην
+# μπορεί να διαφωνήσει με τον διαχωρισμό που έγινε στην πραγματικότητα.
+SPLIT_TEST_SIZE = 0.25
+SPLIT_SEED = 42
 
 
 def load_noise_sigmas(df: pd.DataFrame) -> dict:
@@ -157,7 +164,8 @@ def build_preprocessor() -> ColumnTransformer:
     ])
 
 
-def group_train_test_split(df: pd.DataFrame, test_size=0.25, seed=42):
+def group_train_test_split(df: pd.DataFrame, test_size=SPLIT_TEST_SIZE,
+                          seed=SPLIT_SEED):
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
     train_idx, test_idx = next(splitter.split(df, groups=df["PassID"]))
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)
@@ -192,7 +200,63 @@ def evaluate_model(name, pipeline, X_test, y_test, results):
     fig.savefig(RESULTS_DIR / f"confusion_matrix_{name}.png", dpi=150)
     plt.close(fig)
 
-    return y_proba
+    return y_pred, y_proba
+
+
+def dataset_sha256(path: Path) -> str:
+    """SHA-256 του αρχείου δεδομένων. Συμφωνεί με την τιμή που καταγράφει το
+    runSimulation.m στο params.txt, οπότε οι μετρικές συνδέονται με το
+    συγκεκριμένο αρχείο και όχι απλώς με το όνομά του."""
+    return file_sha256(path)
+
+
+def save_split(train_df: pd.DataFrame, test_df: pd.DataFrame, sha: str) -> dict:
+    """Καταγράφει ποιες διελεύσεις πήγαν σε εκπαίδευση και ποιες σε έλεγχο.
+    Χωρίς αυτό, ο διαχωρισμός αναπαράγεται μόνο εκτελώντας ξανά τον ίδιο
+    κώδικα με την ίδια έκδοση της βιβλιοθήκης."""
+    info = {
+        "dataset_sha256": sha,
+        "group_column": "PassID",
+        "test_size": SPLIT_TEST_SIZE,
+        "seed": SPLIT_SEED,
+        "n_train_rows": int(len(train_df)),
+        "n_test_rows": int(len(test_df)),
+        "train_passes": sorted(int(p) for p in train_df["PassID"].unique()),
+        "test_passes": sorted(int(p) for p in test_df["PassID"].unique()),
+    }
+    with open(RESULTS_DIR / "split.json", "w", encoding="utf-8") as f:
+        json.dump(info, f, indent=2)
+    return info
+
+
+def save_predictions(name: str, test_df: pd.DataFrame, y_test, y_pred, y_proba) -> Path:
+    """Μία γραμμή ανά δείγμα ελέγχου, με τα αναγνωριστικά του δείγματος ώστε
+    κάθε μετρική να επανυπολογίζεται απευθείας από το αρχείο."""
+    keys = [c for c in ("PassID", "Step", "UserID") if c in test_df.columns]
+    out = test_df[keys].copy()
+    out["y_true"] = y_test.to_numpy()
+    out["y_pred"] = y_pred
+    out["proba_satellite"] = y_proba
+    path = RESULTS_DIR / f"predictions_{name}.csv"
+    out.to_csv(path, index=False)
+    return path
+
+
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 22), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def save_pipeline(name: str, pipeline) -> Path:
+    """Αποθηκεύει ολόκληρο το pipeline, δηλαδή προεπεξεργασία και ταξινομητή
+    μαζί. Η αποθήκευση μόνο του ταξινομητή θα άφηνε ανοιχτό το ενδεχόμενο
+    διαφορετικού μετασχηματισμού των εισόδων κατά την επαναχρησιμοποίηση."""
+    path = RESULTS_DIR / f"pipeline_{name}.joblib"
+    joblib.dump(pipeline, path, compress=3)
+    return path
 
 
 def main():
@@ -209,6 +273,8 @@ def main():
           f"Terrestrial={sigmas['Terrestrial']:.4f} dB, Satellite={sigmas['Satellite']:.4f} dB")
     df = add_snr_noise(df, sigmas["Terrestrial"], sigmas["Satellite"])
     train_df, test_df = group_train_test_split(df)
+    sha = dataset_sha256(DATASET_PATH)
+    split_info = save_split(train_df, test_df, sha)
 
     print(f"Loaded {len(df)} user-rows from {df['PassID'].nunique()} passes")
     print(f"Train: {len(train_df)} rows ({train_df['PassID'].nunique()} passes)")
@@ -228,14 +294,23 @@ def main():
 
     results = {"noise_sigma_dB": sigmas}
     roc_curves = {}
+    results["dataset_sha256"] = sha
+    results["split"] = {k: v for k, v in split_info.items()
+                       if k not in ("train_passes", "test_passes")}
     for name, clf in models.items():
         pipeline = Pipeline([
             ("preprocess", build_preprocessor()),
             ("clf", clf),
         ])
         pipeline.fit(X_train, y_train)
-        y_proba = evaluate_model(name, pipeline, X_test, y_test, results)
+        y_pred, y_proba = evaluate_model(name, pipeline, X_test, y_test, results)
         roc_curves[name] = (y_test, y_proba)
+        pred_path = save_predictions(name, test_df, y_test, y_pred, y_proba)
+        pipe_path = save_pipeline(name, pipeline)
+        results[name]["predictions_file"] = pred_path.name
+        results[name]["pipeline_file"] = pipe_path.name
+        results[name]["pipeline_sha256"] = file_sha256(pipe_path)
+        results[name]["pipeline_bytes"] = pipe_path.stat().st_size
 
         if name == "RandomForest":
             ohe = pipeline.named_steps["preprocess"].named_transformers_["cat"]
@@ -280,6 +355,11 @@ def main():
         json.dump(results, f, indent=2)
 
     print(f"\nSaved metrics + plots to {RESULTS_DIR.relative_to(ROOT)}")
+    print(f"Split: {split_info['n_train_rows']} train rows "
+          f"({len(split_info['train_passes'])} passes) / "
+          f"{split_info['n_test_rows']} test rows "
+          f"({len(split_info['test_passes'])} passes) -> split.json")
+    print(f"Dataset SHA-256: {sha}")
 
 
 if __name__ == "__main__":
