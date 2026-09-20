@@ -4,12 +4,19 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
     bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
     satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec, ...
     newChannelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
-    bsUnavailReasonVec, satUnavailReasonVec] = ...
+    bsUnavailReasonVec, satUnavailReasonVec, policyKpis] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, prevChannelState)
 % Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SNR και
 % υπολογίζει χωρητικότητα/ενέργεια μετά την κατανομή εύρους ζώνης.
 % Επιστρέφει και per-candidate διαγνωστικά (καλύτερο BS + δορυφόρος, ανεξάρτητα
 % από την τελική επιλογή) για την εκπαίδευση του ML μοντέλου του Part 2.
+%
+% 23η έξοδος policyKpis: η ίδια πραγματοποίηση καναλιού αποτιμάται και με τις
+% τρεις πολιτικές επιλογής κόμβου (η υπό εξέταση, αποκλειστικά επίγεια,
+% αποκλειστικά δορυφορική), με την κατανομή πόρων να υπολογίζεται εκ νέου σε
+% καθεμία. Τα δύο υποψήφια SNR έχουν ήδη υπολογιστεί για κάθε χρήστη ανεξάρτητα
+% από το ποιος κερδίζει, οπότε οι τρεις πολιτικές διαφέρουν μόνο στην επιλογή
+% και η σύγκριση είναι κατά ζεύγη πάνω στο ίδιο κανάλι.
 %
 % prevChannelState (προαιρετικό, 7ο όρισμα): αν δοθεί, LOS/NLOS και shadow
 % fading κάθε ζεύξης συσχετίζονται χωρικά με την προηγούμενη κλήση αντί για
@@ -74,6 +81,7 @@ terrKdBLos          = 9;         % Rician K επίγειο LOS, TR 38.901 Πίν
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
+bestBsNodeVec       = strings(numUsers,1);   % ποιος BS κέρδισε, για τη σύγκριση πολιτικών
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
 bestSnrDbVec        = nan(numUsers,1);
@@ -206,6 +214,7 @@ for u = 1:numUsers
 
     % Στιγμιότυπο του καλύτερου υποψήφιου BS πριν τη σύγκριση με τον δορυφόρο (per-candidate διαγνωστικό).
     % NaN όταν καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
+    bestBsNodeVec(u) = userBestNode;
     if isfinite(userBestSNR)
         bestBsSnrDbVec(u) = userBestSNR;
         if userBestSNR < minUsableSnrDb
@@ -284,11 +293,93 @@ for u = 1:numUsers
     bestElevationDegVec(u) = userBestElevation;
 end
 
-%% ------------------ Υπολογισμός Χωρητικότητας & Ενέργειας (Κατανομή Πόρων) ------------------
+%% ------------------ Κατανομή πόρων, χωρητικότητα, ενέργεια ------------------
+% Ο κανόνας ζει σε μία μόνο συνάρτηση (allocateAndTally), επειδή καλείται και
+% για τις εναλλακτικές πολιτικές παρακάτω: αν ήταν αντιγραμμένος, οι δύο
+% αντιγραφές θα μπορούσαν να αποκλίνουν χωρίς να φανεί.
+alloc = struct('BW_bs', BW_bs, 'pOutPerChainW', pOutPerChainW, ...
+               'targetNormalizedSe', targetNormalizedSe, 'numBs', numBs);
+
+[capacityMbpsVec, throughputMbpsVec, serviceStateVec, nodePowerWattsVec, ...
+ energyPerBitUJVec, networkEnergy] = allocateAndTally(bestNodeVec, ...
+    bestNodeTypeVec, bestSnrDbVec, simParameters, satParameters, alloc);
+
+%% ------------------ Σύγκριση πολιτικών στην ίδια πραγματοποίηση ------------------
+% Τα δύο υποψήφια SNR είναι ήδη υπολογισμένα για κάθε χρήστη. Οι εναλλακτικές
+% πολιτικές δεν ξαναδειγματοληπτούν τίποτα: κρατούν το ίδιο κανάλι και αλλάζουν
+% μόνο ποιος υποψήφιος επιλέγεται, με την κατανομή πόρων να υπολογίζεται εκ νέου
+% ώστε να αποτυπωθεί ο διαφορετικός φόρτος που προκύπτει.
+
+% Αποκλειστικά επίγεια: κάθε χρήστης στον καλύτερο σταθμό του, αν υπάρχει και
+% ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR.
+terrNode = strings(numUsers,1);
+terrType = strings(numUsers,1);
+terrSnr  = bestBsSnrDbVec;
+for u = 1:numUsers
+    if isfinite(bestBsSnrDbVec(u)) && bestBsSnrDbVec(u) >= minUsableSnrDb
+        terrNode(u) = bestBsNodeVec(u);
+        terrType(u) = "Terrestrial";
+    else
+        terrNode(u) = "None";
+        terrType(u) = "Outage";
+    end
+end
+
+% Αποκλειστικά δορυφορική: όσοι χρήστες έχουν ορατό δορυφόρο πάνω από το
+% κατώφλι μοιράζονται το εύρος ζώνης του, όπως ακριβώς και στην κανονική
+% λειτουργία.
+satNode = strings(numUsers,1);
+satType = strings(numUsers,1);
+satSnrPolicy = satSnrDbVec;
+for u = 1:numUsers
+    if isfinite(satSnrDbVec(u)) && satSnrDbVec(u) >= minUsableSnrDb
+        satNode(u) = "SAT-1";
+        satType(u) = "Satellite";
+    else
+        satNode(u) = "None";
+        satType(u) = "Outage";
+    end
+end
+
+policyKpis = struct();
+policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers);
+
+[capT, thrT, ~, ~, ~, netT] = allocateAndTally(terrNode, terrType, terrSnr, ...
+    simParameters, satParameters, alloc);
+policyKpis.TerrestrialOnly = policySummary(capT, thrT, netT, numUsers);
+
+[capS, thrS, ~, ~, ~, netS] = allocateAndTally(satNode, satType, satSnrPolicy, ...
+    simParameters, satParameters, alloc);
+policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers);
+
+%% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
+% Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
+newChannelState.UserGeo         = user_geo;
+newChannelState.IsLOS           = losMat;
+newChannelState.LosLatent       = losLatentMat;
+newChannelState.ShadowFading_dB = sfMat;
+
+end
+
+function [capacityMbpsVec, throughputMbpsVec, serviceStateVec, ...
+          nodePowerWattsVec, energyPerBitUJVec, networkEnergy] = ...
+          allocateAndTally(nodeVec, typeVec, snrDbVec, simParameters, satParameters, alloc)
+% Κατανομή εύρους ζώνης, χωρητικότητα, κατάσταση υπηρεσίας, ισχύς και ενέργεια
+% ανά bit, για ΔΕΔΟΜΕΝΗ ανάθεση χρηστών σε κόμβους. Απομονωμένη ώστε η ίδια
+% λογική να εφαρμόζεται και στις εναλλακτικές πολιτικές.
+numUsers = numel(nodeVec);
+numBs    = alloc.numBs;
+
+capacityMbpsVec   = nan(numUsers,1);
+throughputMbpsVec = zeros(numUsers,1);
+serviceStateVec   = strings(numUsers,1);
+nodePowerWattsVec = nan(numUsers,1);
+energyPerBitUJVec = inf(numUsers,1);
+
 for u = 1:numUsers
     % Outage: μηδενική χωρητικότητα/ισχύς, ενέργεια/bit = Inf. Παραλείπονται
     % πριν το usersOnThisNode ώστε να μη μετρηθούν σαν να μοιράζονται κόμβο.
-    if bestNodeTypeVec(u) == "Outage"
+    if typeVec(u) == "Outage"
         % Καμία ενεργή ζεύξη: η χωρητικότητα δεν ορίζεται (δεν υπάρχει ζεύξη
         % να τη φέρει), η παραδοθείσα ρυθμαπόδοση είναι μηδενική, και η
         % ενέργεια ανά παραδοθέν bit απροσδιόριστη. Η κατανάλωση των κόμβων
@@ -301,17 +392,17 @@ for u = 1:numUsers
         continue;
     end
 
-    servingNode = bestNodeVec(u);
+    servingNode = nodeVec(u);
 
     % Πόσοι χρήστες συνολικά εξυπηρετούνται από τον ΙΔΙΟ κόμβο
-    usersOnThisNode = sum(bestNodeVec == servingNode);
+    usersOnThisNode = sum(nodeVec == servingNode);
 
     % Συνολικό bandwidth και κατανάλωση ισχύος του κόμβου: μοντέλο EARTH
     % (Auer et al. 2011) για BS, γραμμικό μοντέλο ενισχυτή ισχύος για δορυφόρο.
-    if bestNodeTypeVec(u) == "Terrestrial"
-        nodeBW = BW_bs;
+    if typeVec(u) == "Terrestrial"
+        nodeBW = alloc.BW_bs;
         nodePowerW = simParameters.Power.NumTrx * ...
-            (simParameters.Power.P0 + simParameters.Power.DeltaP * pOutPerChainW);
+            (simParameters.Power.P0 + simParameters.Power.DeltaP * alloc.pOutPerChainW);
     else
         nodeBW = satParameters.Bandwidth;
         pOutW  = 10^((satParameters.TxPower - 30)/10);
@@ -324,7 +415,7 @@ for u = 1:numUsers
     % Χωρητικότητα Shannon, με clamp στη μέγιστη φασματική απόδοση του NR
     % (MCS 28 / 64QAM, TS 38.214 Πίν. 5.1.3.1-1) ώστε να μην υπερεκτιμάται σε υψηλό SNR.
     maxSpectralEfficiency = 5.5547;   % bits/s/Hz (MCS 28, 64QAM)
-    snr_lin = 10^(bestSnrDbVec(u)/10);
+    snr_lin = 10^(snrDbVec(u)/10);
     spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
     capacity = B_user * spectralEfficiency;   % bits/s
 
@@ -333,7 +424,7 @@ for u = 1:numUsers
 
     % Κατάσταση υπηρεσίας: το κριτήριο ορίζεται επί του συνολικού εύρους
     % καναλιού, οπότε σφίγγει καθώς αυξάνεται ο φόρτος του κόμβου.
-    if (capacity / nodeBW) >= targetNormalizedSe
+    if (capacity / nodeBW) >= alloc.targetNormalizedSe
         serviceStateVec(u) = "Served";
     else
         serviceStateVec(u) = "BelowTarget";
@@ -353,20 +444,20 @@ end
 networkEnergy = struct();
 totalRateBps      = sum(throughputMbpsVec) * 1e6;   % παραδοθέντα bits
 pOutSatW          = 10^((satParameters.TxPower - 30)/10);
-bsFullW           = simParameters.Power.NumTrx * (simParameters.Power.P0 + simParameters.Power.DeltaP*pOutPerChainW);
-bsRfW             = simParameters.Power.NumTrx * simParameters.Power.DeltaP * pOutPerChainW;
+bsFullW           = simParameters.Power.NumTrx * (simParameters.Power.P0 + simParameters.Power.DeltaP*alloc.pOutPerChainW);
+bsRfW             = simParameters.Power.NumTrx * simParameters.Power.DeltaP * alloc.pOutPerChainW;
 bsSleepW          = simParameters.Power.NumTrx * simParameters.Power.Psleep;
 satFullW          = satParameters.Power.Pfix + pOutSatW/satParameters.Power.EtaPA;
 satRfW            = pOutSatW / satParameters.Power.EtaPA;
 
 activeBs  = 0;
 for b = 1:numBs
-    if any(bestNodeVec == "BS" + string(b))
+    if any(nodeVec == "BS" + string(b))
         activeBs = activeBs + 1;
     end
 end
 idleBs    = numBs - activeBs;
-satActive = any(bestNodeTypeVec == "Satellite");
+satActive = any(typeVec == "Satellite");
 
 % Πλήρης εμβέλεια: ενεργοί BS κατά EARTH, αδρανείς σε Psleep. Ο δορυφόρος δεν
 % έχει αντίστοιχο μέγεθος αδράνειας, οπότε προσμετράται μόνο όταν εξυπηρετεί.
@@ -382,15 +473,29 @@ networkEnergy.BitPerJouleRf   = totalRateBps / networkEnergy.TotalPowerRf_W;
 networkEnergy.ServedUsers     = sum(serviceStateVec == "Served");
 networkEnergy.BelowTargetUsers= sum(serviceStateVec == "BelowTarget");
 networkEnergy.OutageUsers     = sum(serviceStateVec == "Outage");
-networkEnergy.TargetNormSe    = targetNormalizedSe;
+networkEnergy.TargetNormSe    = alloc.targetNormalizedSe;
+end
 
-%% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
-% Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
-newChannelState.UserGeo         = user_geo;
-newChannelState.IsLOS           = losMat;
-newChannelState.LosLatent       = losLatentMat;
-newChannelState.ShadowFading_dB = sfMat;
-
+function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers)
+% Δείκτες μιας πολιτικής για ένα βήμα, σε μορφή έτοιμη για συνάθροιση ανά
+% διέλευση. Η μέση χωρητικότητα υπολογίζεται στους χρήστες που εξυπηρετούνται,
+% ενώ η συνολική ρυθμαπόδοση και τα ποσοστά ορίζονται σε όλους - ώστε μια
+% πολιτική να μην ωφελείται επειδή αφήνει χρήστες εκτός.
+served = ~isnan(capacityMbpsVec);
+s = struct();
+if any(served)
+    s.MeanCapacity_Mbps = mean(capacityMbpsVec(served));
+else
+    s.MeanCapacity_Mbps = NaN;
+end
+s.TotalRate_Mbps   = sum(throughputMbpsVec);
+s.FracServed       = networkEnergy.ServedUsers / numUsers;
+s.FracBelowTarget  = networkEnergy.BelowTargetUsers / numUsers;
+s.FracOutage       = networkEnergy.OutageUsers / numUsers;
+s.TotalPower_W     = networkEnergy.TotalPower_W;
+s.TotalPowerRf_W   = networkEnergy.TotalPowerRf_W;
+s.BitPerJoule      = networkEnergy.BitPerJoule;
+s.BitPerJouleRf    = networkEnergy.BitPerJouleRf;
 end
 
 function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)

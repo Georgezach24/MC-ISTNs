@@ -46,6 +46,8 @@ function [convTable, summary] = runSimulation(opts)
 %   Dataset/dataset.csv        μία γραμμή ανά (διέλευση, δείγμα, χρήστη)
 %   Results/reference_pass.csv η διέλευση αναφοράς σε πλήρη ανάλυση 1 s
 %   Results/convergence.csv    καμπύλη σύγκλισης ανά διέλευση
+%   Results/policy_comparison.csv  δείκτες ανά διέλευση για τις τρεις πολιτικές
+%   Results/policy_paired.csv      διαφορές κατά ζεύγη, με 95% CI
 %   Results/*.png              χρονοσειρές διέλευσης αναφοράς + καμπύλη σύγκλισης
 
 %% ------------------ Επιλογές ------------------
@@ -240,6 +242,19 @@ kpiInStopRule = [true false true true true];
 numKpi = numel(kpiNames);
 passKpi = nan(opts.maxPasses, numKpi);
 
+%% ------------------ Σύγκριση πολιτικών (ITU-R M.2412-0 §7.1) ------------------
+% Κάθε βήμα αποτιμάται και με τις τρεις πολιτικές πάνω στην ΙΔΙΑ πραγματοποίηση
+% καναλιού: τα δύο υποψήφια SNR είναι κοινά, αλλάζει μόνο ποιος επιλέγεται και
+% άρα ο φόρτος κάθε κόμβου. Η σύγκριση είναι επομένως κατά ζεύγη και όχι μεταξύ
+% ανεξάρτητων εκτελέσεων, οπότε η διακύμανση της τοπολογίας και του καναλιού
+% απαλείφεται από τη διαφορά.
+policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly'};
+policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
+                 'FracBelowTarget','FracOutage','BitPerJouleRf'};
+numPolicy       = numel(policyNames);
+numPolicyMetric = numel(policyMetrics);
+policyPassKpi   = nan(opts.maxPasses, numPolicy, numPolicyMetric);
+
 convRows = cell(opts.maxPasses,1);
 checksRun = 0;
 totalRows = 0;
@@ -265,6 +280,9 @@ refSnapshot = struct();
 if ~isempty(resumeState)
     passIdx     = resumeState.passIdx;
     passKpi(1:passIdx,:) = resumeState.passKpi;
+    if isfield(resumeState, 'policyPassKpi') && ~isempty(resumeState.policyPassKpi)
+        policyPassKpi(1:passIdx,:,:) = resumeState.policyPassKpi;
+    end
     convRows(1:passIdx)  = resumeState.convRows;
     totalRows   = resumeState.totalRows;
     checksRun   = resumeState.checksRun;
@@ -317,6 +335,7 @@ while passIdx < opts.maxPasses
     prevServingNode = strings(numUsers,1);
     channelState = [];   % πρώτο βήμα της διέλευσης: ανεξάρτητο δείγμα
     stepBitPerJouleRf = nan(numSteps,1);
+    policyStepBuf = nan(numSteps, numPolicy, numPolicyMetric);
 
     for s = 1:numSteps
         t = tStart + (s-1)*opts.dtSeconds;
@@ -333,9 +352,17 @@ while passIdx < opts.maxPasses
             bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
             satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec, ...
             channelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
-            bsReasonVec, satReasonVec] = ...
+            bsReasonVec, satReasonVec, policyKpis] = ...
             simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, ...
                              satParameters, channelState);
+
+        % --- Δείκτες των τριών πολιτικών για το βήμα αυτό ---
+        for pI = 1:numPolicy
+            ps = policyKpis.(policyNames{pI});
+            for mI = 1:numPolicyMetric
+                policyStepBuf(s, pI, mI) = ps.(policyMetrics{mI});
+            end
+        end
 
         % --- Φορτίο κόμβου ---
         nodeLoadVec = zeros(numUsers,1);
@@ -416,6 +443,11 @@ while passIdx < opts.maxPasses
     passKpi(passIdx,4) = mean(strBuf(:,2) == "Satellite");
     passKpi(passIdx,5) = mean(stepBitPerJouleRf, 'omitnan');
 
+    % Οι δείκτες κάθε πολιτικής συναθροίζονται πρώτα μέσα στη διέλευση και
+    % μετά η διέλευση μπαίνει ως ΜΙΑ παρατήρηση στη στατιστική: τα βήματα της
+    % ίδιας διέλευσης δεν είναι ανεξάρτητα μεταξύ τους.
+    policyPassKpi(passIdx,:,:) = mean(policyStepBuf, 1, 'omitnan');
+
     % -- Εγγραφή: κρατούνται τα βήματα 1, 1+stride, ... --
     keep = mod(numBuf(:,2) - 1, opts.datasetStride) == 0;
     passTable = buildPassTable(numBuf(keep,:), strBuf(keep,:));
@@ -468,6 +500,7 @@ while passIdx < opts.maxPasses
     % Σημείο ελέγχου μετά από κάθε διέλευση: λίγα KB, ώστε μια διακοπή να
     % κοστίζει το πολύ μία διέλευση αντί για ολόκληρη την εκτέλεση.
     ckpt = struct('passIdx', passIdx, 'passKpi', passKpi(1:passIdx,:), ...
+        'policyPassKpi', policyPassKpi(1:passIdx,:,:), ...
         'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
         'checksRun', checksRun, 'refSnapshot', refSnapshot, 'opts', opts);
     save(checkpointPath, 'ckpt');
@@ -478,6 +511,121 @@ while passIdx < opts.maxPasses
 end
 
 numPasses = passIdx;
+
+%% ------------------ Σύγκριση πολιτικών κατά ζεύγη ------------------
+% Κάθε διέλευση δίνει τρεις τιμές για τον ίδιο δείκτη, μία ανά πολιτική, πάνω
+% στο ίδιο κανάλι και την ίδια τοπολογία. Η στατιστική γίνεται στη ΔΙΑΦΟΡΑ ανά
+% διέλευση, όχι στους δύο μέσους όρους χωριστά.
+pol = policyPassKpi(1:numPasses,:,:);
+
+polPassID = repelem((1:numPasses)', numPolicy);
+polName   = repmat(string(policyNames(:)), numPasses, 1);
+polVals   = zeros(numPasses*numPolicy, numPolicyMetric);
+r = 0;
+for n = 1:numPasses
+    for pI = 1:numPolicy
+        r = r + 1;
+        polVals(r,:) = reshape(pol(n,pI,:), 1, []);
+    end
+end
+policyTable = array2table(polVals, 'VariableNames', policyMetrics);
+policyTable = addvars(policyTable, polPassID, polName, 'Before', 1, ...
+    'NewVariableNames', {'PassID','Policy'});
+policyCsv = fullfile(opts.outputDir, 'policy_comparison.csv');
+writetable(policyTable, policyCsv);
+
+% Οι δύο συγκρίσεις: η υπό εξέταση πολιτική έναντι καθεμιάς από τις δύο
+% αποκλειστικές.
+compIdx = [1 2; 1 3];
+nComp   = size(compIdx,1);
+pairBaseline = strings(nComp*numPolicyMetric,1);
+pairMetric   = strings(nComp*numPolicyMetric,1);
+pairN        = zeros(nComp*numPolicyMetric,1);
+pairMean     = nan(nComp*numPolicyMetric,1);
+pairHw       = nan(nComp*numPolicyMetric,1);
+pairRelPct   = nan(nComp*numPolicyMetric,1);
+pairWinFrac  = nan(nComp*numPolicyMetric,1);
+q = 0;
+for c = 1:nComp
+    for mI = 1:numPolicyMetric
+        a = pol(:,compIdx(c,1),mI);
+        b = pol(:,compIdx(c,2),mI);
+        d = a - b;
+        ok = isfinite(d);
+        d = d(ok);
+        q = q + 1;
+        pairBaseline(q) = string(policyNames{compIdx(c,2)});
+        pairMetric(q)   = string(policyMetrics{mI});
+        pairN(q)        = numel(d);
+        if numel(d) >= 2
+            pairMean(q)    = mean(d);
+            pairHw(q)      = 1.96*std(d)/sqrt(numel(d));
+            baseMean       = mean(b(ok), 'omitnan');
+            if abs(baseMean) > eps
+                pairRelPct(q) = 100*mean(d)/abs(baseMean);
+            end
+            pairWinFrac(q) = mean(d > 0);
+        end
+    end
+end
+pairedTable = table(pairBaseline, pairMetric, pairN, pairMean, pairHw, ...
+    pairMean - pairHw, pairMean + pairHw, pairRelPct, pairWinFrac, ...
+    'VariableNames', {'Baseline','Metric','NumPasses','MeanDiff','CI95HalfWidth', ...
+                      'CI95Low','CI95High','RelDiffPct','FracPassesPositive'});
+pairedCsv = fullfile(opts.outputDir, 'policy_paired.csv');
+writetable(pairedTable, pairedCsv);
+
+fprintf('\n  Σύγκριση πολιτικών στην ίδια διέλευση (%d διελεύσεις)\n', numPasses);
+fprintf('    %-18s %12s %12s %12s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός');
+for pI = 1:numPolicy
+    fprintf('    %-18s %12.2f %12.4f %12.4f\n', policyNames{pI}, ...
+        mean(pol(:,pI,2),'omitnan'), mean(pol(:,pI,3),'omitnan'), ...
+        mean(pol(:,pI,5),'omitnan'));
+end
+fprintf('\n    Διαφορές ανά διέλευση (η υπό εξέταση μείον τη βάση), 95%% CI:\n');
+for q = 1:height(pairedTable)
+    signif = ternary(pairedTable.CI95Low(q) > 0 || pairedTable.CI95High(q) < 0, ...
+        '', '   [το CI περιέχει το μηδέν]');
+    fprintf('    %-16s %-18s %+10.4f ± %.4f (%+6.1f%%, θετική στο %4.1f%% των διελεύσεων)%s\n', ...
+        pairedTable.Baseline(q), pairedTable.Metric(q), pairedTable.MeanDiff(q), ...
+        pairedTable.CI95HalfWidth(q), pairedTable.RelDiffPct(q), ...
+        100*pairedTable.FracPassesPositive(q), signif);
+end
+fprintf('\n');
+
+%% ------------------ Γράφημα σύγκρισης πολιτικών ------------------
+figPol = figure('Visible','off','Position',[100 100 1050 330]);
+
+subplot(1,3,1);
+mv = arrayfun(@(pI) mean(pol(:,pI,2),'omitnan'), 1:numPolicy);
+ev = arrayfun(@(pI) 1.96*std(pol(:,pI,2),'omitnan')/sqrt(numPasses), 1:numPolicy);
+bar(mv); hold on; errorbar(1:numPolicy, mv, ev, 'k', 'LineStyle','none', 'LineWidth',1.2);
+set(gca,'XTickLabel',{'υπό εξέταση','μόνο επίγεια','μόνο δορυφ.'});
+ylabel('Συνολική ρυθμαπόδοση [Mbps]'); grid on;
+title('Ρυθμαπόδοση ανά πολιτική');
+
+subplot(1,3,2);
+mv2 = arrayfun(@(pI) 100*mean(pol(:,pI,3),'omitnan'), 1:numPolicy);
+ev2 = arrayfun(@(pI) 100*1.96*std(pol(:,pI,3),'omitnan')/sqrt(numPasses), 1:numPolicy);
+bar(mv2); hold on; errorbar(1:numPolicy, mv2, ev2, 'k', 'LineStyle','none', 'LineWidth',1.2);
+set(gca,'XTickLabel',{'υπό εξέταση','μόνο επίγεια','μόνο δορυφ.'});
+ylabel('Εξυπηρετούμενοι [%]'); grid on;
+title('Εξυπηρέτηση ανά πολιτική');
+
+subplot(1,3,3);
+dT = pol(:,1,2) - pol(:,2,2);
+dS = pol(:,1,2) - pol(:,3,2);
+histogram(dT, 'DisplayName','έναντι μόνο επίγειας'); hold on;
+histogram(dS, 'DisplayName','έναντι μόνο δορυφορικής');
+xline(0,'k--','HandleVisibility','off');
+xlabel('Διαφορά ρυθμαπόδοσης ανά διέλευση [Mbps]'); ylabel('Διελεύσεις');
+legend('Location','northoutside'); grid on;
+title('Κατανομή των διαφορών');
+
+polPng = fullfile(opts.outputDir, 'policy_comparison.png');
+saveas(figPol, polPng);
+close(figPol);
+
 
 %% ------------------ Καμπύλη σύγκλισης ------------------
 convMat = vertcat(convRows{1:numPasses});
@@ -539,7 +687,8 @@ end
 % Το dataset ΔΕΝ αντιγράφεται στον versioned φάκελο: είναι δεκάδες MB και το
 % Results/runs/ παρακολουθείται από το git. Αντ' αυτού καταγράφεται το άθροισμα
 % ελέγχου SHA-256 του, που το συνδέει με τη συγκεκριμένη εκτέλεση και το commit.
-outFiles = {refPassCsv, convCsv, fullfile(opts.outputDir,'network_3d.png')};
+outFiles = {refPassCsv, convCsv, policyCsv, pairedCsv, polPng, ...
+            fullfile(opts.outputDir,'network_3d.png')};
 
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SNR_dB','SatElevation_deg'};
 kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SNR (dB)','Γωνία ανύψωσης (deg)'};
@@ -596,6 +745,8 @@ runParams.convergedAtPass  = convergedAtPass;
 runParams.ciTolerance      = opts.ciTolerance;
 runParams.ciToleranceFrac  = opts.ciToleranceFrac;
 runParams.stopRuleKpis     = strjoin(kpiNames(kpiInStopRule), ', ');
+runParams.policies         = strjoin(policyNames, ', ');
+runParams.policyMetrics    = strjoin(policyMetrics, ', ');
 runParams.minPasses        = opts.minPasses;
 runParams.maxPasses        = opts.maxPasses;
 runParams.rngSeed          = opts.rngSeed;
