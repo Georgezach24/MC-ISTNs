@@ -9,9 +9,10 @@ function T = linkBudgetValidation(outputDir, label)
 %   Α. Μετατροπές μονάδων ισχύος (dBm, dBW, W) και τα δύο EIRP.
 %   Β. Απώλειες ελεύθερου χώρου και η γνωστή κλίση των 6,02 dB ανά οκτάβα.
 %   Γ. Ισχύς θορύβου kTB και η εξάρτησή της από το εύρος ζώνης.
-%   Δ. Ταυτότητα SNR = EIRP - απώλειες - θόρυβος, πάνω στα μεγέθη που
+%   Δ. Ταυτότητα SINR = EIRP - απώλειες - θόρυβος, πάνω στα μεγέθη που
 %      επιστρέφει η ίδια η simulateScenario.
-%   Ε. Γνωστή συμπεριφορά: +-3 dB στην ισχύ εκπομπής -> +-3 dB στο SNR.
+%   Ε. Γνωστή συμπεριφορά ισχύος: +-3 dB δίνουν +-3 dB χωρίς παρεμβολή και
+%      αυστηρά λιγότερο με παρεμβολή.
 %   ΣΤ. Διατήρηση εύρους ζώνης: το άθροισμα των μεριδίων ισούται με το
 %      διαθέσιμο εύρος του κόμβου.
 %   Ζ. Ισοζύγιο ισχύος δικτύου χωρίς διπλή καταμέτρηση.
@@ -142,12 +143,13 @@ noiseDouble = 10*log10(kBoltz * teqK * 2*bwBsHz);
 C = addCheck(C, 'G6 διπλασιο ευρος ζωνης -> +3.01 dB θορυβου', 'dB', 10*log10(2), ...
              noiseDouble - noiseBsDbw, 1e-9);
 
-%% ================== Δ. Ταυτότητα SNR ==================
+%% ================== Δ. Ταυτότητα SINR ==================
 % Σενάριο αναφοράς: δύο σταθμοί, πέντε χρήστες εντός πεδίου ισχύος, δορυφόρος
-% στο ζενίθ. Ελέγχεται ότι τα SNR που επιστρέφονται προκύπτουν ακριβώς από τις
-% απώλειες που επίσης επιστρέφονται, δηλαδή ότι δεν παρεμβάλλεται κανένας
-% αδήλωτος όρος στο ισοζύγιο.
+% στο ζενίθ. Η ταυτότητα EIRP - PL - N δίνει πλέον το SINR μόνο όταν δεν
+% υπάρχει παρεμβολέας, οπότε ελέγχεται σε δύο βήματα: με έναν σταθμό πρέπει να
+% ισχύει ακριβώς, με δύο πρέπει να παραβιάζεται προς τη σωστή κατεύθυνση.
 bs2 = [baseLat baseLon 25; baseLat + 1200/111320 baseLon 25];
+bs1 = bs2(1,:);
 nU  = 5;
 uD  = [300 700 1200 2500 4200];
 uGeo = zeros(nU,3);
@@ -158,46 +160,78 @@ end
 satOverhead = [baseLat baseLon 600e3];
 
 rng(7);
-[nodeVec, ~, ~, ~, snrBest, capMbps, ~, ~, ~, ...
- bsSnr, ~, bsPl, ~, ~, satPl, satSnr, ...
+[nodeVec, ~, ~, ~, sinrBest, capMbps, ~, ~, ~, ...
+ bsSinr, ~, bsPl, ~, ~, satPl, satSinr, ...
  ~, netE] = ...
     simulateScenario(bs2, uGeo, satOverhead, wgs84, simParameters, satParameters);
 
-snrFromPl = (simParameters.EIRP - 30) - bsPl - noiseBsDbw;
-C = addCheck(C, 'D1 SNR επιγειο == EIRP - PL - N', 'dB', 0, ...
-             max(abs(bsSnr - snrFromPl)), 1e-9);
-satSnrFromPl = (satParameters.EIRP - 30) - satPl - noiseSatDbw;
-C = addCheck(C, 'D2 SNR δορυφορικο == EIRP - PL - N', 'dB', 0, ...
-             max(abs(satSnr - satSnrFromPl)), 1e-9);
-C = addCheck(C, 'D3 επιλεγμενο SNR == max(επιγειο, δορυφορικο)', 'dB', 0, ...
-             max(abs(snrBest - max(bsSnr, satSnr))), 1e-12);
+% Ένας σταθμός: κανένας παρεμβολέας, άρα I = 0 και SINR = C/N ακριβώς.
+rng(21);
+[~,~,~,~,~,~,~,~,~, bsSinr1, ~, bsPl1] = ...
+    simulateScenario(bs1, uGeo, satOverhead, wgs84, simParameters, satParameters);
+sinrFromPl1 = (simParameters.EIRP - 30) - bsPl1 - noiseBsDbw;
+C = addCheck(C, 'D1 ενας σταθμος: SINR == EIRP - PL - N', 'dB', 0, ...
+             max(abs(bsSinr1 - sinrFromPl1)), 1e-9);
 
-%% ================== Ε. +-3 dB ισχύος -> +-3 dB SNR ==================
-offsets  = [-3 0 3];
-snrShift = nan(numel(offsets),1);
+% Δορυφόρος: ο όρος παρεμβολής είναι μηδενικός (2.0 έναντι 3.5 GHz, ένας
+% δορυφόρος), οπότε η ταυτότητα ισχύει ακριβώς και εκεί.
+satSinrFromPl = (satParameters.EIRP - 30) - satPl - noiseSatDbw;
+C = addCheck(C, 'D2 SINR δορυφορικο == EIRP - PL - N', 'dB', 0, ...
+             max(abs(satSinr - satSinrFromPl)), 1e-9);
+C = addCheck(C, 'D3 επιλεγμενο SINR == max(επιγειο, δορυφορικο)', 'dB', 0, ...
+             max(abs(sinrBest - max(bsSinr, satSinr))), 1e-12);
+
+% Δύο σταθμοί: το SINR πρέπει να είναι ΑΥΣΤΗΡΑ κάτω από την τιμή χωρίς
+% παρεμβολή, για κάθε χρήστη. Αν η παρεμβολή δεν είχε μπει πραγματικά στον
+% υπολογισμό, αυτός ο έλεγχος θα έδειχνε μηδενική διαφορά.
+sinrNoInterf = (simParameters.EIRP - 30) - bsPl - noiseBsDbw;
+interfDropDb = sinrNoInterf - bsSinr;
+C = addCheck(C, 'D4 δυο σταθμοι: SINR < SNR για καθε χρηστη', 'λογικο', 1, ...
+             double(all(interfDropDb > 0)), 0);
+C = addCheck(C, 'D5 η πτωση αντιστοιχει σε θετικη ισχυ παρεμβολης', 'λογικο', 1, ...
+             double(all(isfinite(interfDropDb)) && max(interfDropDb) < 60), 0);
+
+%% ================== Ε. Μεταβολή ισχύος εκπομπής ==================
+% Με έναν σταθμό η ζεύξη είναι περιορισμένη από τον θόρυβο: +-3 dB στην ισχύ
+% μετατοπίζουν το SINR κατά ακριβώς +-3 dB. Με δύο σταθμούς η ίδια μεταβολή
+% εφαρμόζεται ΚΑΙ στον παρεμβολέα, οπότε η ωφέλεια είναι μικρότερη: αυτό είναι
+% το χαρακτηριστικό γνώρισμα ενός συστήματος περιορισμένου από παρεμβολή και
+% ελέγχεται ρητά.
+offsets    = [-3 0 3];
+sinrShift1 = nan(numel(offsets),1);   % ένας σταθμός
+sinrShift2 = nan(numel(offsets),1);   % δύο σταθμοί
 for k = 1:numel(offsets)
     sp = simParameters;
     sp.TxPower = simParameters.TxPower + offsets(k);
     sp.EIRP = sp.TxPower + sp.AntennaGain + 10*log10(sp.NumAntennaElements);
-    % Το πλήθος αλυσίδων δεν εισέρχεται στο SNR, μόνο στο ενεργειακό μοντέλο:
+    % Το πλήθος αλυσίδων δεν εισέρχεται στο SINR, μόνο στο ενεργειακό μοντέλο:
     % διπλασιάζεται στο +3 dB ώστε να μη σπάσει το όριο P_max των 20 W.
     if offsets(k) > 0
         sp.Power.NumTrx = 8;
     end
-    rng(7);   % ίδιες κληρώσεις: μόνο η ισχύς μεταβάλλεται
-    [~,~,~,~,~,~,~,~,~, bsSnrK] = ...
+    rng(21);   % ίδιες κληρώσεις: μόνο η ισχύς μεταβάλλεται
+    [~,~,~,~,~,~,~,~,~, bsSinrK1] = ...
+        simulateScenario(bs1, uGeo, satOverhead, wgs84, sp, satParameters);
+    sinrShift1(k) = mean(bsSinrK1 - bsSinr1);
+
+    rng(7);
+    [~,~,~,~,~,~,~,~,~, bsSinrK2] = ...
         simulateScenario(bs2, uGeo, satOverhead, wgs84, sp, satParameters);
-    snrShift(k) = mean(bsSnrK - bsSnr);
+    sinrShift2(k) = mean(bsSinrK2 - bsSinr);
 end
-C = addCheck(C, 'E1 -3 dB ισχυος -> -3 dB SNR', 'dB', -3, snrShift(1), 1e-9);
-C = addCheck(C, 'E2 ιδια ισχυς -> μηδενικη μετατοπιση', 'dB', 0, snrShift(2), 1e-12);
-C = addCheck(C, 'E3 +3 dB ισχυος -> +3 dB SNR', 'dB', 3, snrShift(3), 1e-9);
+C = addCheck(C, 'E1 ενας σταθμος: -3 dB ισχυος -> -3 dB SINR', 'dB', -3, sinrShift1(1), 1e-9);
+C = addCheck(C, 'E2 ιδια ισχυς -> μηδενικη μετατοπιση', 'dB', 0, sinrShift1(2), 1e-12);
+C = addCheck(C, 'E3 ενας σταθμος: +3 dB ισχυος -> +3 dB SINR', 'dB', 3, sinrShift1(3), 1e-9);
+C = addCheck(C, 'E4 δυο σταθμοι: +3 dB ισχυος δινει ΛΙΓΟΤΕΡΟ απο +3 dB', 'λογικο', 1, ...
+             double(sinrShift2(3) > 0 && sinrShift2(3) < 3 - 1e-6), 0);
+C = addCheck(C, 'E5 δυο σταθμοι: -3 dB ισχυος κοστιζει ΛΙΓΟΤΕΡΟ απο 3 dB', 'λογικο', 1, ...
+             double(sinrShift2(1) < 0 && sinrShift2(1) > -3 + 1e-6), 0);
 
 %% ================== ΣΤ. Διατήρηση εύρους ζώνης ==================
 % Αντίστροφος υπολογισμός του μεριδίου κάθε χρήστη από τη χωρητικότητα:
 % C_u = B_u * SE_u  =>  B_u = C_u / SE_u. Το άθροισμα ανά κόμβο πρέπει να
 % δίνει ακριβώς το εύρος ζώνης του κόμβου, ούτε λιγότερο ούτε περισσότερο.
-seU = min(log2(1 + 10.^(snrBest/10)), maxSe);
+seU = min(log2(1 + 10.^(sinrBest/10)), maxSe);
 bwU = (capMbps*1e6) ./ seU;
 
 activeNodes   = unique(nodeVec(nodeVec ~= "None"));
@@ -247,8 +281,8 @@ C = addCheck(C, 'Z7 καθε σταθμος μετριεται μια φορα',
 farUser = [baseLat + 20000/111320, baseLon, 1.5];
 satLow  = [baseLat + 2500e3/111320, baseLon, 600e3];   % ανύψωση ~1.5 deg, κάτω από τη μάσκα
 rng(11);
-[nodeN, typeN, ~, ~, snrN, capN, ~, powN, eN, ...
- bsSnrN, ~, ~, ~, ~, ~, satSnrN, ~, netN, ~, thrN, bsRN, satRN] = ...
+[nodeN, typeN, ~, ~, sinrN, capN, ~, powN, eN, ...
+ bsSinrN, ~, ~, ~, ~, ~, satSinrN, ~, netN, ~, thrN, bsRN, satRN] = ...
     simulateScenario([baseLat baseLon 25], farUser, satLow, wgs84, ...
                      simParameters, satParameters);
 
@@ -269,15 +303,15 @@ C = addCheck(C, 'H1 η καταναλωση δικτυου δεν μηδενιζ
 % Η σύγκριση των δύο υποψηφίων γίνεται με -Inf και στις δύο πλευρές. Ο
 % τελεστής είναι αυστηρός (>), οπότε η ισοπαλία δεν αναθέτει κόμβο.
 C = addCheck(C, 'H2 ισοπαλια -Inf: κανενας υποψηφιος δεν κερδιζει', 'λογικο', 1, ...
-             double(isnan(bsSnrN) && satSnrN == -Inf && snrN == -Inf && nodeN == "None"), 0);
+             double(isnan(bsSinrN) && satSinrN == -Inf && sinrN == -Inf && nodeN == "None"), 0);
 
 % --- Η3: ένας χρήστης παίρνει ολόκληρο το εύρος ζώνης ---
 oneUser = [baseLat + 400/111320, baseLon, 1.5];
 satNo   = satParameters; satNo.MinElevationDeg = 95;   % δορυφόρος απρόσιτος
 rng(13);
-[~, type1, ~, ~, snr1, cap1] = simulateScenario([baseLat baseLon 25], oneUser, ...
+[~, type1, ~, ~, sinr1, cap1] = simulateScenario([baseLat baseLon 25], oneUser, ...
     satOverhead, wgs84, simParameters, satNo);
-se1 = min(log2(1 + 10^(snr1/10)), maxSe);
+se1 = min(log2(1 + 10^(sinr1/10)), maxSe);
 C = addCheck(C, 'H3 ενας χρηστης -> επιγεια εξυπηρετηση', 'λογικο', 1, ...
              double(type1 == "Terrestrial"), 0);
 C = addCheck(C, 'H3 ενας χρηστης -> ολοκληρο το ευρος ζωνης', 'Hz', bwBsHz, ...
@@ -292,15 +326,15 @@ satEdge = [baseLat + 900e3/111320, baseLon, 600e3];
 satAt   = satParameters; satAt.MinElevationDeg   = elevEdge;
 satJust = satParameters; satJust.MinElevationDeg = elevEdge + 1e-9;
 rng(17);
-[~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, snrAt, ~,~,~,~,~, reasonAt] = ...
+[~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, sinrAt, ~,~,~,~,~, reasonAt] = ...
     simulateScenario([baseLat baseLon 25], oneUser, satEdge, wgs84, simParameters, satAt);
 rng(17);
-[~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, snrJust, ~,~,~,~,~, reasonJust] = ...
+[~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, sinrJust, ~,~,~,~,~, reasonJust] = ...
     simulateScenario([baseLat baseLon 25], oneUser, satEdge, wgs84, simParameters, satJust);
 C = addCheck(C, 'H4 ανυψωση ακριβως στη μασκα -> ορατος', 'λογικο', 1, ...
-             double(isfinite(snrAt) && reasonAt ~= "NotVisible"), 0);
+             double(isfinite(sinrAt) && reasonAt ~= "NotVisible"), 0);
 C = addCheck(C, 'H4 ενα nanoβαθμο πιο πανω -> μη ορατος', 'λογικο', 1, ...
-             double(snrJust == -Inf && reasonJust == "NotVisible"), 0);
+             double(sinrJust == -Inf && reasonJust == "NotVisible"), 0);
 
 % --- Η5: πεπερασμένες ισοπαλίες είναι γεγονός μηδενικής πιθανότητας ---
 % Ο κανόνας ορίζει ότι σε ισοπαλία κερδίζει ο επίγειος (αυστηρό >). Εδώ
@@ -349,11 +383,12 @@ legend({'fspl','20 dB ανά δεκάδα'}, 'Location','southeast');
 title('Ελεύθερος χώρος: +6,02 dB ανά οκτάβα');
 
 subplot(1,3,2);
-plot(offsets, snrShift, '-o', 'LineWidth', 1.4); hold on;
+plot(offsets, sinrShift1, '-o', 'LineWidth', 1.4); hold on;
+plot(offsets, sinrShift2, '-s', 'LineWidth', 1.4);
 plot(offsets, offsets, '--', 'LineWidth', 1.2);
-grid on; xlabel('Μεταβολή ισχύος εκπομπής [dB]'); ylabel('Μεταβολή SNR [dB]');
-legend({'μετρημένο','κλίση 1'}, 'Location','southeast');
-title('Ισχύς εκπομπής προς SNR');
+grid on; xlabel('Μεταβολή ισχύος εκπομπής [dB]'); ylabel('Μεταβολή SINR [dB]');
+legend({'ένας σταθμός','δύο σταθμοί','κλίση 1'}, 'Location','southeast');
+title('Ισχύς εκπομπής προς SINR');
 
 subplot(1,3,3);
 bar([nodeBwPerNode(:)/1e6, bwSumPerNode(:)/1e6]);

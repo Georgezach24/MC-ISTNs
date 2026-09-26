@@ -66,7 +66,7 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     % Dummy plots για το Legend
     plot3(nan, nan, nan, 'g-', 'LineWidth', 1.5, 'DisplayName', 'Terrestrial Link (Green)');
     plot3(nan, nan, nan, 'm-', 'LineWidth', 1.5, 'DisplayName', 'Satellite Link (Magenta)');
-    scatter3(nan, nan, nan, 200, 'x', 'MarkerEdgeColor', 'r', 'LineWidth', 2.5, 'DisplayName', 'Outage (no usable SNR)');
+    scatter3(nan, nan, nan, 200, 'x', 'MarkerEdgeColor', 'r', 'LineWidth', 2.5, 'DisplayName', 'Outage (no usable SINR)');
     
     % --- Μορφοποίηση Γραφήματος και Αξόνων ---
     xlabel('East (meters)');

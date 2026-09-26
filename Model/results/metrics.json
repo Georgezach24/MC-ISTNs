@@ -1,137 +1,137 @@
 {
   "label_identity_check": {
-    "snr_min_db": -7.534586387911515,
-    "rows": 243807,
-    "matches": 243807,
+    "sinr_min_db": -7.534586387911515,
+    "rows": 229327,
+    "matches": 229327,
     "mismatches": 0
   },
-  "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+  "dataset_sha256": "4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5",
   "split": {
-    "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+    "dataset_sha256": "4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5",
     "group_column": "PassID",
     "test_size": 0.25,
     "seed": 42,
-    "n_train_rows": 163388,
-    "n_test_rows": 60136
+    "n_train_rows": 154861,
+    "n_test_rows": 54383
   },
   "LogisticRegression": {
-    "accuracy": 0.9989357456432088,
-    "f1_satellite": 0.9977725184463316,
-    "roc_auc": 0.9999950639093825,
+    "accuracy": 0.9988231616497802,
+    "f1_satellite": 0.997806867246933,
+    "roc_auc": 0.9999954117400226,
     "classification_report": {
       "Satellite": {
-        "precision": 0.9965932003059167,
-        "recall": 0.9989546309847376,
-        "f1-score": 0.9977725184463316,
-        "support": 14349.0
+        "precision": 0.996645673603505,
+        "recall": 0.9989707698641416,
+        "f1-score": 0.997806867246933,
+        "support": 14574.0
       },
       "Terrestrial": {
-        "precision": 0.9996721526457282,
-        "recall": 0.9989298272435407,
-        "f1-score": 0.9993008520865195,
-        "support": 45787.0
+        "precision": 0.9996228786926461,
+        "recall": 0.9987691225602251,
+        "f1-score": 0.9991958182549256,
+        "support": 39809.0
       },
-      "accuracy": 0.9989357456432088,
+      "accuracy": 0.9988231616497802,
       "macro avg": {
-        "precision": 0.9981326764758225,
-        "recall": 0.9989422291141392,
-        "f1-score": 0.9985366852664256,
-        "support": 60136.0
+        "precision": 0.9981342761480756,
+        "recall": 0.9988699462121833,
+        "f1-score": 0.9985013427509293,
+        "support": 54383.0
       },
       "weighted avg": {
-        "precision": 0.9989374864370686,
-        "recall": 0.9989357456432088,
-        "f1-score": 0.9989361776917632,
-        "support": 60136.0
+        "precision": 0.998825022984628,
+        "recall": 0.9988231616497802,
+        "f1-score": 0.9988235958326525,
+        "support": 54383.0
       }
     },
     "predictions_file": "predictions_LogisticRegression.csv",
     "pipeline_file": "pipeline_LogisticRegression.joblib",
-    "pipeline_sha256": "9ff39070c85daa06478d2fa181e667c43add2591f120549575dec022f6cb6a1d",
-    "pipeline_bytes": 1985
+    "pipeline_sha256": "b005279a46d3b3cc7db8b7d9704df381840114182f9b84484f9952c8fe5323a7",
+    "pipeline_bytes": 2003
   },
   "RandomForest": {
-    "accuracy": 0.9991851802580817,
-    "f1_satellite": 0.9982921473632846,
-    "roc_auc": 0.9999967579793355,
+    "accuracy": 0.9985473401614475,
+    "f1_satellite": 0.9972901588172743,
+    "roc_auc": 0.9999928470026647,
     "classification_report": {
       "Satellite": {
-        "precision": 0.9985357690698647,
-        "recall": 0.9980486445048435,
-        "f1-score": 0.9982921473632846,
-        "support": 14349.0
+        "precision": 0.9971191439742095,
+        "recall": 0.9974612323315494,
+        "f1-score": 0.9972901588172743,
+        "support": 14574.0
       },
       "Terrestrial": {
-        "precision": 0.9993885661877102,
-        "recall": 0.999541354532946,
-        "f1-score": 0.9994649545211343,
-        "support": 45787.0
+        "precision": 0.9990704451813888,
+        "recall": 0.9989449621944786,
+        "f1-score": 0.9990076997475287,
+        "support": 39809.0
       },
-      "accuracy": 0.9991851802580817,
+      "accuracy": 0.9985473401614475,
       "macro avg": {
-        "precision": 0.9989621676287874,
-        "recall": 0.9987949995188947,
-        "f1-score": 0.9988785509422095,
-        "support": 60136.0
+        "precision": 0.9980947945777991,
+        "recall": 0.998203097263014,
+        "f1-score": 0.9981489292824015,
+        "support": 54383.0
       },
       "weighted avg": {
-        "precision": 0.9991850809900921,
-        "recall": 0.9991851802580817,
-        "f1-score": 0.9991851119990512,
-        "support": 60136.0
+        "precision": 0.9985475195650484,
+        "recall": 0.9985473401614475,
+        "f1-score": 0.9985474191172301,
+        "support": 54383.0
       }
     },
     "predictions_file": "predictions_RandomForest.csv",
     "pipeline_file": "pipeline_RandomForest.joblib",
-    "pipeline_sha256": "baa6c2dbf2f58ffea52fee843f148337a32cbdb9f5ec1e004a6eef3d375db81d",
-    "pipeline_bytes": 3896881,
+    "pipeline_sha256": "0cb0ed2d7f6b8efe302cfaf78732c69b1ea175513ccb915e6992fdf13909f075",
+    "pipeline_bytes": 5141879,
     "feature_importance_impurity": {
-      "CandSat_SNR_dB": 0.23264694560487595,
-      "CandSat_PathLoss_dB": 0.22937061046569496,
-      "CandBS_PathLoss_dB": 0.15561684308497878,
-      "CandBS_SNR_dB": 0.14380250782843365,
-      "CandSat_Elevation_deg": 0.08253073347985664,
-      "CandSat_Visible_True": 0.06767621503346581,
-      "CandSat_SlantRange_m": 0.06706339712457039,
-      "CandBS_Distance_m": 0.02095500574887136,
-      "NumUsers": 0.0003377416292524787
+      "CandSat_SINR_dB": 0.26396663057667863,
+      "CandSat_PathLoss_dB": 0.25765490388882545,
+      "CandBS_SINR_dB": 0.13628761863142888,
+      "CandSat_Elevation_deg": 0.10093981950900345,
+      "CandSat_Visible_True": 0.08373146935831734,
+      "CandSat_SlantRange_m": 0.07811566920016066,
+      "CandBS_PathLoss_dB": 0.070696212135547,
+      "CandBS_Distance_m": 0.00806539272386682,
+      "NumUsers": 0.0005422839761717922
     },
     "feature_importance_permutation": {
-      "CandSat_SNR_dB": {
-        "mean": 0.08416921644272982,
-        "std": 0.0006874909516623687
+      "CandSat_SINR_dB": {
+        "mean": 0.10038431127374366,
+        "std": 0.0008536832257430116
       },
       "CandSat_PathLoss_dB": {
-        "mean": 0.08024644139949447,
-        "std": 0.0007018550122086388
+        "mean": 0.09453505691116712,
+        "std": 0.0007530796592028853
+      },
+      "CandBS_SINR_dB": {
+        "mean": 0.08899840023536768,
+        "std": 0.0005828766417787529
       },
       "CandBS_PathLoss_dB": {
-        "mean": 0.06846813888519357,
-        "std": 0.000852117712097767
-      },
-      "CandBS_SNR_dB": {
-        "mean": 0.06478149527737129,
-        "std": 0.0007547447957075547
-      },
-      "CandSat_Elevation_deg": {
-        "mean": 0.00011640282027403082,
-        "std": 6.353922167932816e-05
+        "mean": 0.010911498078443637,
+        "std": 0.0003026169439298349
       },
       "CandSat_Visible": {
-        "mean": 0.00010309964081414157,
-        "std": 6.559492790778745e-05
-      },
-      "CandSat_SlantRange_m": {
-        "mean": 2.3280564054806163e-05,
-        "std": 2.12954777086339e-05
-      },
-      "CandBS_Distance_m": {
-        "mean": 1.1640282027403081e-05,
-        "std": 4.4651195896287944e-05
+        "mean": -2.5743338911021762e-05,
+        "std": 6.380431963258971e-05
       },
       "NumUsers": {
-        "mean": -1.1640282027403081e-05,
-        "std": 1.064773885431695e-05
+        "mean": -3.86150083665493e-05,
+        "std": 3.1259768677682764e-05
+      },
+      "CandBS_Distance_m": {
+        "mean": -5.1486677822099035e-05,
+        "std": 4.563806206347497e-05
+      },
+      "CandSat_SlantRange_m": {
+        "mean": -0.00011032859533308682,
+        "std": 7.446612629429853e-05
+      },
+      "CandSat_Elevation_deg": {
+        "mean": -0.00014894360369966942,
+        "std": 6.340562179199321e-05
       }
     }
   }

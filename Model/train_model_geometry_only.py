@@ -2,7 +2,7 @@
 Model/train_model_geometry_only.py
 
 Second, harder ML pass on top of the Part 1 simulation. train_model.py
-gives the classifier ground-truth CandBS_SNR_dB/CandSat_SNR_dB, which
+gives the classifier ground-truth CandBS_SINR_dB/CandSat_SINR_dB, which
 already near-determine the label (ServingType = argmax of the two) - a
 pipeline sanity check, not a realistic prediction problem.
 
@@ -66,7 +66,7 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results_geometry_only"
 # (TR 38.821 visibility mask) - όχι μια νέα υπόθεση, απλά επαναχρησιμοποίηση.
 MIN_ELEVATION_DEG = 20.0
 
-# CandBS_SNR_dB/CandSat_SNR_dB και CandBS_PathLoss_dB/CandSat_PathLoss_dB
+# CandBS_SINR_dB/CandSat_SINR_dB και CandBS_PathLoss_dB/CandSat_PathLoss_dB
 # αποκλείονται σκόπιμα (βλ. docstring): δίνουν στο μοντέλο την απάντηση, ή
 # ένα σχεδόν-affine ισοδύναμό της. Μένουν μόνο γεωμετρικά/context
 # χαρακτηριστικά, διαθέσιμα σε ένα πραγματικό σύστημα πριν τη μέτρηση SNR.
@@ -104,11 +104,11 @@ def load_dataset(path: Path) -> pd.DataFrame:
               f"(1 sample every {ML_SAMPLE_STRIDE} s)")
 
     # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
-    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR) - εξαιρείται
+    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR) - εξαιρείται
     # εδώ, ίδια λογική με το train_model.py.
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
-        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
+        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SINR) "
               f"out of {len(df)} - binary Terrestrial/Satellite target only.")
         df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
 

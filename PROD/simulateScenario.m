@@ -1,12 +1,12 @@
 function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
-    bestSnrDbVec, capacityMbpsVec, bestElevationDegVec, ...
+    bestSinrDbVec, capacityMbpsVec, bestElevationDegVec, ...
     nodePowerWattsVec, energyPerBitUJVec, ...
-    bestBsSnrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
-    satSlantRangeVec, satElevationVec, satPathLossVec, satSnrDbVec, ...
+    bestBsSinrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
+    satSlantRangeVec, satElevationVec, satPathLossVec, satSinrDbVec, ...
     newChannelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
     bsUnavailReasonVec, satUnavailReasonVec, policyKpis] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, prevChannelState)
-% Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SNR και
+% Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SINR και
 % υπολογίζει χωρητικότητα/ενέργεια μετά την κατανομή εύρους ζώνης.
 % Επιστρέφει και per-candidate διαγνωστικά (καλύτερο BS + δορυφόρος, ανεξάρτητα
 % από την τελική επιλογή) για την εκπαίδευση του ML μοντέλου του Part 2.
@@ -14,7 +14,7 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 % 23η έξοδος policyKpis: η ίδια πραγματοποίηση καναλιού αποτιμάται και με τις
 % τρεις πολιτικές επιλογής κόμβου (η υπό εξέταση, αποκλειστικά επίγεια,
 % αποκλειστικά δορυφορική), με την κατανομή πόρων να υπολογίζεται εκ νέου σε
-% καθεμία. Τα δύο υποψήφια SNR έχουν ήδη υπολογιστεί για κάθε χρήστη ανεξάρτητα
+% καθεμία. Τα δύο υποψήφια SINR έχουν ήδη υπολογιστεί για κάθε χρήστη ανεξάρτητα
 % από το ποιος κερδίζει, οπότε οι τρεις πολιτικές διαφέρουν μόνο στην επιλογή
 % και η σύγκριση είναι κατά ζεύγη πάνω στο ίδιο κανάλι.
 %
@@ -43,11 +43,11 @@ Teq = simParameters.RxAntTemperature + 290*(NF-1);
 noisePowerBS_dBW  = 10*log10(kBoltz * Teq * BW_bs);
 noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 
-%% ------------------ Ελάχιστο χρησιμοποιήσιμο SNR (κατάσταση outage) ------------------
+%% ------------------ Ελάχιστο χρησιμοποιήσιμο SINR (κατάσταση outage) ------------------
 % Κάτω από αυτό -> ο χρήστης θεωρείται outage αντί να ανατεθεί στον
-% "λιγότερο κακό" κόμβο. = Shannon-ισοδύναμο SNR του MCS 0 (TS 38.214 Πίν. 5.1.3.1-1).
+% "λιγότερο κακό" κόμβο. = Shannon-ισοδύναμο SINR του MCS 0 (TS 38.214 Πίν. 5.1.3.1-1).
 minSpectralEfficiency = 0.2344;                        % bits/s/Hz (MCS 0)
-minUsableSnrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
+minUsableSinrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
 
 %% ------------------ Κατώφλι σε επίπεδο υπηρεσίας ------------------
 % 5ο εκατοστημόριο φασματικής απόδοσης χρήστη (απαίτηση ITU-R M.2410, όπως
@@ -84,12 +84,12 @@ bestNodeTypeVec     = strings(numUsers,1);
 bestBsNodeVec       = strings(numUsers,1);   % ποιος BS κέρδισε, για τη σύγκριση πολιτικών
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
-bestSnrDbVec        = nan(numUsers,1);
+bestSinrDbVec        = nan(numUsers,1);
 capacityMbpsVec     = nan(numUsers,1);
 nodePowerWattsVec   = nan(numUsers,1);
 energyPerBitUJVec   = nan(numUsers,1);
 bestElevationDegVec = nan(numUsers,1);
-bestBsSnrDbVec      = nan(numUsers,1);
+bestBsSinrDbVec      = nan(numUsers,1);
 bestBsDistanceVec   = nan(numUsers,1);
 bestBsPathLossVec   = nan(numUsers,1);
 serviceStateVec     = strings(numUsers,1);
@@ -101,7 +101,8 @@ satUnavailReasonVec = strings(numUsers,1);
 groundDistanceMat = nan(numUsers,numBs);
 range3DMat        = nan(numUsers,numBs);
 pathLossMat       = nan(numUsers,numBs);
-snrDbMat          = nan(numUsers,numBs);
+snrDbMat          = nan(numUsers,numBs);   % χωρίς παρεμβολή, διαγνωστικό
+sinrDbMat         = nan(numUsers,numBs);
 pLosMat           = nan(numUsers,numBs);
 losMat            = false(numUsers,numBs);
 losLatentMat      = zeros(numUsers,numBs);
@@ -109,16 +110,16 @@ sfMat             = nan(numUsers,numBs);
 satSlantRangeVec  = nan(numUsers,1);
 satElevationVec   = nan(numUsers,1);
 satPathLossVec    = nan(numUsers,1);
-satSnrDbVec       = nan(numUsers,1);
+satSinrDbVec       = nan(numUsers,1);
 
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
     isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
 
-%% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SNR) ------------------
+%% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SINR) ------------------
 for u = 1:numUsers
     % Αρχικοποιήσεις
-    userBestSNR       = -Inf;
+    userBestSinr      = -Inf;
     userBestNode      = "";
     userBestType      = "";
     userBestDistance  = NaN;
@@ -152,7 +153,7 @@ for u = 1:numUsers
         range3DMat(u,b)        = d3d;
 
         % Πεδίο ισχύος UMa/UMi (TR 38.901 Πίν. 7.4.1-1). Εκτός ορίων η ζεύξη
-        % δεν υπολογίζεται: το SNR μένει NaN, ώστε να ξεχωρίζει από ζεύξη που
+        % δεν υπολογίζεται: το SINR μένει NaN, ώστε να ξεχωρίζει από ζεύξη που
         % υπολογίστηκε και βρέθηκε ανεπαρκής.
         if ~isValidTerrestrialLink(groundDistance, hUt, simParameters.CarrierFrequency)
             sfMat(u,b) = 0;
@@ -199,15 +200,52 @@ for u = 1:numUsers
         pathLoss = pathLoss - smallScaleFadingDb(isLos, terrKdBLos);
         pathLossMat(u,b) = pathLoss;
 
-        snr_db = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
-        snrDbMat(u,b) = snr_db;
+        % Ο λόγος σήματος προς θόρυβο ΜΟΝΟ, χωρίς παρεμβολή, κρατείται ως
+        % διαγνωστικό: είναι το άνω φράγμα του SINR και δείχνει πόσο κοστίζει
+        % η παρεμβολή σε κάθε ζεύξη.
+        snrDbMat(u,b) = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
+    end
 
-        if snr_db > userBestSNR
-            userBestSNR       = snr_db;
+    %% ===== SINR ανά επίγειο υποψήφιο =====
+    % Όλοι οι σταθμοί εκπέμπουν ταυτόχρονα στο ίδιο φάσμα: επαναχρησιμοποίηση
+    % συχνοτήτων 1 και μοντέλο πλήρους απασχόλησης, όπως ορίζει ο ΠΙΝΑΚΑΣ 5 β)
+    % του ITU-R M.2412-0 (§8.4, "Inter-site interference modeling: Explicitly
+    % modelled", "Traffic model: Full buffer") και όπως προϋποθέτουν οι μετρικές
+    % βαθμονόμησης του TR 38.901 §7.8 (Πίν. 7.8-1 "Geometry", Πίν. 7.8-2
+    % "Wideband SIR", Πίν. 7.8-3 "Wideband SINR").
+    %
+    % Ορισμός: TR 38.821 Πίν. 6.1.1.2-1, ΣΗΜΕΙΩΣΗ:
+    %   Geometry SINR = -10*log10(I/C + N/C)  <=>  SINR = C / (I + N)
+    % με C, I, N μετρημένα στο ίδιο εύρος ζώνης. Επειδή σήμα, παρεμβολή και
+    % θόρυβος κλιμακώνονται όλα με το εκχωρημένο εύρος, ο λόγος δεν εξαρτάται
+    % από την κατανομή πόρων: υπολογίζεται μία φορά στο εύρος του κόμβου.
+    %
+    % Σταθμός εκτός του πεδίου ισχύος του μοντέλου δεν προσμετράται ως
+    % παρεμβολέας, γιατί οι απώλειές του δεν είναι υπολογίσιμες με το UMa/UMi
+    % χωρίς να παραβιαστεί ο έλεγχος εγκυρότητας. Η παρεμβολή είναι επομένως
+    % κάτω φράγμα, όπως και λόγω του μικρού πλήθους σταθμών.
+    noiseLinW   = 10^(noisePowerBS_dBW/10);
+    rxPowLinW   = 10.^(((simParameters.EIRP - 30) - pathLossMat(u,:))/10);
+    rxPowLinW(~isfinite(rxPowLinW)) = 0;
+    totalRxLinW = sum(rxPowLinW);
+
+    for b = 1:numBs
+        if ~isfinite(pathLossMat(u,b))
+            continue;
+        end
+        interfLinW     = totalRxLinW - rxPowLinW(b);
+        sinr_db        = 10*log10(rxPowLinW(b) / (noiseLinW + interfLinW));
+        sinrDbMat(u,b) = sinr_db;
+
+        % Η επιλογή είναι μονότονη ως προς τη λαμβανόμενη ισχύ: με κοινό
+        % άθροισμα ισχύων, το SINR αυξάνει με το C, οπότε ο καλύτερος σταθμός
+        % είναι ο ίδιος με ή χωρίς παρεμβολή. Αλλάζει η τιμή, όχι η επιλογή.
+        if sinr_db > userBestSinr
+            userBestSinr      = sinr_db;
             userBestNode      = "BS" + string(b);
             userBestType      = "Terrestrial";
-            userBestDistance  = d3d;
-            userBestPathLoss  = pathLoss;
+            userBestDistance  = range3DMat(u,b);
+            userBestPathLoss  = pathLossMat(u,b);
             userBestElevation = NaN;
         end
     end
@@ -215,10 +253,10 @@ for u = 1:numUsers
     % Στιγμιότυπο του καλύτερου υποψήφιου BS πριν τη σύγκριση με τον δορυφόρο (per-candidate διαγνωστικό).
     % NaN όταν καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
     bestBsNodeVec(u) = userBestNode;
-    if isfinite(userBestSNR)
-        bestBsSnrDbVec(u) = userBestSNR;
-        if userBestSNR < minUsableSnrDb
-            bsUnavailReasonVec(u) = "BelowSnrFloor";
+    if isfinite(userBestSinr)
+        bestBsSinrDbVec(u) = userBestSinr;
+        if userBestSinr < minUsableSinrDb
+            bsUnavailReasonVec(u) = "BelowSinrFloor";
         end
     else
         % Καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
@@ -256,21 +294,25 @@ for u = 1:numUsers
         end
         satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega);
 
-        satSnrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
+        % Ο όρος παρεμβολής είναι μηδενικός στο δορυφορικό σκέλος: 2.0 GHz
+        % έναντι 3.5 GHz του επίγειου (TR 38.821 Πίν. 6.1.3.2-1 και TR 38.901),
+        % άρα καμία ομοδιαυλική επικάλυψη, και ένας μόνο δορυφόρος, άρα καμία
+        % παρεμβολή μεταξύ δεσμών. Το SINR ταυτίζεται εδώ με το SNR.
+        satSinrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
     else
         satPathLoss = inf;
-        satSnrDb = -Inf;
+        satSinrDb = -Inf;
         satUnavailReasonVec(u) = "NotVisible";
     end
-    if satUnavailReasonVec(u) == "" && satSnrDb < minUsableSnrDb
-        satUnavailReasonVec(u) = "BelowSnrFloor";
+    if satUnavailReasonVec(u) == "" && satSinrDb < minUsableSinrDb
+        satUnavailReasonVec(u) = "BelowSinrFloor";
     end
 
     satPathLossVec(u) = satPathLoss;
-    satSnrDbVec(u)    = satSnrDb;
+    satSinrDbVec(u)    = satSinrDb;
 
-    if satSnrDb > userBestSNR
-        userBestSNR       = satSnrDb;
+    if satSinrDb > userBestSinr
+        userBestSinr       = satSinrDb;
         userBestNode      = "SAT-1";
         userBestType      = "Satellite";
         userBestDistance  = slantRangeSat;
@@ -280,7 +322,7 @@ for u = 1:numUsers
 
     % Σε outage κρατάμε τα διαγνωστικά του καλύτερου υποψηφίου, αλλά ο χρήστης
     % δεν ανατίθεται σε κόμβο.
-    if userBestSNR < minUsableSnrDb
+    if userBestSinr < minUsableSinrDb
         bestNodeVec(u)     = "None";
         bestNodeTypeVec(u) = "Outage";
     else
@@ -289,7 +331,7 @@ for u = 1:numUsers
     end
     bestDistanceVec(u)     = userBestDistance;
     bestPathLossVec(u)     = userBestPathLoss;
-    bestSnrDbVec(u)        = userBestSNR;
+    bestSinrDbVec(u)        = userBestSinr;
     bestElevationDegVec(u) = userBestElevation;
 end
 
@@ -302,21 +344,21 @@ alloc = struct('BW_bs', BW_bs, 'pOutPerChainW', pOutPerChainW, ...
 
 [capacityMbpsVec, throughputMbpsVec, serviceStateVec, nodePowerWattsVec, ...
  energyPerBitUJVec, networkEnergy] = allocateAndTally(bestNodeVec, ...
-    bestNodeTypeVec, bestSnrDbVec, simParameters, satParameters, alloc);
+    bestNodeTypeVec, bestSinrDbVec, simParameters, satParameters, alloc);
 
 %% ------------------ Σύγκριση πολιτικών στην ίδια πραγματοποίηση ------------------
-% Τα δύο υποψήφια SNR είναι ήδη υπολογισμένα για κάθε χρήστη. Οι εναλλακτικές
+% Τα δύο υποψήφια SINR είναι ήδη υπολογισμένα για κάθε χρήστη. Οι εναλλακτικές
 % πολιτικές δεν ξαναδειγματοληπτούν τίποτα: κρατούν το ίδιο κανάλι και αλλάζουν
 % μόνο ποιος υποψήφιος επιλέγεται, με την κατανομή πόρων να υπολογίζεται εκ νέου
 % ώστε να αποτυπωθεί ο διαφορετικός φόρτος που προκύπτει.
 
 % Αποκλειστικά επίγεια: κάθε χρήστης στον καλύτερο σταθμό του, αν υπάρχει και
-% ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR.
+% ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR.
 terrNode = strings(numUsers,1);
 terrType = strings(numUsers,1);
-terrSnr  = bestBsSnrDbVec;
+terrSnr  = bestBsSinrDbVec;
 for u = 1:numUsers
-    if isfinite(bestBsSnrDbVec(u)) && bestBsSnrDbVec(u) >= minUsableSnrDb
+    if isfinite(bestBsSinrDbVec(u)) && bestBsSinrDbVec(u) >= minUsableSinrDb
         terrNode(u) = bestBsNodeVec(u);
         terrType(u) = "Terrestrial";
     else
@@ -330,9 +372,9 @@ end
 % λειτουργία.
 satNode = strings(numUsers,1);
 satType = strings(numUsers,1);
-satSnrPolicy = satSnrDbVec;
+satSnrPolicy = satSinrDbVec;
 for u = 1:numUsers
-    if isfinite(satSnrDbVec(u)) && satSnrDbVec(u) >= minUsableSnrDb
+    if isfinite(satSinrDbVec(u)) && satSinrDbVec(u) >= minUsableSinrDb
         satNode(u) = "SAT-1";
         satType(u) = "Satellite";
     else
@@ -363,7 +405,7 @@ end
 
 function [capacityMbpsVec, throughputMbpsVec, serviceStateVec, ...
           nodePowerWattsVec, energyPerBitUJVec, networkEnergy] = ...
-          allocateAndTally(nodeVec, typeVec, snrDbVec, simParameters, satParameters, alloc)
+          allocateAndTally(nodeVec, typeVec, sinrDbVec, simParameters, satParameters, alloc)
 % Κατανομή εύρους ζώνης, χωρητικότητα, κατάσταση υπηρεσίας, ισχύς και ενέργεια
 % ανά bit, για ΔΕΔΟΜΕΝΗ ανάθεση χρηστών σε κόμβους. Απομονωμένη ώστε η ίδια
 % λογική να εφαρμόζεται και στις εναλλακτικές πολιτικές.
@@ -413,10 +455,10 @@ for u = 1:numUsers
     B_user = nodeBW / usersOnThisNode;
 
     % Χωρητικότητα Shannon, με clamp στη μέγιστη φασματική απόδοση του NR
-    % (MCS 28 / 64QAM, TS 38.214 Πίν. 5.1.3.1-1) ώστε να μην υπερεκτιμάται σε υψηλό SNR.
+    % (MCS 28 / 64QAM, TS 38.214 Πίν. 5.1.3.1-1) ώστε να μην υπερεκτιμάται σε υψηλό SINR.
     maxSpectralEfficiency = 5.5547;   % bits/s/Hz (MCS 28, 64QAM)
-    snr_lin = 10^(snrDbVec(u)/10);
-    spectralEfficiency = min(log2(1 + snr_lin), maxSpectralEfficiency);
+    sinr_lin = 10^(sinrDbVec(u)/10);
+    spectralEfficiency = min(log2(1 + sinr_lin), maxSpectralEfficiency);
     capacity = B_user * spectralEfficiency;   % bits/s
 
     capacityMbpsVec(u)   = capacity * 1e-6;    % Mbps

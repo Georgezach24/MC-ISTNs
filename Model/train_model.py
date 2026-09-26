@@ -7,8 +7,8 @@ PROD/runSimulation.m), predict which node TYPE (Terrestrial vs Satellite)
 the SNR-greedy baseline in simulateScenario.m would select.
 
 This is a sanity-check model, not the final Part 2 deliverable: since the
-label is essentially argmax(CandBS_SNR_dB, CandSat_SNR_dB), a model given both
-candidate SNRs is expected to reproduce the rule almost perfectly. The point
+label is essentially argmax(CandBS_SINR_dB, CandSat_SINR_dB), a model given both
+candidate SINRs is expected to reproduce the rule almost perfectly. The point
 of this run is to validate the dataset pipeline end-to-end (MATLAB -> CSV ->
 Python -> trained model -> metrics) before tackling harder Part 2 targets
 (e.g. predicting from imperfect/estimated SNR, joint/fair allocation, or
@@ -58,7 +58,7 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # Ίδιο κατώφλι με satParameters.MinElevationDeg στο runSimulation.m
 # (TR 38.821 visibility mask) - όχι μια νέα υπόθεση, απλά επαναχρησιμοποίηση.
 MIN_ELEVATION_DEG = 20.0
-SENTINEL_SNR_DB = -50.0        # "πρακτικά άχρηστος" όταν ο δορυφόρος δεν είναι ορατός
+SENTINEL_SINR_DB = -50.0        # "πρακτικά άχρηστος" όταν ο δορυφόρος δεν είναι ορατός
 SENTINEL_PATHLOSS_DB = 300.0
 
 # Η υποδειγματοληψία στον χρόνο γίνεται ΣΤΗΝ ΠΗΓΗ: το runSimulation.m
@@ -74,8 +74,8 @@ FEATURE_COLUMNS_NUMERIC = [
     # of ServingType for every user in that scenario (satellite scenarios
     # mechanically have larger groups) - a circular predictor, not a cause.
     "NumUsers",
-    "CandBS_SNR_dB", "CandBS_Distance_m", "CandBS_PathLoss_dB",
-    "CandSat_SNR_dB", "CandSat_Elevation_deg", "CandSat_SlantRange_m",
+    "CandBS_SINR_dB", "CandBS_Distance_m", "CandBS_PathLoss_dB",
+    "CandSat_SINR_dB", "CandSat_Elevation_deg", "CandSat_SlantRange_m",
     "CandSat_PathLoss_dB",
 ]
 FEATURE_COLUMNS_CATEGORICAL = []  # το σενάριο διάδοσης είναι σταθερό (UMa)
@@ -100,17 +100,17 @@ def load_dataset(path: Path) -> pd.DataFrame:
     # (visibility mask στο simulateScenario.m). Αντικατάσταση με sentinel τιμές
     # + ρητό boolean flag, ώστε το μοντέλο να μη σκάει σε μη-πεπερασμένες τιμές.
     df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
-    df["CandSat_SNR_dB"] = df["CandSat_SNR_dB"].replace([np.inf, -np.inf], SENTINEL_SNR_DB)
+    df["CandSat_SINR_dB"] = df["CandSat_SINR_dB"].replace([np.inf, -np.inf], SENTINEL_SINR_DB)
     df["CandSat_PathLoss_dB"] = df["CandSat_PathLoss_dB"].replace([np.inf, -np.inf], SENTINEL_PATHLOSS_DB)
 
     # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
-    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR). Εξαιρούνται
+    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR). Εξαιρούνται
     # εδώ: το "ποιος από τους δύο διαθέσιμους κόμβους κερδίζει" είναι
     # διαφορετικό ερώτημα από το "υπάρχει καθόλου κάλυψη" - η ανάμειξή τους
     # θα αλλοίωνε το ήδη καθιερωμένο binary πρόβλημα Terrestrial/Satellite.
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
-        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
+        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SINR) "
               f"out of {len(df)} - binary Terrestrial/Satellite target only.")
         df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
 
@@ -128,14 +128,14 @@ def load_dataset(path: Path) -> pd.DataFrame:
     return df
 
 
-SNR_MIN_DB = 10 * np.log10(2 ** 0.2344 - 1)   # -7.5346 dB, MCS 0 (TS 38.214 Πίν. 5.1.3.1-1)
+SINR_MIN_DB = 10 * np.log10(2 ** 0.2344 - 1)   # -7.5346 dB, MCS 0 (TS 38.214 Πίν. 5.1.3.1-1)
 
 
 def label_identity_check(path: Path) -> dict:
     """Έλεγχος ταυτότητας της ετικέτας (σημείο 15 της αξιολόγησης).
 
     Εφαρμόζει τον ΙΔΙΟ τον κανόνα δημιουργίας των ετικετών απευθείας στα δύο
-    υποψήφια SNR -- μάσκα ορατότητας, argmax με τις ισοπαλίες να πηγαίνουν στον
+    υποψήφια SINR -- μάσκα ορατότητας, argmax με τις ισοπαλίες να πηγαίνουν στον
     επίγειο (στο simulateScenario.m ο δορυφόρος κερδίζει μόνο με `>`), και το
     κατώφλι ελάχιστου χρησιμοποιήσιμου SNR -- και το συγκρίνει με την
     καταγεγραμμένη ετικέτα. Τρέχει στα ΑΚΑΤΕΡΓΑΣΤΑ δεδομένα, πριν από κάθε
@@ -146,25 +146,25 @@ def label_identity_check(path: Path) -> dict:
     δύο χαρακτηριστικών εισόδου, και η ακρίβεια της παραλλαγής με ακριβές SNR
     είναι έλεγχος ροής δεδομένων, όχι αποτέλεσμα πρόβλεψης.
     """
-    raw = pd.read_csv(path, usecols=["CandBS_SNR_dB", "CandSat_SNR_dB",
+    raw = pd.read_csv(path, usecols=["CandBS_SINR_dB", "CandSat_SINR_dB",
                                      "CandSat_Elevation_deg", "ServingType"])
-    bs = raw["CandBS_SNR_dB"].fillna(-np.inf).to_numpy()
-    sat = raw["CandSat_SNR_dB"].to_numpy()
+    bs = raw["CandBS_SINR_dB"].fillna(-np.inf).to_numpy()
+    sat = raw["CandSat_SINR_dB"].to_numpy()
     sat = np.where(raw["CandSat_Elevation_deg"].to_numpy() >= MIN_ELEVATION_DEG, sat, -np.inf)
     sat = np.where(np.isnan(sat), -np.inf, sat)
 
     sat_wins = sat > bs                      # ισοπαλία -> επίγειος, όπως στη MATLAB
     best = np.where(sat_wins, sat, bs)
-    predicted = np.where(best < SNR_MIN_DB, "Outage",
+    predicted = np.where(best < SINR_MIN_DB, "Outage",
                          np.where(sat_wins, "Satellite", "Terrestrial"))
 
     actual = raw["ServingType"].to_numpy()
     matches = int((predicted == actual).sum())
     total = len(actual)
-    print(f"\nLabel identity check (SNR_min = {SNR_MIN_DB:.4f} dB): "
+    print(f"\nLabel identity check (SINR_min = {SINR_MIN_DB:.4f} dB): "
           f"rule reproduces {matches}/{total} labels "
           f"({100*matches/total:.4f}%, {total-matches} mismatches)")
-    return {"snr_min_db": float(SNR_MIN_DB), "rows": total,
+    return {"sinr_min_db": float(SINR_MIN_DB), "rows": total,
             "matches": matches, "mismatches": total - matches}
 
 

@@ -1,0 +1,4 @@
+Σύγκριση vs 20260920_143646_linkBudgetValidation
+
+  ~ numChecks : 48  ->  52
+  ~ numPassed : 48  ->  52

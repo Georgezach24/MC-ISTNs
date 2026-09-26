@@ -1,6 +1,6 @@
 # Model — Part 2 proof-of-concept
 
-Supervised-classification pass on top of the Part 1 simulation. It predicts `ServingType` (Terrestrial vs Satellite) per user from **candidate-level** features, and measures how much of that decision survives when the unrealistic assumption of perfect instantaneous SNR knowledge is removed.
+Supervised-classification pass on top of the Part 1 simulation. It predicts `ServingType` (Terrestrial vs Satellite) per user from **candidate-level** features, and measures how much of that decision survives when the unrealistic assumption of perfect instantaneous SINR knowledge is removed.
 
 `Model/` only ever consumes `Dataset/dataset.csv`; it never changes simulation logic in `PROD/`.
 
@@ -16,60 +16,62 @@ The run advances at Δt = 1 s and writes one row every 5 s (`datasetStride`), be
 
 | Property | Value |
 |---|---:|
-| Passes (independent drops) | 210 |
-| Simulated time | 189,000 s (52.5 h) |
-| Rows | 243,807 |
-| Mean users per pass | 6.41 |
-| Per-step state checks, all passed | 189,210 |
-| SHA-256 | `0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1` |
-| Generating commit | `3f4c970` |
+| Passes (independent drops) | 197 |
+| Simulated time | 177,300 s (49.25 h) |
+| Rows | 229,327 |
+| Mean users per pass | 6.43 |
+| Per-step state checks, all passed | 177,497 |
+| SHA-256 | `4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5` |
+| Generating commit | `fcf555c` (working tree dirty: the SINR change was not yet committed) |
 
-The run stopped on the convergence criterion of ITU-R M.2412-0 §7.1, not on a preset pass count — see `Results/convergence.csv`. At 210 passes the 95% CI half-widths were: mean capacity 4.98% (relative), served fraction ±1.49 pp, satellite fraction ±0.98 pp, network bit/J 2.47%.
+The run stopped on the convergence criterion of ITU-R M.2412-0 §7.1, not on a preset pass count — see `Results/convergence.csv`. At 197 passes the 95% CI half-widths were: mean capacity 4.98% (relative), served fraction ±1.73 pp, satellite fraction ±1.00 pp, network bit/J 3.19%.
 
 | Serving node | Rows | Share |  | Service state | Rows | Share |
 |---|---:|---:|---|---|---:|---:|
-| Terrestrial | 170,712 | 70.0% |  | Served | 167,174 | 68.6% |
-| Satellite | 52,812 | 21.7% |  | BelowTarget | 56,350 | 23.1% |
-| Outage | 20,283 | 8.3% |  | Outage | 20,283 | 8.3% |
+| Terrestrial | 152,598 | 66.5% |  | Served | 142,221 | 62.0% |
+| Satellite | 56,646 | 24.7% |  | BelowTarget | 67,023 | 29.2% |
+| Outage | 20,083 | 8.8% |  | Outage | 20,083 | 8.8% |
 
-Rows excluded before training: the 20,283 `Outage` rows (the question "which of the two nodes wins" presupposes a choice) and any row with `BsUnavailReason = "OutOfModelRange"` (none in this run — the per-step validity assertions guarantee every user keeps a valid terrestrial candidate). Remaining population: **223,524 rows over 210 passes, majority class 76.4% Terrestrial**.
+Rows excluded before training: the 20,083 `Outage` rows (the question "which of the two nodes wins" presupposes a choice) and any row with `BsUnavailReason = "OutOfModelRange"` (none in this run — the per-step validity assertions guarantee every user keeps a valid terrestrial candidate). Remaining population: **209,244 rows over 197 passes, majority class 72.93% Terrestrial**.
 
 ## Label sanity check (do this before reading any accuracy number)
 
-`train_model.py` now runs this on every invocation (`label_identity_check`), on the **raw** CSV before any filtering, and records the result in `metrics.json`. It applies the labeling rule directly to the two candidate SNRs — visibility mask, `argmax` with ties going to the terrestrial node (the satellite wins only on a strict `>` in `simulateScenario.m`), and the minimum-usable-SNR floor:
+`train_model.py` now runs this on every invocation (`label_identity_check`), on the **raw** CSV before any filtering, and records the result in `metrics.json`. It applies the labeling rule directly to the two candidate SINRs — visibility mask, `argmax` with ties going to the terrestrial node (the satellite wins only on a strict `>` in `simulateScenario.m`), and the minimum-usable-SINR floor:
 
 ```
-Label identity check (SNR_min = -7.5346 dB): rule reproduces 243807/243807 labels (100.0000%, 0 mismatches)
+Label identity check (SINR_min = -7.5346 dB): rule reproduces 229327/229327 labels (100.0000%, 0 mismatches)
 ```
 
-So the target is, by construction, a deterministic function of two input features. Any model given the exact SNRs must approach 100%; that variant is a **pipeline correctness check, not a prediction result**.
+So the target is, by construction, a deterministic function of two input features. Any model given the exact SINRs must approach 100%; that variant is a **pipeline correctness check, not a prediction result**.
 
 ## Three variants
 
-All three share: candidate-level features only (never the winning node's own metrics), `NodeLoad` excluded (it is a consequence of the label for the whole pass), train/test split **by `PassID`** via `GroupShuffleSplit` 75/25 — 157 training passes (163,388 rows) and 53 test passes (60,136 rows) — Logistic Regression + Random Forest (300 trees, depth 12).
+All three share: candidate-level features only (never the winning node's own metrics), `NodeLoad` excluded (it is a consequence of the label for the whole pass), train/test split **by `PassID`** via `GroupShuffleSplit` 75/25 — 147 training passes (154,861 rows) and 50 test passes (54,383 rows) — Logistic Regression + Random Forest (300 trees, depth 12).
 
 Splitting by pass matters here: rows inside one pass are a 900 s time series over the same geometry, so a row-level split would put near-duplicate samples on both sides.
 
 | Script | Feature information | What it is for |
 |---|---|---|
-| `train_model.py` | exact `CandBS_SNR_dB` / `CandSat_SNR_dB` | correctness check of the MATLAB → CSV → Python chain |
-| `train_model_noisy_snr.py` | SNR + Gaussian noise (σ measured from this dataset: 9.53 dB terrestrial, 4.56 dB satellite) | imperfect/stale measurement |
-| `train_model_geometry_only.py` | no SNR **and** no path loss (near-affine proxy) | lower bound: what geometry alone carries |
+| `train_model.py` | exact `CandBS_SINR_dB` / `CandSat_SINR_dB` | correctness check of the MATLAB → CSV → Python chain |
+| `train_model_noisy_snr.py` | SINR + Gaussian noise (σ measured from this dataset: 7.38 dB terrestrial, 4.52 dB satellite) | imperfect/stale measurement |
+| `train_model_geometry_only.py` | no SINR **and** no path loss (collinear proxy) | lower bound: what geometry alone carries |
 
 The noise σ is no longer read from a separate file — it is computed from the dataset being trained on, so the two can never drift apart.
 
-## Results (210-pass run)
+## Results (197-pass run)
 
 | Input features | LR accuracy | LR ROC-AUC | RF accuracy | RF ROC-AUC |
 |---|---:|---:|---:|---:|
-| Exact SNR (check only) | 0.9989 | 1.0000 | 0.9992 | 1.0000 |
-| Noisy SNR | 0.9378 | 0.9841 | 0.9400 | 0.9844 |
-| Geometry only | 0.9177 | 0.9713 | 0.9184 | 0.9715 |
-| Majority class | — | — | 0.7640 | — |
+| Exact SINR (check only) | 0.9988 | 1.0000 | 0.9985 | 1.0000 |
+| Noisy SINR | 0.9424 | 0.9865 | 0.9431 | 0.9864 |
+| Geometry only | 0.9133 | 0.9692 | 0.9123 | 0.9685 |
+| Majority class | — | — | 0.7293 | — |
 
-The two classifiers land within ~0.2 points of each other in every variant, so these runs do **not** support a claim that the problem needs a non-linear model. The meaningful comparison is each classifier against the majority-class baseline.
+The two classifiers land within ~0.1 points of each other in every variant, so these runs do **not** support a claim that the problem needs a non-linear model. The meaningful comparison is each classifier against the majority-class baseline.
 
-Geometry-only accuracy is much higher than in the previous static-snapshot dataset (0.918 vs 0.812). That is not an improvement in the model — it is a property of the new data. With the satellite now moving through a full pass, elevation sweeps from below the mask to near zenith, so geometry alone determines the decision far more often than it did when every sample was an independent snapshot at a random sub-satellite point.
+Geometry-only accuracy is much higher than in a static-snapshot dataset (0.912 vs 0.812). That is not an improvement in the model — it is a property of the data. With the satellite moving through a full pass, elevation sweeps from below the mask to near zenith, so geometry alone determines the decision far more often than it did when every sample was an independent snapshot at a random sub-satellite point.
+
+**Which geometry, though, changed with the interference model.** `CandBS_Distance_m` importance fell from 0.178 to **0.073** — the least of the four geometry features — while the three satellite-side features together carry over 90%. With inter-site interference modelled, distance to the nearest base station no longer determines terrestrial link quality, because the interference level depends on where the *second* base station is. The decision is now predicted mostly from the satellite side.
 
 ## Feature importance
 
@@ -77,11 +79,11 @@ Each script writes both impurity-based and permutation importances (10 repeats, 
 
 | Variant | Top features |
 |---|---|
-| Exact SNR | `CandSat_SNR_dB` 0.233/0.084 · `CandSat_PathLoss_dB` 0.229/0.080 · `CandBS_PathLoss_dB` 0.156/0.068 · `CandBS_SNR_dB` 0.144/0.065 |
-| Noisy SNR | `CandSat_SNR_noisy_dB` 0.293/0.121 · `CandSat_Elevation_deg` 0.211/0.016 · `CandSat_Visible` 0.158 · `CandSat_SlantRange_m` 0.126/0.003 |
-| Geometry only | `CandSat_Elevation_deg` 0.378/0.100 · `CandSat_Visible` 0.231 · `CandSat_SlantRange_m` 0.207/0.010 · `CandBS_Distance_m` 0.178/0.070 |
+| Exact SINR | `CandSat_SINR_dB` 0.264/0.100 · `CandSat_PathLoss_dB` 0.258/0.095 · `CandBS_SINR_dB` 0.136/0.089 · `CandSat_Elevation_deg` 0.101/0.000 |
+| Noisy SINR | `CandSat_SINR_noisy_dB` 0.323/0.139 · `CandSat_Elevation_deg` 0.235/0.011 · `CandSat_Visible` 0.184/0.000 · `CandSat_SlantRange_m` 0.138/0.001 |
+| Geometry only | `CandSat_Elevation_deg` 0.419/0.114 · `CandSat_Visible` 0.282/0.000 · `CandSat_SlantRange_m` 0.221/0.004 · `CandBS_Distance_m` 0.073/0.030 |
 
-Three caveats belong with any reading of this. SNR and path loss of the same link are near-affine (fixed EIRP and noise floor), so their combined importance describes **one** quantity split arbitrarily between two columns. Impurity importance is biased toward features with many split points, which is why permutation importance on the test set is reported alongside — and the gap between the two columns is large here. And the satellite-side features now dominate, which reflects the temporal structure of this dataset (elevation is the thing that changes during a pass), not a general statement about which segment matters.
+Three caveats belong with any reading of this. SINR and path loss of the same link are collinear, but **not equally on the two segments**: on the satellite link, where the interference term is zero, they are the same quantity (r = −1.0000), while on the terrestrial link interference breaks the exact relation and r falls to −0.9124. The satellite pair's combined importance therefore describes **one** quantity split arbitrarily between two columns; the terrestrial pair only partly overlaps. Impurity importance is biased toward features with many split points, which is why permutation importance on the test set is reported alongside — and the gap between the two columns is large here. And the satellite-side features now dominate, which reflects the temporal structure of this dataset (elevation is the thing that changes during a pass), not a general statement about which segment matters.
 
 ## Running
 
@@ -92,7 +94,7 @@ python train_model_noisy_snr.py
 python train_model_geometry_only.py
 ```
 
-Requires `Dataset/dataset.csv` — generate it first with `runSimulation()` in MATLAB. Outputs land in `results/`, `results_noisy_snr/`, `results_geometry_only/`: metrics JSON, confusion matrices, ROC and importance plots, plus the reproducibility artefacts described below (`split.json`, `predictions_<Model>.csv`, `pipeline_<Model>.joblib`).
+Requires `Dataset/dataset.csv` — generate it first with `runSimulation()` in MATLAB. Column names carry **SINR**, not SNR: the terrestrial candidate value includes inter-site interference (see thesis §3.6), and on the satellite candidate the interference term is zero by the frequency separation, so there SINR equals SNR. Outputs land in `results/`, `results_noisy_snr/`, `results_geometry_only/`: metrics JSON, confusion matrices, ROC and importance plots, plus the reproducibility artefacts described below (`split.json`, `predictions_<Model>.csv`, `pipeline_<Model>.joblib`).
 
 `MIN_ELEVATION_DEG` in all three scripts must match `satParameters.MinElevationDeg` in the simulation (currently 20°); it is used to derive the `CandSat_Visible` flag and inside the label identity check.
 
@@ -108,7 +110,7 @@ Every run writes, next to `metrics.json`, everything needed to re-check a publis
 
 The split is no longer implicit in the code: `SPLIT_TEST_SIZE` and `SPLIT_SEED` are module constants used both by `group_train_test_split` and by what `split.json` reports, so the two cannot disagree. The dataset hash in `split.json` is the same SHA-256 that `runSimulation.m` records in `params.txt`, which ties a set of metrics to one specific dataset file rather than to a filename.
 
-Both halves were checked. Accuracy recomputed directly from each `predictions_<Model>.csv` reproduces every figure in the table above exactly — 0.9989/0.9992, 0.9378/0.9400, 0.9177/0.9184 on the same 60,136 test rows. And reloading `results_geometry_only/pipeline_RandomForest.joblib`, then applying it to the test passes listed in `split.json`, returns predictions identical to the saved ones, row for row. So both the metrics and the model that produced them can be audited from the files, without retraining.
+Both halves were checked. Accuracy recomputed directly from each `predictions_<Model>.csv` reproduces every figure in the table above exactly — 0.9988/0.9985, 0.9424/0.9431, 0.9133/0.9123 on the same 54,383 test rows. And reloading `results_geometry_only/pipeline_RandomForest.joblib`, then applying it to the test passes listed in `split.json`, returns predictions identical to the saved ones, row for row. So both the metrics and the model that produced them can be audited from the files, without retraining.
 
 The `.joblib` files are 2 KB (Logistic Regression) to 16 MB (Random Forest, 300 trees) and are rewritten on every training run, so they are **not** tracked in git — `.gitignore` excludes `Model/results*/pipeline_*.joblib`. Their SHA-256 and byte size are recorded in `metrics.json` instead, so a `.joblib` file on disk can be matched against the results it produced. Loading one needs the same scikit-learn version as `requirements.txt`.
 

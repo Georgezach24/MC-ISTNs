@@ -1,111 +1,111 @@
 {
-  "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+  "dataset_sha256": "4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5",
   "split": {
-    "dataset_sha256": "0b961622bc830510cbac1bcd7d3b1e1177d9984b9a3dad06cd083b2e7e23f4f1",
+    "dataset_sha256": "4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5",
     "group_column": "PassID",
     "test_size": 0.25,
     "seed": 42,
-    "n_train_rows": 163388,
-    "n_test_rows": 60136
+    "n_train_rows": 154861,
+    "n_test_rows": 54383
   },
   "LogisticRegression": {
-    "accuracy": 0.9177364640148996,
-    "f1_satellite": 0.8347308990077841,
-    "roc_auc": 0.9713142343399781,
+    "accuracy": 0.9133001121674053,
+    "f1_satellite": 0.8502936974122877,
+    "roc_auc": 0.9692160745479246,
     "classification_report": {
       "Satellite": {
-        "precision": 0.8016555441478439,
-        "recall": 0.8706530071782006,
-        "f1-score": 0.8347308990077841,
-        "support": 14349.0
+        "precision": 0.7913243898114769,
+        "recall": 0.9187594346095787,
+        "f1-score": 0.8502936974122877,
+        "support": 14574.0
       },
       "Terrestrial": {
-        "precision": 0.9583408152271503,
-        "recall": 0.9324917553017232,
-        "f1-score": 0.9452395975160229,
-        "support": 45787.0
+        "precision": 0.9683946399017671,
+        "recall": 0.9113014644929539,
+        "f1-score": 0.9389809889868126,
+        "support": 39809.0
       },
-      "accuracy": 0.9177364640148996,
+      "accuracy": 0.9133001121674053,
       "macro avg": {
-        "precision": 0.8799981796874972,
-        "recall": 0.9015723812399619,
-        "f1-score": 0.8899852482619035,
-        "support": 60136.0
+        "precision": 0.879859514856622,
+        "recall": 0.9150304495512662,
+        "f1-score": 0.8946373431995501,
+        "support": 54383.0
       },
       "weighted avg": {
-        "precision": 0.9209542754719792,
-        "recall": 0.9177364640148996,
-        "f1-score": 0.9188712106114281,
-        "support": 60136.0
+        "precision": 0.9209419097321206,
+        "recall": 0.9133001121674053,
+        "f1-score": 0.9152138450740618,
+        "support": 54383.0
       }
     },
     "predictions_file": "predictions_LogisticRegression.csv",
     "pipeline_file": "pipeline_LogisticRegression.joblib",
-    "pipeline_sha256": "a470c619df30101ae084d8050dbf88703474dfb15b350306e2407dbeb87c4a8f",
-    "pipeline_bytes": 1781
+    "pipeline_sha256": "b9e599cebda3a553b5c99142525a885877db93105a3ac71c4cea6cbfa8100e93",
+    "pipeline_bytes": 1773
   },
   "RandomForest": {
-    "accuracy": 0.9184182519622189,
-    "f1_satellite": 0.8390631150767616,
-    "roc_auc": 0.9715028613427503,
+    "accuracy": 0.9122703786109629,
+    "f1_satellite": 0.8487173795858832,
+    "roc_auc": 0.968548619748499,
     "classification_report": {
       "Satellite": {
-        "precision": 0.7926247288503254,
-        "recall": 0.8912816224127117,
-        "f1-score": 0.8390631150767616,
-        "support": 14349.0
+        "precision": 0.7889524258680658,
+        "recall": 0.9182791272128448,
+        "f1-score": 0.8487173795858832,
+        "support": 14574.0
       },
       "Terrestrial": {
-        "precision": 0.9645462603122656,
-        "recall": 0.9269224889160679,
-        "f1-score": 0.9453601817614826,
-        "support": 45787.0
+        "precision": 0.9681721004810262,
+        "recall": 0.9100705870531789,
+        "f1-score": 0.938222688368359,
+        "support": 39809.0
       },
-      "accuracy": 0.9184182519622189,
+      "accuracy": 0.9122703786109629,
       "macro avg": {
-        "precision": 0.8785854945812955,
-        "recall": 0.9091020556643898,
-        "f1-score": 0.892211648419122,
-        "support": 60136.0
+        "precision": 0.878562263174546,
+        "recall": 0.9141748571330118,
+        "f1-score": 0.8934700339771211,
+        "support": 54383.0
       },
       "weighted avg": {
-        "precision": 0.9235242093785923,
-        "recall": 0.9184182519622189,
-        "f1-score": 0.9199967287573076,
-        "support": 60136.0
+        "precision": 0.9201433499926515,
+        "recall": 0.9122703786109629,
+        "f1-score": 0.9142363255307846,
+        "support": 54383.0
       }
     },
     "predictions_file": "predictions_RandomForest.csv",
     "pipeline_file": "pipeline_RandomForest.joblib",
-    "pipeline_sha256": "8146e6ac20e1c0137076c839b5fcca1d93edf573f0778a76235425f6206eb724",
-    "pipeline_bytes": 13419419,
+    "pipeline_sha256": "ca68a6b8b92fdd9abd32fba5e5e5a6dac294ed2fc6155e1217a32e453b4ab31b",
+    "pipeline_bytes": 13214784,
     "feature_importance_impurity": {
-      "CandSat_Elevation_deg": 0.37795945041592327,
-      "CandSat_Visible_True": 0.23119752064998494,
-      "CandSat_SlantRange_m": 0.20700237505957772,
-      "CandBS_Distance_m": 0.1780885437906415,
-      "NumUsers": 0.0057521100838724545
+      "CandSat_Elevation_deg": 0.41945761818751875,
+      "CandSat_Visible_True": 0.2821011233616116,
+      "CandSat_SlantRange_m": 0.22079167607638267,
+      "CandBS_Distance_m": 0.07269331610331768,
+      "NumUsers": 0.00495626627116935
     },
     "feature_importance_permutation": {
       "CandSat_Elevation_deg": {
-        "mean": 0.10004323533324462,
-        "std": 0.0006176404910362573
-      },
-      "CandBS_Distance_m": {
-        "mean": 0.07046527870160965,
-        "std": 0.0006241184375133908
+        "mean": 0.11447695051762494,
+        "std": 0.0009205149322840672
       },
       "CandSat_Visible": {
-        "mean": 0.03008015165624579,
-        "std": 0.0005636437393139732
+        "mean": 0.03862788003604064,
+        "std": 0.0009070404077224773
+      },
+      "CandBS_Distance_m": {
+        "mean": 0.030062703418347613,
+        "std": 0.0008884497050187756
       },
       "CandSat_SlantRange_m": {
-        "mean": 0.009722961287747755,
-        "std": 0.00043395251265651997
+        "mean": 0.003975507051836013,
+        "std": 0.0004818103079318684
       },
       "NumUsers": {
-        "mean": 0.0003974324863641909,
-        "std": 0.0001755833862682739
+        "mean": 0.0003953441332769092,
+        "std": 0.0002825132628015738
       }
     }
   }

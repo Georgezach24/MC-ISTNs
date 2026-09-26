@@ -8,7 +8,7 @@ more pessimistic than a real system too, since real UEs do get *some*
 signal-quality estimate for candidate cells via periodic neighbor-cell
 measurement reports, e.g. 3GPP TS 38.331 Event A3/A5).
 
-Here the candidate SNRs are kept as features, but each one has Gaussian
+Here the candidate SINRs are kept as features, but each one has Gaussian
 noise added before the model ever sees it, standing in for "a slightly
 stale / imperfect measurement report" rather than the exact instantaneous
 value. The noise magnitude is not an invented fudge factor: it is the
@@ -66,7 +66,7 @@ DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
 RESULTS_DIR = Path(__file__).resolve().parent / "results_noisy_snr"
 
 MIN_ELEVATION_DEG = 20.0
-SENTINEL_SNR_DB = -50.0  # πρακτικά άχρηστος, ίδιο sentinel με το train_model.py
+SENTINEL_SINR_DB = -50.0  # πρακτικά άχρηστος, ίδιο sentinel με το train_model.py
 NOISE_SEED = 42
 
 # Η υποδειγματοληψία στον χρόνο γίνεται ΣΤΗΝ ΠΗΓΗ: το runSimulation.m
@@ -84,7 +84,7 @@ FEATURE_COLUMNS_NUMERIC = [
     # "Θορυβώδεις" εκδοχές του SNR αντί για το ακριβές (βλ. docstring) -
     # τα CandBS_PathLoss_dB/CandSat_PathLoss_dB παραμένουν εκτός, όπως στο
     # train_model_geometry_only.py.
-    "CandBS_SNR_noisy_dB", "CandSat_SNR_noisy_dB",
+    "CandBS_SINR_noisy_dB", "CandSat_SINR_noisy_dB",
 ]
 FEATURE_COLUMNS_CATEGORICAL = []  # το σενάριο διάδοσης είναι σταθερό (UMa)
 FEATURE_COLUMNS_BOOL = ["CandSat_Visible"]
@@ -101,7 +101,7 @@ def load_noise_sigmas(df: pd.DataFrame) -> dict:
     το σύνολο δεδομένων. Παλαιότερα διαβαζόταν από το kpi_summary_by_type.csv
     που παρήγαγε χωριστό script· τώρα που η προσομοίωση είναι ενιαία, ο ίδιος
     αριθμός προκύπτει από πολύ μεγαλύτερο δείγμα της ίδιας εκτέλεσης."""
-    g = df.groupby("ServingType")["SNR_dB"].std()
+    g = df.groupby("ServingType")["SINR_dB"].std()
     return {
         "Terrestrial": float(g.loc["Terrestrial"]),
         "Satellite": float(g.loc["Satellite"]),
@@ -119,11 +119,11 @@ def load_dataset(path: Path) -> pd.DataFrame:
               f"(1 sample every {ML_SAMPLE_STRIDE} s)")
 
     # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
-    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SNR) - εξαιρείται
+    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR) - εξαιρείται
     # εδώ, ίδια λογική με το train_model.py.
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
-        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SNR) "
+        print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SINR) "
               f"out of {len(df)} - binary Terrestrial/Satellite target only.")
         df = df[df["ServingType"] != "Outage"].reset_index(drop=True)
 
@@ -144,15 +144,15 @@ def load_dataset(path: Path) -> pd.DataFrame:
     # Ο δορυφόρος έχει -Inf SNR όταν elevation < MinElevationDeg (visibility
     # mask). Sentinel πριν προστεθεί θόρυβος, ώστε ο θόρυβος να μην
     # μετατρέψει ένα -Inf σε έναν πεπερασμένο, παραπλανητικό αριθμό.
-    df["CandSat_SNR_dB"] = df["CandSat_SNR_dB"].replace([np.inf, -np.inf], SENTINEL_SNR_DB)
+    df["CandSat_SINR_dB"] = df["CandSat_SINR_dB"].replace([np.inf, -np.inf], SENTINEL_SINR_DB)
     return df
 
 
 def add_snr_noise(df: pd.DataFrame, sigma_bs: float, sigma_sat: float) -> pd.DataFrame:
-    """Προσθέτει γκαουσιανό θόρυβο μέτρησης στα δύο υποψήφια SNR."""
+    """Προσθέτει γκαουσιανό θόρυβο μέτρησης στα δύο υποψήφια SINR."""
     rng = np.random.default_rng(NOISE_SEED)
-    df["CandBS_SNR_noisy_dB"] = df["CandBS_SNR_dB"] + rng.normal(0.0, sigma_bs, size=len(df))
-    df["CandSat_SNR_noisy_dB"] = df["CandSat_SNR_dB"] + rng.normal(0.0, sigma_sat, size=len(df))
+    df["CandBS_SINR_noisy_dB"] = df["CandBS_SINR_dB"] + rng.normal(0.0, sigma_bs, size=len(df))
+    df["CandSat_SINR_noisy_dB"] = df["CandSat_SINR_dB"] + rng.normal(0.0, sigma_sat, size=len(df))
     return df
 
 
