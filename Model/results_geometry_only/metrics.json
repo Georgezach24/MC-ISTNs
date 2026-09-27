@@ -1,111 +1,111 @@
 {
-  "dataset_sha256": "4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5",
+  "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
   "split": {
-    "dataset_sha256": "4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5",
+    "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
     "group_column": "PassID",
     "test_size": 0.25,
     "seed": 42,
-    "n_train_rows": 154861,
-    "n_test_rows": 54383
+    "n_train_rows": 160470,
+    "n_test_rows": 53559
   },
   "LogisticRegression": {
-    "accuracy": 0.9133001121674053,
-    "f1_satellite": 0.8502936974122877,
-    "roc_auc": 0.9692160745479246,
+    "accuracy": 0.932728392987173,
+    "f1_satellite": 0.8908016366116078,
+    "roc_auc": 0.9799501076545465,
     "classification_report": {
       "Satellite": {
-        "precision": 0.7913243898114769,
-        "recall": 0.9187594346095787,
-        "f1-score": 0.8502936974122877,
-        "support": 14574.0
+        "precision": 0.8484008774968248,
+        "recall": 0.9376634977349582,
+        "f1-score": 0.8908016366116078,
+        "support": 15673.0
       },
       "Terrestrial": {
-        "precision": 0.9683946399017671,
-        "recall": 0.9113014644929539,
-        "f1-score": 0.9389809889868126,
-        "support": 39809.0
+        "precision": 0.9730386069486988,
+        "recall": 0.9306867972338067,
+        "f1-score": 0.9513916058443398,
+        "support": 37886.0
       },
-      "accuracy": 0.9133001121674053,
+      "accuracy": 0.932728392987173,
       "macro avg": {
-        "precision": 0.879859514856622,
-        "recall": 0.9150304495512662,
-        "f1-score": 0.8946373431995501,
-        "support": 54383.0
+        "precision": 0.9107197422227618,
+        "recall": 0.9341751474843825,
+        "f1-score": 0.9210966212279739,
+        "support": 53559.0
       },
       "weighted avg": {
-        "precision": 0.9209419097321206,
-        "recall": 0.9133001121674053,
-        "f1-score": 0.9152138450740618,
-        "support": 54383.0
+        "precision": 0.9365657987614805,
+        "recall": 0.932728392987173,
+        "f1-score": 0.9336611294018258,
+        "support": 53559.0
       }
     },
     "predictions_file": "predictions_LogisticRegression.csv",
     "pipeline_file": "pipeline_LogisticRegression.joblib",
-    "pipeline_sha256": "b9e599cebda3a553b5c99142525a885877db93105a3ac71c4cea6cbfa8100e93",
-    "pipeline_bytes": 1773
+    "pipeline_sha256": "4c2d60ccbdfd0c7f11ab86efa1f817009cd1bcdd077d79390b8e7845a0dd0a27",
+    "pipeline_bytes": 1778
   },
   "RandomForest": {
-    "accuracy": 0.9122703786109629,
-    "f1_satellite": 0.8487173795858832,
-    "roc_auc": 0.968548619748499,
+    "accuracy": 0.9326350379954816,
+    "f1_satellite": 0.8911022576361222,
+    "roc_auc": 0.9793759180202577,
     "classification_report": {
       "Satellite": {
-        "precision": 0.7889524258680658,
-        "recall": 0.9182791272128448,
-        "f1-score": 0.8487173795858832,
-        "support": 14574.0
+        "precision": 0.8455237986138954,
+        "recall": 0.9418745613475403,
+        "f1-score": 0.8911022576361222,
+        "support": 15673.0
       },
       "Terrestrial": {
-        "precision": 0.9681721004810262,
-        "recall": 0.9100705870531789,
-        "f1-score": 0.938222688368359,
-        "support": 39809.0
+        "precision": 0.9747645429362881,
+        "recall": 0.9288127540516286,
+        "f1-score": 0.9512340172465061,
+        "support": 37886.0
       },
-      "accuracy": 0.9122703786109629,
+      "accuracy": 0.9326350379954816,
       "macro avg": {
-        "precision": 0.878562263174546,
-        "recall": 0.9141748571330118,
-        "f1-score": 0.8934700339771211,
-        "support": 54383.0
+        "precision": 0.9101441707750917,
+        "recall": 0.9353436576995844,
+        "f1-score": 0.9211681374413141,
+        "support": 53559.0
       },
       "weighted avg": {
-        "precision": 0.9201433499926515,
-        "recall": 0.9122703786109629,
-        "f1-score": 0.9142363255307846,
-        "support": 54383.0
+        "precision": 0.9369447519438338,
+        "recall": 0.9326350379954816,
+        "f1-score": 0.9336376269409825,
+        "support": 53559.0
       }
     },
     "predictions_file": "predictions_RandomForest.csv",
     "pipeline_file": "pipeline_RandomForest.joblib",
-    "pipeline_sha256": "ca68a6b8b92fdd9abd32fba5e5e5a6dac294ed2fc6155e1217a32e453b4ab31b",
-    "pipeline_bytes": 13214784,
+    "pipeline_sha256": "7348d50b3848dbd8ffb99da123b2e7391393b4915545b62ca7da11fc74c2ed94",
+    "pipeline_bytes": 13300619,
     "feature_importance_impurity": {
-      "CandSat_Elevation_deg": 0.41945761818751875,
-      "CandSat_Visible_True": 0.2821011233616116,
-      "CandSat_SlantRange_m": 0.22079167607638267,
-      "CandBS_Distance_m": 0.07269331610331768,
-      "NumUsers": 0.00495626627116935
+      "CandSat_Elevation_deg": 0.41726552173943593,
+      "CandSat_Visible_True": 0.2718876066928847,
+      "CandSat_SlantRange_m": 0.22481721991303927,
+      "CandBS_Distance_m": 0.08091344244854383,
+      "NumUsers": 0.00511620920609611
     },
     "feature_importance_permutation": {
       "CandSat_Elevation_deg": {
-        "mean": 0.11447695051762494,
-        "std": 0.0009205149322840672
-      },
-      "CandSat_Visible": {
-        "mean": 0.03862788003604064,
-        "std": 0.0009070404077224773
+        "mean": 0.1297055583562053,
+        "std": 0.0013895651400757751
       },
       "CandBS_Distance_m": {
-        "mean": 0.030062703418347613,
-        "std": 0.0008884497050187756
+        "mean": 0.03430795944659164,
+        "std": 0.0006155344227496498
+      },
+      "CandSat_Visible": {
+        "mean": 0.02148658488769397,
+        "std": 0.0007397015034659169
       },
       "CandSat_SlantRange_m": {
-        "mean": 0.003975507051836013,
-        "std": 0.0004818103079318684
+        "mean": 0.007227543456748664,
+        "std": 0.00030169121177381206
       },
       "NumUsers": {
-        "mean": 0.0003953441332769092,
-        "std": 0.0002825132628015738
+        "mean": 0.00035661606826118406,
+        "std": 0.0002809907711473173
       }
     }
   }

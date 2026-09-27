@@ -16,62 +16,68 @@ The run advances at Δt = 1 s and writes one row every 5 s (`datasetStride`), be
 
 | Property | Value |
 |---|---:|
-| Passes (independent drops) | 197 |
-| Simulated time | 177,300 s (49.25 h) |
-| Rows | 229,327 |
-| Mean users per pass | 6.43 |
-| Per-step state checks, all passed | 177,497 |
-| SHA-256 | `4ac5a99b3a024e02cf0bccfc79fa5e4bbefe5b61353d1f493476f70c65b05bc5` |
+| Passes (independent drops) | 202 |
+| Simulated time | 181,800 s (50.50 h) |
+| Rows | 234,576 |
+| Mean users per pass | 6.42 |
+| Per-step state checks, all passed | 182,002 |
+| SHA-256 | `0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092` |
 | Generating commit | `fcf555c` (working tree dirty: the SINR change was not yet committed) |
 
-The run stopped on the convergence criterion of ITU-R M.2412-0 §7.1, not on a preset pass count — see `Results/convergence.csv`. At 197 passes the 95% CI half-widths were: mean capacity 4.98% (relative), served fraction ±1.73 pp, satellite fraction ±1.00 pp, network bit/J 3.19%.
+The run stopped on the convergence criterion of ITU-R M.2412-0 §7.1, not on a preset pass count — see `Results/convergence.csv`. At 202 passes the 95% CI half-widths were: mean capacity 4.98% (relative), served fraction ±1.67 pp, satellite fraction ±1.09 pp, network bit/J 3.61%.
+
+The decision rule now carries **hysteresis 3 dB and time-to-trigger 2,560 ms** (3GPP TS 38.331 §5.5.4.4 Event A3, §6.3.2), with values chosen from a twelve-setting sweep rather than declared.
 
 | Serving node | Rows | Share |  | Service state | Rows | Share |
 |---|---:|---:|---|---|---:|---:|
-| Terrestrial | 152,598 | 66.5% |  | Served | 142,221 | 62.0% |
-| Satellite | 56,646 | 24.7% |  | BelowTarget | 67,023 | 29.2% |
-| Outage | 20,083 | 8.8% |  | Outage | 20,083 | 8.8% |
+| Terrestrial | 153,478 | 65.4% |  | Served | 134,124 | 57.2% |
+| Satellite | 60,551 | 25.8% |  | BelowTarget | 79,905 | 34.1% |
+| Outage | 20,547 | 8.8% |  | Outage | 20,547 | 8.8% |
 
-Rows excluded before training: the 20,083 `Outage` rows (the question "which of the two nodes wins" presupposes a choice) and any row with `BsUnavailReason = "OutOfModelRange"` (none in this run — the per-step validity assertions guarantee every user keeps a valid terrestrial candidate). Remaining population: **209,244 rows over 197 passes, majority class 72.93% Terrestrial**.
+Rows excluded before training: the 20,547 `Outage` rows (the question "which of the two nodes wins" presupposes a choice) and any row with `BsUnavailReason = "OutOfModelRange"` (none in this run — the per-step validity assertions guarantee every user keeps a valid terrestrial candidate). Remaining population: **214,029 rows over 202 passes, majority class 71.71% Terrestrial**.
 
 ## Label sanity check (do this before reading any accuracy number)
 
 `train_model.py` now runs this on every invocation (`label_identity_check`), on the **raw** CSV before any filtering, and records the result in `metrics.json`. It applies the labeling rule directly to the two candidate SINRs — visibility mask, `argmax` with ties going to the terrestrial node (the satellite wins only on a strict `>` in `simulateScenario.m`), and the minimum-usable-SINR floor:
 
 ```
-Label identity check (SINR_min = -7.5346 dB): rule reproduces 229327/229327 labels (100.0000%, 0 mismatches)
+Instantaneous-rule agreement (SINR_min = -7.5346 dB): rule reproduces 219621/234576 labels (93.6247%, 14955 mismatches)
 ```
 
-So the target is, by construction, a deterministic function of two input features. Any model given the exact SINRs must approach 100%; that variant is a **pipeline correctness check, not a prediction result**.
+**This check changed meaning, and the change is the point.** With hysteresis the decision depends on the previous state, so the target is **no longer** a deterministic function of the input features. The 14,955 disagreements are exactly the steps where hysteresis held a user on a node that was not the instantaneous best. No model with purely instantaneous features can reach 100% — not because the information is noisy but because the history is missing. The exact-SINR variant therefore stops being a near-tautology and becomes an ordinary comparison point.
+
+The full memory-bearing rule cannot be replayed from the published columns: the CSV is written every 5 s while the confirmation counter advances per step, and the challenger's identity is not recorded when the satellite is serving. What *is* verified: with zero hysteresis the dataset reproduces byte-for-byte, transitions fall monotonically across the twelve-setting sweep, and the outage fraction is unchanged in all twelve (the numerical proof that hysteresis never holds a dead link).
 
 ## Three variants
 
-All three share: candidate-level features only (never the winning node's own metrics), `NodeLoad` excluded (it is a consequence of the label for the whole pass), train/test split **by `PassID`** via `GroupShuffleSplit` 75/25 — 147 training passes (154,861 rows) and 50 test passes (54,383 rows) — Logistic Regression + Random Forest (300 trees, depth 12).
+All three share: candidate-level features only (never the winning node's own metrics), `NodeLoad` excluded (it is a consequence of the label for the whole pass), train/test split **by `PassID`** via `GroupShuffleSplit` 75/25 — 151 training passes (160,470 rows) and 51 test passes (53,559 rows) — Logistic Regression + Random Forest (300 trees, depth 12).
 
 Splitting by pass matters here: rows inside one pass are a 900 s time series over the same geometry, so a row-level split would put near-duplicate samples on both sides.
 
 | Script | Feature information | What it is for |
 |---|---|---|
 | `train_model.py` | exact `CandBS_SINR_dB` / `CandSat_SINR_dB` | correctness check of the MATLAB → CSV → Python chain |
-| `train_model_noisy_snr.py` | SINR + Gaussian noise (σ measured from this dataset: 7.38 dB terrestrial, 4.52 dB satellite) | imperfect/stale measurement |
+| `train_model_noisy_snr.py` | SINR + Gaussian noise (σ measured from this dataset: 7.57 dB terrestrial, 5.14 dB satellite) | imperfect/stale measurement |
 | `train_model_geometry_only.py` | no SINR **and** no path loss (collinear proxy) | lower bound: what geometry alone carries |
 
 The noise σ is no longer read from a separate file — it is computed from the dataset being trained on, so the two can never drift apart.
 
-## Results (197-pass run)
+## Results (202-pass run)
 
 | Input features | LR accuracy | LR ROC-AUC | RF accuracy | RF ROC-AUC |
 |---|---:|---:|---:|---:|
-| Exact SINR (check only) | 0.9988 | 1.0000 | 0.9985 | 1.0000 |
-| Noisy SINR | 0.9424 | 0.9865 | 0.9431 | 0.9864 |
-| Geometry only | 0.9133 | 0.9692 | 0.9123 | 0.9685 |
-| Majority class | — | — | 0.7293 | — |
+| Exact SINR | 0.9450 | 0.9877 | 0.9502 | 0.9893 |
+| Noisy SINR | 0.9379 | 0.9836 | 0.9386 | 0.9845 |
+| Geometry only | 0.9327 | 0.9800 | 0.9326 | 0.9794 |
+| Majority class | — | — | 0.7171 | — |
 
-The two classifiers land within ~0.1 points of each other in every variant, so these runs do **not** support a claim that the problem needs a non-linear model. The meaningful comparison is each classifier against the majority-class baseline.
+**The three variants collapsed onto each other.** The spread from exact SINR to pure geometry is now **1.8 points** (0.9502 → 0.9326); before hysteresis it was 8.6. Since the decision depends on the previous state, the information missing from every variant is not measurement precision but history — so improving the instantaneous input buys little, and all three hit the same ceiling. **A model that is given the previous serving node, or any memory at all, should beat all three clearly. That is now the cheapest and clearest next step for Part 2.**
+
+The two classifiers land within ~0.5 points of each other in every variant, so these runs do **not** support a claim that the problem needs a non-linear model. The meaningful comparison is each classifier against the majority-class baseline.
 
 Geometry-only accuracy is much higher than in a static-snapshot dataset (0.912 vs 0.812). That is not an improvement in the model — it is a property of the data. With the satellite moving through a full pass, elevation sweeps from below the mask to near zenith, so geometry alone determines the decision far more often than it did when every sample was an independent snapshot at a random sub-satellite point.
 
-**Which geometry, though, changed with the interference model.** `CandBS_Distance_m` importance fell from 0.178 to **0.073** — the least of the four geometry features — while the three satellite-side features together carry over 90%. With inter-site interference modelled, distance to the nearest base station no longer determines terrestrial link quality, because the interference level depends on where the *second* base station is. The decision is now predicted mostly from the satellite side.
+**Which geometry, though, changed with the interference model.** `CandBS_Distance_m` importance fell from 0.178 to **0.081** — the least of the four geometry features — while the three satellite-side features together carry over 90%. With inter-site interference modelled, distance to the nearest base station no longer determines terrestrial link quality, because the interference level depends on where the *second* base station is. The decision is now predicted mostly from the satellite side.
 
 ## Feature importance
 
@@ -79,11 +85,11 @@ Each script writes both impurity-based and permutation importances (10 repeats, 
 
 | Variant | Top features |
 |---|---|
-| Exact SINR | `CandSat_SINR_dB` 0.264/0.100 · `CandSat_PathLoss_dB` 0.258/0.095 · `CandBS_SINR_dB` 0.136/0.089 · `CandSat_Elevation_deg` 0.101/0.000 |
-| Noisy SINR | `CandSat_SINR_noisy_dB` 0.323/0.139 · `CandSat_Elevation_deg` 0.235/0.011 · `CandSat_Visible` 0.184/0.000 · `CandSat_SlantRange_m` 0.138/0.001 |
-| Geometry only | `CandSat_Elevation_deg` 0.419/0.114 · `CandSat_Visible` 0.282/0.000 · `CandSat_SlantRange_m` 0.221/0.004 · `CandBS_Distance_m` 0.073/0.030 |
+| Exact SINR | `CandSat_PathLoss_dB` 0.259/0.133 · `CandSat_SINR_dB` 0.255/0.077 · `CandSat_Elevation_deg` 0.146/0.019 · `CandSat_SlantRange_m` 0.120/0.006 |
+| Noisy SINR | `CandSat_SINR_noisy_dB` 0.302/0.146 · `CandSat_Elevation_deg` 0.263/0.038 · `CandSat_Visible` 0.185/0.000 · `CandSat_SlantRange_m` 0.153/0.007 |
+| Geometry only | `CandSat_Elevation_deg` 0.417/0.130 · `CandSat_Visible` 0.272/0.000 · `CandSat_SlantRange_m` 0.225/0.007 · `CandBS_Distance_m` 0.081/0.034 |
 
-Three caveats belong with any reading of this. SINR and path loss of the same link are collinear, but **not equally on the two segments**: on the satellite link, where the interference term is zero, they are the same quantity (r = −1.0000), while on the terrestrial link interference breaks the exact relation and r falls to −0.9124. The satellite pair's combined importance therefore describes **one** quantity split arbitrarily between two columns; the terrestrial pair only partly overlaps. Impurity importance is biased toward features with many split points, which is why permutation importance on the test set is reported alongside — and the gap between the two columns is large here. And the satellite-side features now dominate, which reflects the temporal structure of this dataset (elevation is the thing that changes during a pass), not a general statement about which segment matters.
+Three caveats belong with any reading of this. SINR and path loss of the same link are collinear, but **not equally on the two segments**: on the satellite link, where the interference term is zero, they are the same quantity (r = −1.0000), while on the terrestrial link interference breaks the exact relation and r falls to −0.9303. The satellite pair's combined importance therefore describes **one** quantity split arbitrarily between two columns; the terrestrial pair only partly overlaps. Impurity importance is biased toward features with many split points, which is why permutation importance on the test set is reported alongside — and the gap between the two columns is large here. And the satellite-side features now dominate, which reflects the temporal structure of this dataset (elevation is the thing that changes during a pass), not a general statement about which segment matters.
 
 ## Running
 
@@ -110,7 +116,7 @@ Every run writes, next to `metrics.json`, everything needed to re-check a publis
 
 The split is no longer implicit in the code: `SPLIT_TEST_SIZE` and `SPLIT_SEED` are module constants used both by `group_train_test_split` and by what `split.json` reports, so the two cannot disagree. The dataset hash in `split.json` is the same SHA-256 that `runSimulation.m` records in `params.txt`, which ties a set of metrics to one specific dataset file rather than to a filename.
 
-Both halves were checked. Accuracy recomputed directly from each `predictions_<Model>.csv` reproduces every figure in the table above exactly — 0.9988/0.9985, 0.9424/0.9431, 0.9133/0.9123 on the same 54,383 test rows. And reloading `results_geometry_only/pipeline_RandomForest.joblib`, then applying it to the test passes listed in `split.json`, returns predictions identical to the saved ones, row for row. So both the metrics and the model that produced them can be audited from the files, without retraining.
+Both halves were checked. Accuracy recomputed directly from each `predictions_<Model>.csv` reproduces every figure in the table above exactly — 0.9450/0.9502, 0.9379/0.9386, 0.9327/0.9326 on the same 53,559 test rows. And reloading `results_geometry_only/pipeline_RandomForest.joblib`, then applying it to the test passes listed in `split.json`, returns predictions identical to the saved ones, row for row. So both the metrics and the model that produced them can be audited from the files, without retraining.
 
 The `.joblib` files are 2 KB (Logistic Regression) to 16 MB (Random Forest, 300 trees) and are rewritten on every training run, so they are **not** tracked in git — `.gitignore` excludes `Model/results*/pipeline_*.joblib`. Their SHA-256 and byte size are recorded in `metrics.json` instead, so a `.joblib` file on disk can be matched against the results it produced. Loading one needs the same scikit-learn version as `requirements.txt`.
 

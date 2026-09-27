@@ -4,8 +4,9 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
     bestBsSinrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
     satSlantRangeVec, satElevationVec, satPathLossVec, satSinrDbVec, ...
     newChannelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
-    bsUnavailReasonVec, satUnavailReasonVec, policyKpis] = ...
-    simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, prevChannelState)
+    bsUnavailReasonVec, satUnavailReasonVec, policyKpis, newDecision] = ...
+    simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, ...
+                     prevChannelState, prevDecision)
 % Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SINR και
 % υπολογίζει χωρητικότητα/ενέργεια μετά την κατανομή εύρους ζώνης.
 % Επιστρέφει και per-candidate διαγνωστικά (καλύτερο BS + δορυφόρος, ανεξάρτητα
@@ -18,6 +19,12 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 % από το ποιος κερδίζει, οπότε οι τρεις πολιτικές διαφέρουν μόνο στην επιλογή
 % και η σύγκριση είναι κατά ζεύγη πάνω στο ίδιο κανάλι.
 %
+% 8ο όρισμα prevDecision / 24η έξοδος newDecision: κατάσταση της απόφασης
+% (εξυπηρετών κόμβος, υποψήφιος σε εκκρεμότητα, μετρητής επιβεβαίωσης) ανά
+% πολιτική. Χρειάζεται επειδή η υστέρηση και ο χρόνος επιβεβαίωσης κάνουν την
+% απόφαση εξαρτώμενη από το παρελθόν. Το runSimulation.m τη μεταφέρει μέσα σε
+% κάθε διέλευση και τη μηδενίζει στην αρχή της επόμενης.
+%
 % prevChannelState (προαιρετικό, 7ο όρισμα): αν δοθεί, LOS/NLOS και shadow
 % fading κάθε ζεύξης συσχετίζονται χωρικά με την προηγούμενη κλήση αντί για
 % i.i.d. δειγματοληψία. Το περνάει το runSimulation.m μέσα σε κάθε διέλευση
@@ -26,6 +33,9 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 % Τα scripts επαλήθευσης το παραλείπουν.
 if nargin < 7
     prevChannelState = [];
+end
+if nargin < 8
+    prevDecision = [];
 end
 
 numUsers = size(user_geo,1);
@@ -78,10 +88,34 @@ end
 satFadeElevRangeDeg = [20 80];   % πεδίο ισχύος της προσαρμογής της εξ. (19)
 terrKdBLos          = 9;         % Rician K επίγειο LOS, TR 38.901 Πίν. 7.5-6
 
+%% ------------------ Υστέρηση και χρόνος επιβεβαίωσης ------------------
+% Μεταφορά του Event A3 (TS 38.331 §5.5.4.4) στον κανόνα της εργασίας. Το
+% Hysteresis ορίζεται στην §6.3.2 ως INTEGER (0..30) με τιμή = πεδίο * 0.5 dB,
+% δηλαδή 0 έως 15 dB· το TimeToTrigger ως απαριθμημένο σύνολο τιμών σε ms.
+% Προεπιλογή 0 και 0: αναπαράγει τη συμπεριφορά χωρίς υστέρηση.
+if isfield(simParameters, 'Mobility')
+    hysDb    = simParameters.Mobility.HysteresisDb;
+    tttMs    = simParameters.Mobility.TimeToTriggerMs;
+    dtSecHys = simParameters.Mobility.DtSeconds;
+else
+    hysDb = 0; tttMs = 0; dtSecHys = 1;
+end
+% Ο χρόνος επιβεβαίωσης μετατρέπεται σε διαδοχικά βήματα. Η στρογγυλοποίηση
+% είναι προς τα πάνω επειδή το πρότυπο απαιτεί η συνθήκη να ΙΣΧΥΕΙ για τη
+% διάρκεια αυτή· με Δt = 1 s οι τιμές κάτω από 1024 ms δεν διακρίνονται.
+nTtt = max(1, ceil(tttMs / (dtSecHys*1000)));
+
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
 bestBsNodeVec       = strings(numUsers,1);   % ποιος BS κέρδισε, για τη σύγκριση πολιτικών
+policyNamesLocal    = {'Actual','TerrestrialOnly','SatelliteOnly'};
+newDecision = struct();
+for pol = policyNamesLocal
+    newDecision.(pol{1}) = struct('Node', strings(numUsers,1), ...
+        'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1));
+end
+hasPrevDecision = ~isempty(prevDecision);
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
 bestSinrDbVec        = nan(numUsers,1);
@@ -96,6 +130,11 @@ serviceStateVec     = strings(numUsers,1);
 throughputMbpsVec   = zeros(numUsers,1);
 bsUnavailReasonVec  = strings(numUsers,1);
 satUnavailReasonVec = strings(numUsers,1);
+
+% Καταστάσεις εναλλακτικών πολιτικών (στήλες 2 και 3: επίγεια / δορυφορική)
+polNodeMat = strings(numUsers,3);
+polTypeMat = strings(numUsers,3);
+polSinrMat = nan(numUsers,3);
 
 % Διαγνωστικοί πίνακες
 groundDistanceMat = nan(numUsers,numBs);
@@ -320,19 +359,94 @@ for u = 1:numUsers
         userBestElevation = elevSat;
     end
 
-    % Σε outage κρατάμε τα διαγνωστικά του καλύτερου υποψηφίου, αλλά ο χρήστης
-    % δεν ανατίθεται σε κόμβο.
-    if userBestSinr < minUsableSinrDb
-        bestNodeVec(u)     = "None";
-        bestNodeTypeVec(u) = "Outage";
-    else
-        bestNodeVec(u)     = userBestNode;
-        bestNodeTypeVec(u) = userBestType;
+    %% ===== Απόφαση με υστέρηση και χρόνο επιβεβαίωσης =====
+    % Κατάλογος υποψηφίων: όλοι οι σταθμοί εντός πεδίου ισχύος συν ο δορυφόρος.
+    % Η υστέρηση εφαρμόζεται σε ΟΛΟΥΣ, ώστε να καλύπτει και την εναλλαγή μεταξύ
+    % επίγειων σταθμών, που αποτελεί το μεγαλύτερο μέρος του φαινομένου.
+    nCand = 0;
+    candNode = strings(numBs+1,1); candType = strings(numBs+1,1);
+    candSinr = -inf(numBs+1,1);    candDist = nan(numBs+1,1);
+    candPl   = nan(numBs+1,1);     candElev = nan(numBs+1,1);
+    for b = 1:numBs
+        if isfinite(sinrDbMat(u,b))
+            nCand = nCand + 1;
+            candNode(nCand) = "BS" + string(b);
+            candType(nCand) = "Terrestrial";
+            candSinr(nCand) = sinrDbMat(u,b);
+            candDist(nCand) = range3DMat(u,b);
+            candPl(nCand)   = pathLossMat(u,b);
+        end
     end
-    bestDistanceVec(u)     = userBestDistance;
-    bestPathLossVec(u)     = userBestPathLoss;
-    bestSinrDbVec(u)        = userBestSinr;
-    bestElevationDegVec(u) = userBestElevation;
+    if isfinite(satSinrDb)
+        nCand = nCand + 1;
+        candNode(nCand) = "SAT-1";
+        candType(nCand) = "Satellite";
+        candSinr(nCand) = satSinrDb;
+        candDist(nCand) = slantRangeSat;
+        candPl(nCand)   = satPathLoss;
+        candElev(nCand) = elevSat;
+    end
+    candNode = candNode(1:nCand); candType = candType(1:nCand);
+    candSinr = candSinr(1:nCand); candDist = candDist(1:nCand);
+    candPl   = candPl(1:nCand);   candElev = candElev(1:nCand);
+
+    isTerr = (candType == "Terrestrial");
+    isSat  = (candType == "Satellite");
+
+    for pI = 1:numel(policyNamesLocal)
+        polName = policyNamesLocal{pI};
+        switch polName
+            case 'Actual',          keepMask = true(nCand,1);
+            case 'TerrestrialOnly', keepMask = isTerr;
+            otherwise,              keepMask = isSat;
+        end
+
+        pN = ""; pP = ""; pC = 0;
+        if hasPrevDecision
+            pN = prevDecision.(polName).Node(u);
+            pP = prevDecision.(polName).Pending(u);
+            pC = prevDecision.(polName).Count(u);
+        end
+
+        [ci, pendN, pendC] = applyHysteresis(candNode, candSinr, keepMask, ...
+            pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
+
+        if ci == 0
+            selNode = "None"; selType = "Outage"; selSinr = NaN;
+        else
+            selNode = candNode(ci); selType = candType(ci); selSinr = candSinr(ci);
+        end
+        newDecision.(polName).Node(u)    = selNode;
+        newDecision.(polName).Pending(u) = pendN;
+        newDecision.(polName).Count(u)   = pendC;
+
+        if strcmp(polName, 'Actual')
+            if ci == 0
+                % Σε outage κρατάμε τα διαγνωστικά του καλύτερου υποψηφίου,
+                % αλλά ο χρήστης δεν ανατίθεται σε κόμβο.
+                bestNodeVec(u)         = "None";
+                bestNodeTypeVec(u)     = "Outage";
+                bestDistanceVec(u)     = userBestDistance;
+                bestPathLossVec(u)     = userBestPathLoss;
+                bestSinrDbVec(u)       = userBestSinr;
+                bestElevationDegVec(u) = userBestElevation;
+            else
+                % Με υστέρηση ο επιλεγμένος κόμβος δεν είναι κατ' ανάγκη ο
+                % καλύτερος: η χωρητικότητα υπολογίζεται από το SINR του
+                % κόμβου στον οποίο ο χρήστης είναι όντως συνδεδεμένος.
+                bestNodeVec(u)         = candNode(ci);
+                bestNodeTypeVec(u)     = candType(ci);
+                bestDistanceVec(u)     = candDist(ci);
+                bestPathLossVec(u)     = candPl(ci);
+                bestSinrDbVec(u)       = candSinr(ci);
+                bestElevationDegVec(u) = candElev(ci);
+            end
+        else
+            polNodeMat(u,pI) = selNode;
+            polTypeMat(u,pI) = selType;
+            polSinrMat(u,pI) = selSinr;
+        end
+    end
 end
 
 %% ------------------ Κατανομή πόρων, χωρητικότητα, ενέργεια ------------------
@@ -352,36 +466,16 @@ alloc = struct('BW_bs', BW_bs, 'pOutPerChainW', pOutPerChainW, ...
 % μόνο ποιος υποψήφιος επιλέγεται, με την κατανομή πόρων να υπολογίζεται εκ νέου
 % ώστε να αποτυπωθεί ο διαφορετικός φόρτος που προκύπτει.
 
-% Αποκλειστικά επίγεια: κάθε χρήστης στον καλύτερο σταθμό του, αν υπάρχει και
-% ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR.
-terrNode = strings(numUsers,1);
-terrType = strings(numUsers,1);
-terrSnr  = bestBsSinrDbVec;
-for u = 1:numUsers
-    if isfinite(bestBsSinrDbVec(u)) && bestBsSinrDbVec(u) >= minUsableSinrDb
-        terrNode(u) = bestBsNodeVec(u);
-        terrType(u) = "Terrestrial";
-    else
-        terrNode(u) = "None";
-        terrType(u) = "Outage";
-    end
-end
+% Οι δύο εναλλακτικές πολιτικές αποφασίστηκαν παραπάνω με τον ΙΔΙΟ κανόνα
+% υστέρησης, καθεμία με τη δική της κατάσταση: μια πολιτική που αλλάζει κόμβο
+% δεν πρέπει να συγκρίνεται με μία που δεν αλλάζει.
+terrNode = polNodeMat(:,2);
+terrType = polTypeMat(:,2);
+terrSnr  = polSinrMat(:,2);
 
-% Αποκλειστικά δορυφορική: όσοι χρήστες έχουν ορατό δορυφόρο πάνω από το
-% κατώφλι μοιράζονται το εύρος ζώνης του, όπως ακριβώς και στην κανονική
-% λειτουργία.
-satNode = strings(numUsers,1);
-satType = strings(numUsers,1);
-satSnrPolicy = satSinrDbVec;
-for u = 1:numUsers
-    if isfinite(satSinrDbVec(u)) && satSinrDbVec(u) >= minUsableSinrDb
-        satNode(u) = "SAT-1";
-        satType(u) = "Satellite";
-    else
-        satNode(u) = "None";
-        satType(u) = "Outage";
-    end
-end
+satNode = polNodeMat(:,3);
+satType = polTypeMat(:,3);
+satSnrPolicy = polSinrMat(:,3);
 
 policyKpis = struct();
 policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers);
@@ -401,6 +495,70 @@ newChannelState.IsLOS           = losMat;
 newChannelState.LosLatent       = losLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
 
+end
+
+function [chosenIdx, pendNode, pendCount] = applyHysteresis(candNode, candSinr, ...
+    keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt)
+% Απόφαση επιλογής κόμβου με υστέρηση και χρόνο επιβεβαίωσης, κατά τη μεταφορά
+% του Event A3 του TS 38.331 §5.5.4.4:
+%   είσοδος (A3-1):  M_n - Hys > M_p     έξοδος (A3-2):  M_n + Hys < M_p
+% με Off = Ofn = Ocn = Ofp = Ocp = 0, δηλαδή χωρίς μετατοπίσεις ανά κυψέλη ή
+% ανά συχνότητα, και με τη συνθήκη εισόδου να πρέπει να ισχύει για nTtt
+% διαδοχικά βήματα. Δεν πρόκειται για υλοποίηση της διαδικασίας RRC: δεν
+% υπάρχει σηματοδοσία, αναφορά μέτρησης, ούτε έλεγχος επιτυχίας.
+usable = keepMask & (candSinr >= minUsableSinrDb);
+chosenIdx = 0; pendNode = ""; pendCount = 0;
+
+if ~any(usable)
+    return;   % κανένας επιλέξιμος υποψήφιος -> εκτός κάλυψης
+end
+
+masked = candSinr; masked(~usable) = -Inf;
+[~, iBest] = max(masked);
+
+iPrev = 0;
+if prevNode ~= "" && prevNode ~= "None"
+    hit = find(candNode == prevNode & usable, 1);
+    if ~isempty(hit)
+        iPrev = hit;
+    end
+end
+
+if iPrev == 0
+    % Δεν υπάρχει εξυπηρετών κόμβος, είτε επειδή είναι το πρώτο βήμα είτε
+    % επειδή η ζεύξη του έπεσε κάτω από το κατώφλι. Η υστέρηση καθυστερεί τη
+    % μετάβαση προς καλύτερο κόμβο· δεν κρατά μια ζεύξη που έχει πάψει να
+    % είναι αξιοποιήσιμη. Η επιλογή γίνεται άμεσα.
+    chosenIdx = iBest;
+    return;
+end
+
+if iBest == iPrev
+    chosenIdx = iPrev;
+    return;
+end
+
+if candSinr(iBest) - hysDb > candSinr(iPrev)
+    % Η συνθήκη εισόδου ισχύει: ο μετρητής επιβεβαίωσης προχωρά μόνο αν ο
+    % υποψήφιος είναι ο ίδιος με το προηγούμενο βήμα.
+    if prevPending == candNode(iBest)
+        pendCount = prevCount + 1;
+    else
+        pendCount = 1;
+    end
+    if pendCount >= nTtt
+        chosenIdx = iBest;
+        pendNode  = "";
+        pendCount = 0;
+    else
+        chosenIdx = iPrev;
+        pendNode  = candNode(iBest);
+    end
+else
+    % Η συνθήκη έπαψε να ισχύει: ο μετρητής μηδενίζεται, όπως απαιτεί η
+    % απαίτηση του προτύπου να ισχύει η συνθήκη συνεχώς για TimeToTrigger.
+    chosenIdx = iPrev;
+end
 end
 
 function [capacityMbpsVec, throughputMbpsVec, serviceStateVec, ...

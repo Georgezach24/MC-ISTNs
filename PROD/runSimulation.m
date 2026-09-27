@@ -63,7 +63,9 @@ def = struct( ...
     'maxPasses',    600, ...    % ασφαλιστικό άνω όριο
     'ciTolerance',  0.05, ...   % σχετικό ημιεύρος 95% CI (δείκτες ρυθμού/ενέργειας)
     'ciToleranceFrac', 0.02, ...% απόλυτο ημιεύρος 95% CI (δείκτες ποσοστού)
-    'datasetStride', 5, ...     % κάθε πόσα βήματα γράφεται γραμμή στο dataset
+    'datasetStride', 5, ...
+    'hysteresisDb',  3, ...      % TS 38.331 §6.3.2: 0..15 dB, βήμα 0.5 dB (τιμή πεδίου 6)
+    'timeToTriggerMs', 2560, ... % TS 38.331 §6.3.2: απαριθμημένη τιμή, 3 βήματα στο Δt = 1 s     % κάθε πόσα βήματα γράφεται γραμμή στο dataset
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -168,6 +170,13 @@ simParameters.Power.P0     = 130;
 simParameters.Power.DeltaP = 4.7;
 simParameters.Power.Psleep = 75;
 
+% Υστέρηση και χρόνος επιβεβαίωσης της απόφασης (TS 38.331 §5.5.4.4 Event A3,
+% §6.3.2 Hysteresis / TimeToTrigger). Με μηδενικές τιμές ο κανόνας είναι ο
+% στιγμιαίος argmax χωρίς περιθώριο.
+simParameters.Mobility.HysteresisDb    = opts.hysteresisDb;
+simParameters.Mobility.TimeToTriggerMs = opts.timeToTriggerMs;
+simParameters.Mobility.DtSeconds       = opts.dtSeconds;
+
 % Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1 & 6.1.3.2-1).
 % Η πυκνότητα EIRP (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
 satAltitude = 600e3;
@@ -269,6 +278,9 @@ fprintf('  Τροχιακή περίοδος = %.0f s | ταχύτητα ίχν�
 fprintf('  Εύρος εγκάρσιας μετατόπισης ίχνους = ±%.2f°\n', rad2deg(raanSpanRad));
 fprintf('  Σύγκλιση (ITU-R M.2412-0 §7.1): 95%% CI < %.0f%% σχετικό / %.0f ποσοστιαίες μονάδες\n', ...
     100*opts.ciTolerance, 100*opts.ciToleranceFrac);
+fprintf('  Υστέρηση = %.1f dB | χρόνος επιβεβαίωσης = %d ms (%d βήματα)\n', ...
+    opts.hysteresisDb, opts.timeToTriggerMs, ...
+    max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000))));
 fprintf('  Δείκτες κανόνα τερματισμού: %s | ελάχιστο %d διελεύσεις\n\n', ...
     strjoin(kpiNames(kpiInStopRule), ', '), opts.minPasses);
 
@@ -334,6 +346,7 @@ while passIdx < opts.maxPasses
 
     prevServingNode = strings(numUsers,1);
     channelState = [];   % πρώτο βήμα της διέλευσης: ανεξάρτητο δείγμα
+    decisionState = [];  % καμία προϊστορία απόφασης στην αρχή της διέλευσης
     stepBitPerJouleRf = nan(numSteps,1);
     policyStepBuf = nan(numSteps, numPolicy, numPolicyMetric);
 
@@ -352,9 +365,9 @@ while passIdx < opts.maxPasses
             bestBsSinrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
             satSlantRangeVec, satElevationVec, satPathLossVec, satSinrDbVec, ...
             channelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
-            bsReasonVec, satReasonVec, policyKpis] = ...
+            bsReasonVec, satReasonVec, policyKpis, decisionState] = ...
             simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, ...
-                             satParameters, channelState);
+                             satParameters, channelState, decisionState);
 
         % --- Δείκτες των τριών πολιτικών για το βήμα αυτό ---
         for pI = 1:numPolicy
@@ -745,6 +758,9 @@ runParams.convergedAtPass  = convergedAtPass;
 runParams.ciTolerance      = opts.ciTolerance;
 runParams.ciToleranceFrac  = opts.ciToleranceFrac;
 runParams.stopRuleKpis     = strjoin(kpiNames(kpiInStopRule), ', ');
+runParams.hysteresis_dB    = opts.hysteresisDb;
+runParams.timeToTrigger_ms = opts.timeToTriggerMs;
+runParams.timeToTrigger_steps = max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000)));
 runParams.policies         = strjoin(policyNames, ', ');
 runParams.policyMetrics    = strjoin(policyMetrics, ', ');
 runParams.minPasses        = opts.minPasses;

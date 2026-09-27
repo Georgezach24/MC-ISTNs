@@ -130,21 +130,29 @@ def load_dataset(path: Path) -> pd.DataFrame:
 
 SINR_MIN_DB = 10 * np.log10(2 ** 0.2344 - 1)   # -7.5346 dB, MCS 0 (TS 38.214 Πίν. 5.1.3.1-1)
 
+# Παράμετροι απόφασης, ίδιες με τις προεπιλογές του runSimulation.m
+# (TS 38.331 §5.5.4.4 Event A3, §6.3.2 Hysteresis / TimeToTrigger).
+HYSTERESIS_DB = 3.0
+TTT_MS = 2560
+DT_SECONDS = 1.0
+
 
 def label_identity_check(path: Path) -> dict:
-    """Έλεγχος ταυτότητας της ετικέτας (σημείο 15 της αξιολόγησης).
+    """Συμφωνία του ΣΤΙΓΜΙΑΙΟΥ κανόνα με την καταγεγραμμένη ετικέτα.
 
-    Εφαρμόζει τον ΙΔΙΟ τον κανόνα δημιουργίας των ετικετών απευθείας στα δύο
-    υποψήφια SINR -- μάσκα ορατότητας, argmax με τις ισοπαλίες να πηγαίνουν στον
-    επίγειο (στο simulateScenario.m ο δορυφόρος κερδίζει μόνο με `>`), και το
-    κατώφλι ελάχιστου χρησιμοποιήσιμου SNR -- και το συγκρίνει με την
-    καταγεγραμμένη ετικέτα. Τρέχει στα ΑΚΑΤΕΡΓΑΣΤΑ δεδομένα, πριν από κάθε
-    φιλτράρισμα, ώστε να καλύπτει και τις γραμμές εκτός κάλυψης.
+    Με υστέρηση και χρόνο επιβεβαίωσης (TS 38.331 §5.5.4.4) η ετικέτα δεν είναι
+    πια στιγμιαία συνάρτηση των δύο υποψήφιων SINR, οπότε η συμφωνία ΔΕΝ είναι
+    πλέον 100% και η διαφορά είναι μέτρηση, όχι σφάλμα: δείχνει σε πόσα βήματα
+    η υστέρηση κράτησε τον χρήστη σε κόμβο που δεν ήταν ο στιγμιαία καλύτερος.
 
-    Αν ο κανόνας δεν αναπαράγει τις ετικέτες, υπάρχει ασυνέπεια δεδομένων ή
-    υλοποίησης. Αν τις αναπαράγει, τότε η ετικέτα είναι εξ ορισμού συνάρτηση
-    δύο χαρακτηριστικών εισόδου, και η ακρίβεια της παραλλαγής με ακριβές SNR
-    είναι έλεγχος ροής δεδομένων, όχι αποτέλεσμα πρόβλεψης.
+    Ο πλήρης κανόνας με μνήμη ΔΕΝ μπορεί να αναπαραχθεί από τις στήλες που
+    δημοσιεύονται, για δύο λόγους: το αρχείο γράφεται κάθε 5 s ενώ ο μετρητής
+    επιβεβαίωσης προχωρά ανά βήμα, και η ταυτότητα του αντίπαλου υποψηφίου δεν
+    καταγράφεται όταν ο εξυπηρετών είναι ο δορυφόρος. Η επαλήθευση του
+    μηχανισμού στηρίζεται επομένως στις τρεις ιδιότητες που ελέγχονται αλλού:
+    με μηδενική υστέρηση το σύνολο δεδομένων βγαίνει ταυτόσημο byte προς byte,
+    οι μεταβάσεις μειώνονται μονότονα στη σάρωση δώδεκα ρυθμίσεων, και το
+    ποσοστό εκτός κάλυψης παραμένει αμετάβλητο σε όλες.
     """
     raw = pd.read_csv(path, usecols=["CandBS_SINR_dB", "CandSat_SINR_dB",
                                      "CandSat_Elevation_deg", "ServingType"])
@@ -161,7 +169,7 @@ def label_identity_check(path: Path) -> dict:
     actual = raw["ServingType"].to_numpy()
     matches = int((predicted == actual).sum())
     total = len(actual)
-    print(f"\nLabel identity check (SINR_min = {SINR_MIN_DB:.4f} dB): "
+    print(f"\nInstantaneous-rule agreement (SINR_min = {SINR_MIN_DB:.4f} dB): "
           f"rule reproduces {matches}/{total} labels "
           f"({100*matches/total:.4f}%, {total-matches} mismatches)")
     return {"sinr_min_db": float(SINR_MIN_DB), "rows": total,
@@ -216,6 +224,7 @@ def evaluate_model(name, pipeline, X_test, y_test, results):
     plt.close(fig)
 
     return y_pred, y_proba
+
 
 
 def dataset_sha256(path: Path) -> str:
@@ -306,7 +315,7 @@ def main():
         "RandomForest": RandomForestClassifier(n_estimators=300, max_depth=12, random_state=42),
     }
 
-    results = {"label_identity_check": label_check}
+    results = {"instantaneous_rule_agreement": label_check}
     roc_curves = {}
     results["dataset_sha256"] = sha
     results["split"] = {k: v for k, v in split_info.items()

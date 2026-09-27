@@ -1,0 +1,8 @@
+Σύγκριση vs 20260926_174202_runSimulation_sweep_h0_t0
+
+  ~ datasetBytes : 15646077  ->  15545308
+  ~ datasetPath : C:\Users\giorg\AppData\Local\Temp\claude\C--Users-giorg-Desktop-------------istn-sim-MC-ISTNs\ed3e30b0-bd98-4dc8-b348-5c4cd9be8fd3\scratchpad\sweep\ds_h0_t0.csv  ->  C:\Users\giorg\AppData\Local\Temp\claude\C--Users-giorg-Desktop-------------istn-sim-MC-ISTNs\ed3e30b0-bd98-4dc8-b348-5c4cd9be8fd3\scratchpad\sweep\ds_h0_t1024.csv
+  ~ datasetSha256 : a6f2ca519538fd0b5db2870b23e58c55715cd1cb18d7ead0055654742539b18b  ->  f65e26c59345545499687ab51e7f0b2bf63585595f6275ccbd0ad7a1d8101517
+  ~ semiMajorAxis_m : [197044.24;169023.6;157672.18;133043.35;189033.85;179446.36;174816.54;103473.39]  ->  [192838.66;174230.6;167358.77;127711.83;189453.05;182338.7;178775.18;101023.78]
+  ~ timeToTrigger_ms : 0  ->  1024
+  ~ timeToTrigger_steps : 1  ->  2
