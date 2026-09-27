@@ -157,24 +157,3 @@ Dataset/                    CSV output of runSimulation.m (generated, gitignored
 Model/                      Part 2: Python training scripts, metrics and plots
 ```
 
-## Current limitations / scope
-
-- **Single connectivity.** One serving node per user — not a joint network-wide optimization, and not simultaneous multi-connectivity.
-- **Interference is under-estimated, not absent.** Inter-site interference is modelled, but the topology has two base stations, so each user sees one interferer instead of the 19 sites × 3 sectors of the ITU-R reference layout; and a base station outside the UMa/UMi validity range is not counted as an interferer, because its path loss is not computable without violating the validity gate. Both effects push the same way: the reported SINR is still an upper bound, just a much tighter one. No interference coordination is modelled either, so the result corresponds to an uncoordinated deployment.
-- **Constant satellite antenna gain, justified rather than assumed.** The code applies 30 dBi to every visible user. Under the declared beam-pointing policy (TR 38.821 Table 6.1.1.1-4, Case 2), the entire 5 km scenario subtends at most 0.48° against a 4.41° beamwidth, so the gain spread across users is below 0.13 dB — against 5.14 dB of satellite fading σ. The argument is specific to this scenario extent and does not generalize to larger areas or to beam-edge behaviour. A **single beam** is modelled, so there is no inter-beam interference. UE antenna gain is 0 dBi (TR 38.901 Table 7.8-1).
-- **Satellite atmosphere partially modelled.** Gaseous attenuation is included; rain/cloud attenuation and ionospheric scintillation are not (low impact at S-band, but not quantified here).
-- **Energy is a modelled proxy**, not a measurement, and the two segments have different subsystem scopes: the satellite model's fixed power term is set to zero, which is an *optimistic* assumption for the satellite side. Use the amplifier-only network figure for like-for-like comparison.
-- **Energy per bit is invariant to node load** by construction (the user count cancels); network bit/J is the metric that responds to load and user composition.
-- **Handover is a decision criterion, not a procedure.** The A3 margin and confirmation timer are modelled; signalling, measurement reporting, failure and re-establishment are not. The interruption cost is a propagation term (2·RTT).
-- **Transition counts are an upper bound, not a handover rate.** The sweep showed a floor of roughly 77 BS↔BS switches per user-pass that no hysteresis setting removes. It comes from drawing small-scale fading independently at every step, not from a missing margin — so a credible handover rate needs a temporally correlated fading model first.
-- **Flat fading.** One fading realization is applied across the whole channel bandwidth, which the standard's own criterion does not support at 18–30 MHz. The consequence — overestimated dispersion of the effective SINR — is stated where it matters.
-
-## Roadmap
-
-The 23 points of the external assessment are closed. What follows comes from the work itself; the first two are preconditions for reporting, as results, quantities that are currently reported as bounds.
-
-1. **Temporally correlated small-scale fading.** Without it the transition count stays an upper bound and cannot be quoted as a handover rate.
-2. **A memory-bearing ML model.** With hysteresis in the rule, the three information variants land within 1.8 points of each other — what they all lack is the previous state, not measurement precision. Giving a model the prior serving node is the cheapest clear improvement.
-3. **Policy comparison at equal spectrum.** The current comparison gives the joint policy 48.36 MHz against 18.36 or 30 alone, so part of its advantage is available bandwidth rather than link quality.
-4. **Multi-beam satellite.** The reference layout is 19 beams with wrap-around, and satellite parameters are defined per beam. This would introduce inter-beam interference on a segment that is currently noise-limited, and would make the per-user radiation pattern necessary.
-5. **A genuinely open ML target**: predicting a transition before it happens, regression or ranking on capacity and energy, evaluated by achieved service rather than classification accuracy.
