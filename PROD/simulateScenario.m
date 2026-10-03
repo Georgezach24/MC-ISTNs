@@ -105,6 +105,28 @@ end
 % διάρκεια αυτή· με Δt = 1 s οι τιμές κάτω από 1024 ms δεν διακρίνονται.
 nTtt = max(1, ceil(tttMs / (dtSecHys*1000)));
 
+%% ------------------ Μέτρηση: μέση τιμή και φίλτρο L3 ------------------
+% Το TS 38.331 §5.5.3.2 ορίζει ότι ο A3 δεν συγκρίνει τη στιγμιαία μέτρηση
+% αλλά τη φιλτραρισμένη, F_n = (1-a)*F_{n-1} + a*M_n ("filter the measured
+% result, BEFORE using for evaluation of reporting criteria"), και το ίδιο το
+% M_n δεν είναι στιγμιαίο δείγμα: είναι αποτέλεσμα περιόδου μέτρησης
+% τουλάχιστον 200 ms στο FR1 (TS 38.133 Πίν. 9.2.5.2-1). Αντίγραφα των δύο
+% εδαφίων: Sources/TS38331_L3_filtering.md.
+%
+%   Meas.NAvg    πλήθος ανεξάρτητων πραγματώσεων γρήγορων διαλείψεων που
+%                μεσοποιούνται μέσα στο βήμα. Προκύπτει από την αυτοσυσχέτιση
+%                του Clarke και υπολογίζεται στο runSimulation.m.
+%   Meas.L3Alpha ο συντελεστής a, ΗΔΗ προσαρμοσμένος στο βήμα της προσομοίωσης
+%                κατά τη ρήτρα "adapt the filter such that the time
+%                characteristics ... are preserved at different input rates".
+%                Τιμή 1 = χωρίς φίλτρο (NOTE 1, k = 0).
+%
+% Προεπιλογές 1 και 1: αναπαράγουν ακριβώς τη συμπεριφορά πριν τη μέτρηση,
+% ώστε τα scripts επαλήθευσης και η παλιά ρύθμιση να μένουν αναπαραγώγιμα.
+measNAvgTerr = max(1, round(measParam(simParameters, 'NAvg',    1)));
+measNAvgSat  = max(1, round(measParam(satParameters, 'NAvg',    1)));
+l3Alpha      = min(max(measParam(simParameters, 'L3Alpha', 1), 0), 1);
+
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
@@ -154,6 +176,24 @@ satSinrDbVec       = nan(numUsers,1);
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
     isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
+
+% Κατάσταση του φίλτρου L3 ανά υποψήφιο. NaN σημαίνει "δεν υπάρχει
+% προηγούμενη μέτρηση", οπότε F_0 = M_1 όπως ορίζει η §5.5.3.2. Ταξιδεύει
+% μέσα στο prevChannelState, δηλαδή μηδενίζεται στην αρχή κάθε διέλευσης μαζί
+% με το υπόλοιπο κανάλι. Η μέτρηση είναι ΚΟΙΝΗ για τις τρεις πολιτικές: δεν
+% εξαρτάται από το ποιος κόμβος εξυπηρετεί, άρα η σύγκριση κατά ζεύγη μένει
+% έγκυρη.
+hasPrevFilt = hasPrevState && isfield(prevChannelState, 'FiltSinrBs_dB') && ...
+    isequal(size(prevChannelState.FiltSinrBs_dB), [numUsers, numBs]);
+if hasPrevFilt
+    prevFiltBs  = prevChannelState.FiltSinrBs_dB;
+    prevFiltSat = prevChannelState.FiltSinrSat_dB;
+else
+    prevFiltBs  = nan(numUsers, numBs);
+    prevFiltSat = nan(numUsers, 1);
+end
+filtSinrBsMat  = nan(numUsers, numBs);
+filtSinrSatVec = nan(numUsers, 1);
 
 %% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SINR) ------------------
 for u = 1:numUsers
@@ -235,8 +275,11 @@ for u = 1:numUsers
         pathLoss = pathLoss + sfSample;
 
         % Small-scale fading: Rician (LOS, K=terrKdBLos) ή Rayleigh (NLOS).
-        % Realization i.i.d. ανά κλήση (coherence time ~ ms << βήμα).
-        pathLoss = pathLoss - smallScaleFadingDb(isLos, terrKdBLos);
+        % Ο χρόνος συνοχής (~43 ms στα 3.5 GHz με πεζό χρήστη) είναι πολύ
+        % μικρότερος από το βήμα, οπότε μέσα σε ένα βήμα χωρούν πολλές
+        % ανεξάρτητες πραγματώσεις. Η μέτρηση είναι η μέση τιμή τους σε
+        % γραμμική ισχύ, όχι μία από αυτές (TS 38.133 Πίν. 9.2.5.2-1).
+        pathLoss = pathLoss - smallScaleFadingDb(isLos, terrKdBLos, measNAvgTerr);
         pathLossMat(u,b) = pathLoss;
 
         % Ο λόγος σήματος προς θόρυβο ΜΟΝΟ, χωρίς παρεμβολή, κρατείται ως
@@ -275,6 +318,7 @@ for u = 1:numUsers
         interfLinW     = totalRxLinW - rxPowLinW(b);
         sinr_db        = 10*log10(rxPowLinW(b) / (noiseLinW + interfLinW));
         sinrDbMat(u,b) = sinr_db;
+        filtSinrBsMat(u,b) = l3Filter(sinr_db, prevFiltBs(u,b), l3Alpha);
 
         % Η επιλογή είναι μονότονη ως προς τη λαμβανόμενη ισχύ: με κοινό
         % άθροισμα ισχύων, το SINR αυξάνει με το C, οπότε ο καλύτερος σταθμός
@@ -331,7 +375,7 @@ for u = 1:numUsers
             elevClamped = min(max(elevSat, satFadeElevRangeDeg(1)), satFadeElevRangeDeg(2));
             [b0, mNak, omega] = shadowedRicianElevParams(elevClamped);
         end
-        satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega);
+        satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega, measNAvgSat);
 
         % Ο όρος παρεμβολής είναι μηδενικός στο δορυφορικό σκέλος: 2.0 GHz
         % έναντι 3.5 GHz του επίγειου (TR 38.821 Πίν. 6.1.3.2-1 και TR 38.901),
@@ -349,6 +393,9 @@ for u = 1:numUsers
 
     satPathLossVec(u) = satPathLoss;
     satSinrDbVec(u)    = satSinrDb;
+    if isfinite(satSinrDb)
+        filtSinrSatVec(u) = l3Filter(satSinrDb, prevFiltSat(u), l3Alpha);
+    end
 
     if satSinrDb > userBestSinr
         userBestSinr       = satSinrDb;
@@ -366,6 +413,7 @@ for u = 1:numUsers
     nCand = 0;
     candNode = strings(numBs+1,1); candType = strings(numBs+1,1);
     candSinr = -inf(numBs+1,1);    candDist = nan(numBs+1,1);
+    candSinrMeas = -inf(numBs+1,1);
     candPl   = nan(numBs+1,1);     candElev = nan(numBs+1,1);
     for b = 1:numBs
         if isfinite(sinrDbMat(u,b))
@@ -373,6 +421,7 @@ for u = 1:numUsers
             candNode(nCand) = "BS" + string(b);
             candType(nCand) = "Terrestrial";
             candSinr(nCand) = sinrDbMat(u,b);
+            candSinrMeas(nCand) = filtSinrBsMat(u,b);
             candDist(nCand) = range3DMat(u,b);
             candPl(nCand)   = pathLossMat(u,b);
         end
@@ -382,12 +431,14 @@ for u = 1:numUsers
         candNode(nCand) = "SAT-1";
         candType(nCand) = "Satellite";
         candSinr(nCand) = satSinrDb;
+        candSinrMeas(nCand) = filtSinrSatVec(u);
         candDist(nCand) = slantRangeSat;
         candPl(nCand)   = satPathLoss;
         candElev(nCand) = elevSat;
     end
     candNode = candNode(1:nCand); candType = candType(1:nCand);
     candSinr = candSinr(1:nCand); candDist = candDist(1:nCand);
+    candSinrMeas = candSinrMeas(1:nCand);
     candPl   = candPl(1:nCand);   candElev = candElev(1:nCand);
 
     isTerr = (candType == "Terrestrial");
@@ -408,8 +459,8 @@ for u = 1:numUsers
             pC = prevDecision.(polName).Count(u);
         end
 
-        [ci, pendN, pendC] = applyHysteresis(candNode, candSinr, keepMask, ...
-            pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
+        [ci, pendN, pendC] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
+            keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
 
         if ci == 0
             selNode = "None"; selType = "Outage"; selSinr = NaN;
@@ -494,11 +545,13 @@ newChannelState.UserGeo         = user_geo;
 newChannelState.IsLOS           = losMat;
 newChannelState.LosLatent       = losLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
+newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
+newChannelState.FiltSinrSat_dB  = filtSinrSatVec;
 
 end
 
 function [chosenIdx, pendNode, pendCount] = applyHysteresis(candNode, candSinr, ...
-    keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt)
+    candSinrMeas, keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt)
 % Απόφαση επιλογής κόμβου με υστέρηση και χρόνο επιβεβαίωσης, κατά τη μεταφορά
 % του Event A3 του TS 38.331 §5.5.4.4:
 %   είσοδος (A3-1):  M_n - Hys > M_p     έξοδος (A3-2):  M_n + Hys < M_p
@@ -506,6 +559,16 @@ function [chosenIdx, pendNode, pendCount] = applyHysteresis(candNode, candSinr, 
 % ανά συχνότητα, και με τη συνθήκη εισόδου να πρέπει να ισχύει για nTtt
 % διαδοχικά βήματα. Δεν πρόκειται για υλοποίηση της διαδικασίας RRC: δεν
 % υπάρχει σηματοδοσία, αναφορά μέτρησης, ούτε έλεγχος επιτυχίας.
+%
+% Δύο διαφορετικά SINR, σκόπιμα:
+%   candSinr     το πραγματικό SINR της ζεύξης. Καθορίζει ΜΟΝΟ αν η ζεύξη
+%                μπορεί να σηκώσει δεδομένα, δηλαδή τον έλεγχο κατωφλίου.
+%                Το κατώφλι είναι φυσικό όριο (MCS 0), όχι μέτρηση.
+%   candSinrMeas η φιλτραρισμένη μέτρηση κατά §5.5.3.2. Καθορίζει ΠΟΙΟΝ
+%                υποψήφιο βλέπει ο μηχανισμός απόφασης ως καλύτερο και αν
+%                ικανοποιείται η συνθήκη A3. Αυτό βλέπει ένα πραγματικό
+%                τερματικό· δεν βλέπει ποτέ στιγμιαίο δείγμα.
+% Με l3Alpha = 1 τα δύο ταυτίζονται και η συμπεριφορά ανάγεται στην παλιά.
 usable = keepMask & (candSinr >= minUsableSinrDb);
 chosenIdx = 0; pendNode = ""; pendCount = 0;
 
@@ -513,7 +576,7 @@ if ~any(usable)
     return;   % κανένας επιλέξιμος υποψήφιος -> εκτός κάλυψης
 end
 
-masked = candSinr; masked(~usable) = -Inf;
+masked = candSinrMeas; masked(~usable) = -Inf;
 [~, iBest] = max(masked);
 
 iPrev = 0;
@@ -538,7 +601,7 @@ if iBest == iPrev
     return;
 end
 
-if candSinr(iBest) - hysDb > candSinr(iPrev)
+if candSinrMeas(iBest) - hysDb > candSinrMeas(iPrev)
     % Η συνθήκη εισόδου ισχύει: ο μετρητής επιβεβαίωσης προχωρά μόνο αν ο
     % υποψήφιος είναι ο ίδιος με το προηγούμενο βήμα.
     if prevPending == candNode(iBest)
@@ -728,19 +791,40 @@ end
 rho = exp(-moveDistance / dCorr);
 end
 
-function fadeDb = smallScaleFadingDb(isLos, KdB)
+function fadeDb = smallScaleFadingDb(isLos, KdB, nAvg)
 % Κέρδος small-scale fading σε dB, με E[|h|^2] = 1.
 %   isLos=false -> Rayleigh: |h|^2 ~ Exp(1)
 %   isLos=true  -> Rician με συντελεστή K (dB)· K->0 ανάγεται ομαλά σε Rayleigh
+%
+% nAvg: η τιμή που βγαίνει δεν είναι στιγμιαίο δείγμα αλλά μέση τιμή σε
+% ΓΡΑΜΜΙΚΗ ισχύ πάνω σε nAvg ανεξάρτητες πραγματώσεις μέσα στο βήμα, επειδή
+% η μέτρηση ορίζεται πάνω σε περίοδο μέτρησης και όχι σε στιγμή
+% (TS 38.133 Πίν. 9.2.5.2-1). nAvg = 1 επιστρέφει το στιγμιαίο δείγμα.
+if nargin < 3 || isempty(nAvg)
+    nAvg = 1;
+end
+% Η περίπτωση nAvg = 1 κρατά κατά γράμμα την προηγούμενη έκφραση: το
+% 10*log10(mean(x)) και το 20*log10(abs(h)) είναι μαθηματικά ταυτόσημα με
+% τα αντίστοιχα, αλλά διαφέρουν κατά ένα ulp. Έτσι ο έλεγχος ουδετερότητας
+% δίνει ταυτόσημο αρχείο και όχι «σχεδόν ταυτόσημο».
 if ~isLos
-    fadeDb = 10*log10(-log(rand()));
+    if nAvg == 1
+        fadeDb = 10*log10(-log(rand()));
+        return;
+    end
+    powLin = mean(-log(rand(1,nAvg)));
 else
     Klin  = 10^(KdB/10);
     s     = sqrt(Klin/(Klin+1));       % πλάτος LOS συνιστώσας
     sigma = sqrt(1/(2*(Klin+1)));      % τυπ. απόκλιση ανά διάσταση scatter
-    h     = (s + sigma*randn()) + 1i*(sigma*randn());
-    fadeDb = 20*log10(abs(h));         % s^2 + 2*sigma^2 = 1
+    h     = (s + sigma*randn(1,nAvg)) + 1i*(sigma*randn(1,nAvg));
+    if nAvg == 1
+        fadeDb = 20*log10(abs(h));     % s^2 + 2*sigma^2 = 1
+        return;
+    end
+    powLin = mean(abs(h).^2);
 end
+fadeDb = 10*log10(powLin);
 end
 
 function isValid = isValidTerrestrialLink(d2D, hUT, fcHz)
@@ -776,14 +860,47 @@ switch lower(string(state))
 end
 end
 
-function fadeDb = shadowedRicianFadingDb(b0, m, omega)
+function fadeDb = shadowedRicianFadingDb(b0, m, omega, nAvg)
 % Κέρδος Shadowed Rician σε dB (Abdi et al. 2003, εξ. 1): σκεδαζόμενη
 % συνιστώσα Rayleigh μέσης ισχύος 2*b0 συν συνιστώσα LOS με πλάτος
 % κατά Nakagami-m μέσης ισχύος omega. E[|h|^2] = omega + 2*b0 < 1, δηλαδή
 % η μέση εξασθένηση λόγω σκίασης περιέχεται στο ίδιο το μοντέλο.
+%
+% nAvg: μέση τιμή της μέτρησης μέσα στο βήμα, όπως και στο επίγειο σκέλος.
+% Η συνιστώσα σκίασης κληρώνεται ΜΙΑ φορά και μένει σταθερή μέσα στο βήμα:
+% η σκίαση δεν είναι γρήγορο φαινόμενο και δεν εξομαλύνεται από την περίοδο
+% μέτρησης. Μέσος όρος παίρνεται μόνο στη σκεδαζόμενη συνιστώσα.
+if nargin < 4 || isempty(nAvg)
+    nAvg = 1;
+end
 losAmp  = sqrt(gammaRand(m, omega/m));            % |Z|, E[Z^2] = omega
-scatter = sqrt(b0)*(randn() + 1i*randn());        % E[|A|^2] = 2*b0
-fadeDb  = 20*log10(abs(losAmp + scatter));
+scatter = sqrt(b0)*(randn(1,nAvg) + 1i*randn(1,nAvg));   % E[|A|^2] = 2*b0
+if nAvg == 1
+    fadeDb = 20*log10(abs(losAmp + scatter));   % ίδια έκφραση με πριν (βλ. smallScaleFadingDb)
+else
+    fadeDb = 10*log10(mean(abs(losAmp + scatter).^2));
+end
+end
+
+function f = l3Filter(mNow, fPrev, alpha)
+% Φίλτρο Layer 3, TS 38.331 §5.5.3.2:  F_n = (1 - a)*F_{n-1} + a*M_n
+% Εφαρμόζεται σε dB, όπως απαιτεί η NOTE 2 ("logarithmic filtering for
+% logarithmic measurements"). Χωρίς προηγούμενη μέτρηση ισχύει F_0 = M_1,
+% ρητά στο ίδιο εδάφιο. Το alpha έρχεται ήδη προσαρμοσμένο στο βήμα της
+% προσομοίωσης· alpha = 1 σημαίνει καθόλου φίλτρο (NOTE 1, k = 0).
+if ~isfinite(fPrev)
+    f = mNow;
+else
+    f = (1 - alpha)*fPrev + alpha*mNow;
+end
+end
+
+function v = measParam(p, name, dflt)
+% Ανάγνωση πεδίου από το προαιρετικό υπο-struct Meas, με προεπιλογή.
+v = dflt;
+if isfield(p, 'Meas') && isfield(p.Meas, name) && ~isempty(p.Meas.(name))
+    v = p.Meas.(name);
+end
 end
 
 function x = gammaRand(shape, scale)

@@ -66,6 +66,9 @@ def = struct( ...
     'datasetStride', 5, ...     % κάθε πόσα βήματα γράφεται γραμμή στο dataset
     'hysteresisDb',  3, ...      % TS 38.331 §6.3.2: 0..15 dB, βήμα 0.5 dB (τιμή πεδίου 6)
     'timeToTriggerMs', 2560, ... % TS 38.331 §6.3.2: απαριθμημένη τιμή, 3 βήματα στο Δt = 1 s
+    'l3FilterK',     4, ...      % TS 38.331 §6.3.2 filterCoefficient (DEFAULT fc4)· 0 = χωρίς φίλτρο
+    'measPeriodMs',  200, ...    % TS 38.133 Πίν. 9.2.5.2-1, FR1 χωρίς DRX
+    'measAveraging', true, ...   % μέση τιμή μέτρησης μέσα στο βήμα· false = στιγμιαίο δείγμα
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -209,6 +212,41 @@ if userRMinM >= userRMaxM
         ueSpeedMps, opts.passWindowS, maxWalkM, d2dMinM, d2dMaxM);
 end
 
+%% ------------------ Μέτρηση πριν την απόφαση ------------------
+% Το TS 38.331 §5.5.3.2 ορίζει ότι η σύγκριση A3 γίνεται πάνω σε
+% φιλτραρισμένη μέτρηση, όχι στη στιγμιαία τιμή. Δύο σκέλη, και τα δύο
+% τεκμηριωμένα (αντίγραφα των εδαφίων: Sources/TS38331_L3_filtering.md):
+%
+% (α) Το ίδιο το M_n δεν είναι στιγμιαίο δείγμα. Το TS 38.133 Πίν. 9.2.5.2-1
+%     δίνει για FR1 χωρίς DRX περίοδο μέτρησης τουλάχιστον 200 ms, μέσα στην
+%     οποία χωρούν πολλές ανεξάρτητες πραγματώσεις των γρήγορων διαλείψεων.
+%     Το ισοδύναμο πλήθος τους υπολογίζεται απευθείας από την αυτοσυσχέτιση
+%     ισχύος του μοντέλου Clarke και όχι από εμπειρικό χρόνο συνοχής
+%     (βλ. effectiveSamplesClarke παρακάτω).
+% (β) Πάνω σε αυτό εφαρμόζεται το φίλτρο L3. Ο συντελεστής k υποθέτει ρυθμό
+%     δειγματοληψίας X ίσο με μία περίοδο μέτρησης L1, οπότε η ίδια η ρήτρα
+%     απαιτεί προσαρμογή στο βήμα της προσομοίωσης:
+%        a = 2^(-k/4) στα X ms   ->   a' = 1 - (1-a)^(Δt/X)
+%     Με k = 0 δεν εφαρμόζεται φίλτρο (NOTE 1 του ίδιου εδαφίου).
+cLight = physconst('LightSpeed');
+if opts.measAveraging
+    simParameters.Meas.NAvg = effectiveSamplesClarke( ...
+        ueSpeedMps*simParameters.CarrierFrequency/cLight, opts.dtSeconds);
+    satParameters.Meas.NAvg = effectiveSamplesClarke( ...
+        ueSpeedMps*satParameters.CarrierFrequency/cLight, opts.dtSeconds);
+else
+    simParameters.Meas.NAvg = 1;
+    satParameters.Meas.NAvg = 1;
+end
+if opts.l3FilterK <= 0
+    l3Alpha = 1;                      % NOTE 1: k = 0 -> χωρίς φίλτρο
+else
+    aAtX    = 2^(-opts.l3FilterK/4);
+    l3Alpha = 1 - (1 - aAtX)^(opts.dtSeconds*1000/opts.measPeriodMs);
+end
+simParameters.Meas.L3Alpha = l3Alpha;
+satParameters.Meas.L3Alpha = l3Alpha;
+
 %% ------------------ Τροχιά LEO (κυκλική Κεπλεριανή) ------------------
 % Στοιχεία εφημερίδας κατά TR 38.821 Πίν. 7.3.6.1-1, με εκκεντρότητα μηδέν.
 muEarth    = 3.986004418e14;   % m^3/s^2
@@ -281,6 +319,8 @@ fprintf('  Σύγκλιση (ITU-R M.2412-0 §7.1): 95%% CI < %.0f%% σχετι�
 fprintf('  Υστέρηση = %.1f dB | χρόνος επιβεβαίωσης = %d ms (%d βήματα)\n', ...
     opts.hysteresisDb, opts.timeToTriggerMs, ...
     max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000))));
+fprintf('  Μέτρηση: μέσος όρος %d (επίγ.) / %d (δορυφ.) δειγμάτων ανά βήμα | φίλτρο L3 k = %d -> a = %.3f\n', ...
+    simParameters.Meas.NAvg, satParameters.Meas.NAvg, opts.l3FilterK, l3Alpha);
 fprintf('  Δείκτες κανόνα τερματισμού: %s | ελάχιστο %d διελεύσεις\n\n', ...
     strjoin(kpiNames(kpiInStopRule), ', '), opts.minPasses);
 
@@ -761,6 +801,13 @@ runParams.stopRuleKpis     = strjoin(kpiNames(kpiInStopRule), ', ');
 runParams.hysteresis_dB    = opts.hysteresisDb;
 runParams.timeToTrigger_ms = opts.timeToTriggerMs;
 runParams.timeToTrigger_steps = max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000)));
+runParams.measAveraging    = opts.measAveraging;
+runParams.measNAvgTerrestrial = simParameters.Meas.NAvg;
+runParams.measNAvgSatellite   = satParameters.Meas.NAvg;
+runParams.l3FilterK        = opts.l3FilterK;
+runParams.l3FilterAlphaAtX = ternary(opts.l3FilterK > 0, 2^(-opts.l3FilterK/4), 0);
+runParams.l3FilterAlphaAtDt = l3Alpha;
+runParams.measPeriod_ms    = opts.measPeriodMs;
 runParams.policies         = strjoin(policyNames, ', ');
 runParams.policyMetrics    = strjoin(policyMetrics, ', ');
 runParams.minPasses        = opts.minPasses;
@@ -798,7 +845,11 @@ runParams.sources          = struct( ...
     'duration',   'ITU-R M.2412-0 §7.1 (σύγκλιση + διαστήματα εμπιστοσύνης)· ITU-R M.2514-0 §8.2.4', ...
     'passWindow', 'TR 38.821 Πίν. 4.2-3 NOTE 1 (visibility time of the satellite)', ...
     'ueMobility', 'ITU-R M.2412-0 §8.4 ΠΙΝΑΚΑΣ 5 b)/c) (3 km/h, τυχαία ομοιόμορφη κατεύθυνση)', ...
-    'validity',   'TR 38.901 §7.4.1 Πίν. 7.4.1-1 (10 m - 5 km, h_UT 1.5-22.5 m)');
+    'validity',   'TR 38.901 §7.4.1 Πίν. 7.4.1-1 (10 m - 5 km, h_UT 1.5-22.5 m)', ...
+    'hysteresis', 'TS 38.331 §5.5.4.4 (Event A3) + §6.3.2 (Hysteresis, TimeToTrigger)', ...
+    'measFilter', 'TS 38.331 §5.5.3.2 (Layer 3 filtering, F_n = (1-a)F_{n-1} + a M_n· NOTE 1 k=0· NOTE 2 λογαριθμικό)', ...
+    'measPeriod', 'TS 38.133 Πίν. 9.2.5.2-1 (FR1 χωρίς DRX: >= 200 ms)', ...
+    'measAvg',    'Clarke 1968, αυτοσυσχέτιση ισχύος J0(2*pi*fD*tau)^2 -> ισοδύναμο πλήθος ανεξάρτητων δειγμάτων ανά βήμα');
 
 saveRunVersion('runSimulation', runParams, outFiles, opts.label);
 
@@ -810,6 +861,34 @@ end
 end
 
 % =====================================================================
+
+function nEff = effectiveSamplesClarke(fDopplerHz, tStepS)
+% Ισοδύναμο πλήθος ανεξάρτητων δειγμάτων διαλείψεων μέσα σε ένα βήμα.
+%
+% Η μέτρηση που βλέπει ο μηχανισμός απόφασης είναι μέση τιμή πάνω σε ένα
+% χρονικό διάστημα, όχι στιγμιαίο δείγμα (TS 38.133 Πίν. 9.2.5.2-1). Πόσο
+% μειώνεται η διασπορά από αυτή τη μεσοποίηση το καθορίζει η αυτοσυσχέτιση
+% του καναλιού. Για διαλείψεις Rayleigh με ομοιόμορφη γωνιακή κατανομή
+% σκεδαστών, το μοντέλο του Clarke (Bell Syst. Tech. J. 47(6), 1968) δίνει
+% για την ΙΣΧΥ rho(tau) = J0(2*pi*fD*tau)^2. Η διασπορά της μέσης τιμής σε
+% διάστημα T είναι τότε
+%
+%     Var[μ.ό.] / Var[δείγμα] = (2/T^2) * Int_0^T (T - tau) * rho(tau) dtau
+%
+% και το αντίστροφο αυτού είναι το ισοδύναμο πλήθος ανεξάρτητων δειγμάτων.
+%
+% Προτιμάται από τον συνήθη τύπο T_c ~ 0.423/fD, που είναι κατασκευή
+% εγχειριδίου και όχι αποτέλεσμα του ίδιου του μοντέλου· δίνει επίσης
+% μικρότερο πλήθος, δηλαδή πιο συντηρητική εκτίμηση της μεσοποίησης.
+if ~isfinite(fDopplerHz) || fDopplerHz <= 0 || tStepS <= 0
+    nEff = 1;
+    return;
+end
+rho   = @(tau) besselj(0, 2*pi*fDopplerHz*tau).^2;
+ratio = 2/tStepS^2 * integral(@(tau) (tStepS - tau).*rho(tau), 0, tStepS, ...
+    'AbsTol', 1e-12, 'RelTol', 1e-9);
+nEff = max(1, round(1/ratio));
+end
 % Τοπικές συναρτήσεις
 % =====================================================================
 

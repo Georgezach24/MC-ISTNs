@@ -1,0 +1,15 @@
+rngSeed = 42
+scenario = UMa
+hBS_m = 25
+hUT_m = 1.5
+CarrierFrequency_Hz = 3.5e+09
+d2D_targets_m = [10 50 100 250 500 1000 2000 3000 4000 5000 7500 10000 20000 50000 106881]
+validity_d2D_min_m = 10
+validity_d2D_max_m = 5000
+validity_hUT_min_m = 1.5
+validity_hUT_max_m = 22.5
+meta.timestamp = 2026-10-03 11:40:55
+meta.script = geometryValidation
+meta.label = 
+meta.matlabVersion = 24.2.0.2740171 (R2024b) Update 1
+meta.gitCommit = 4d4cddb (dirty)
