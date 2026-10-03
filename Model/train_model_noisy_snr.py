@@ -118,6 +118,18 @@ def load_dataset(path: Path) -> pd.DataFrame:
         print(f"Time decimation: kept {len(df)} of {before} rows "
               f"(1 sample every {ML_SAMPLE_STRIDE} s)")
 
+    # Προηγούμενη κατάσταση εξυπηρέτησης ανά (διέλευση, χρήστη), υπολογισμένη
+    # ΠΡΙΝ πεταχτούν οι γραμμές outage, ώστε το "ήταν σε διακοπή" να μη χαθεί.
+    # Δεν είναι χαρακτηριστικό εκπαίδευσης: χρησιμεύει μόνο για να χωριστεί η
+    # αξιολόγηση σε στιγμές που η ετικέτα έμεινε ίδια και σε στιγμές που
+    # άλλαξε (temporal_breakdown), και για τη βασική γραμμή εμμονής.
+    # Η σειρά των γραμμών ΔΕΝ αλλάζει: η ταξινόμηση γίνεται σε αντίγραφο και
+    # το αποτέλεσμα επιστρέφει στην αρχική σειρά. Αλλιώς θα άλλαζε η σειρά
+    # εκπαίδευσης και μαζί τα δέντρα του τυχαίου δάσους.
+    _srt = df.sort_values(["PassID", "UserID", "Step"])
+    df["PrevServingType"] = (_srt.groupby(["PassID", "UserID"], sort=False)["ServingType"]
+                             .shift(1).reindex(df.index))
+
     # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
     # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR) - εξαιρείται
     # εδώ, ίδια λογική με το train_model.py.
@@ -171,7 +183,63 @@ def group_train_test_split(df: pd.DataFrame, test_size=SPLIT_TEST_SIZE,
     return df.iloc[train_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True)
 
 
-def evaluate_model(name, pipeline, X_test, y_test, results):
+# --------------------------------------------------------------------------
+# Χρονική ανάλυση της αξιολόγησης.
+#
+# Η συνολική ακρίβεια είναι παραπλανητική σε αυτό το πρόβλημα. Με υστέρηση η
+# ετικέτα μένει ίδια στη συντριπτική πλειονότητα των διαδοχικών δειγμάτων,
+# οπότε ο κανόνας "ό,τι ίσχυε και πριν" πιάνει ποσοστό συγκρίσιμο με τα
+# μοντέλα χωρίς να μαθαίνει τίποτα. Ό,τι διαφοροποιεί τα μοντέλα κρύβεται
+# στο μικρό υποσύνολο των στιγμών που η ετικέτα όντως αλλάζει.
+#
+# Προσοχή στην ερμηνεία: ο στόχος είναι ο ΤΥΠΟΣ κόμβου, άρα "αλλαγή" εδώ
+# σημαίνει μόνο επίγειο <-> δορυφορικό. Οι εναλλαγές μεταξύ δύο σταθμών
+# βάσης, που είναι και οι περισσότερες, δεν φαίνονται σε αυτή τη μετρική.
+# Επίσης το σύνολο δεδομένων είναι δειγματοληπτημένο ανά 5 s, οπότε "αλλαγή"
+# σημαίνει "διαφορετικός τύπος από ό,τι 5 s πριν".
+
+def persistence_baseline(test_df: pd.DataFrame, majority_class: str) -> dict:
+    """Βασική γραμμή χωρίς μοντέλο: πρόβλεψε ό,τι ίσχυε στο προηγούμενο δείγμα.
+    Όπου δεν ορίζεται (πρώτο δείγμα της διέλευσης) ή ήταν "Outage", πέφτει
+    πίσω στην πλειοψηφική κλάση, όπως και η βασική γραμμή πλειοψηφίας."""
+    prev = test_df["PrevServingType"]
+    defined = prev.isin(["Terrestrial", "Satellite"])
+    pred = prev.where(defined, majority_class)
+    return {
+        "accuracy": float((pred == test_df[TARGET_COLUMN]).mean()),
+        "rule": "predict previous sample; fallback to majority where undefined or Outage",
+        "undefined_or_outage_fraction": float((~defined).mean()),
+    }
+
+
+def temporal_breakdown(test_df: pd.DataFrame, y_true, y_pred) -> dict:
+    """Ακρίβεια χωρισμένη σε στιγμές που η ετικέτα έμεινε ίδια και σε στιγμές
+    που άλλαξε σε σχέση με το προηγούμενο δείγμα."""
+    prev = test_df["PrevServingType"].to_numpy()
+    yt = np.asarray(y_true)
+    yp = np.asarray(y_pred)
+    known = pd.notna(prev)
+    steady = known & (prev == yt)
+    change = known & (prev != yt)
+    ok = (yp == yt)
+    f = lambda v, m: float(v[m].mean()) if m.any() else None
+    return {
+        "accuracy_steady": f(ok, steady),
+        "accuracy_change": f(ok, change),
+        "n_steady": int(steady.sum()),
+        "n_change": int(change.sum()),
+        "n_undefined": int((~known).sum()),
+        "change_fraction": float(change.sum() / len(yt)),
+        # Ψευδής συναγερμός: η ετικέτα δεν άλλαξε αλλά το μοντέλο προβλέπει
+        # άλλον τύπο κόμβου. Αντιστοιχεί σε περιττή μεταπομπή, που είναι το
+        # ακριβό σφάλμα.
+        "false_alarm_rate": f(~ok, steady),
+        # Χαμένη αλλαγή: η ετικέτα άλλαξε και το μοντέλο δεν την έπιασε.
+        "missed_change_rate": f(~ok, change),
+    }
+
+
+def evaluate_model(name, pipeline, X_test, y_test, results, test_df):
     y_pred = pipeline.predict(X_test)
     y_proba = pipeline.predict_proba(X_test)[:, list(pipeline.classes_).index("Satellite")]
 
@@ -179,9 +247,14 @@ def evaluate_model(name, pipeline, X_test, y_test, results):
     f1 = f1_score(y_test, y_pred, pos_label="Satellite")
     auc = roc_auc_score((y_test == "Satellite").astype(int), y_proba)
     report = classification_report(y_test, y_pred, output_dict=True)
+    breakdown = temporal_breakdown(test_df, y_test, y_pred)
 
     print(f"\n=== {name} ===")
     print(f"Accuracy: {acc:.4f}  F1(Satellite): {f1:.4f}  ROC-AUC: {auc:.4f}")
+    print(f"  steady samples ({breakdown['n_steady']}): {breakdown['accuracy_steady']:.4f}  "
+          f"false alarms {breakdown['false_alarm_rate']:.2%}")
+    print(f"  change samples ({breakdown['n_change']}): {breakdown['accuracy_change']:.4f}  "
+          f"missed {breakdown['missed_change_rate']:.2%}")
     print(classification_report(y_test, y_pred))
 
     results[name] = {
@@ -189,6 +262,7 @@ def evaluate_model(name, pipeline, X_test, y_test, results):
         "f1_satellite": f1,
         "roc_auc": auc,
         "classification_report": report,
+        "temporal_breakdown": breakdown,
     }
 
     cm = confusion_matrix(y_test, y_pred, labels=["Terrestrial", "Satellite"])
@@ -283,6 +357,17 @@ def main():
           f"{(df[TARGET_COLUMN] == 'Terrestrial').mean():.1%} Terrestrial / "
           f"{(df[TARGET_COLUMN] == 'Satellite').mean():.1%} Satellite")
 
+    # Δύο βασικές γραμμές χωρίς μοντέλο, για να διαβάζονται οι ακρίβειες.
+    majority_class = train_df[TARGET_COLUMN].value_counts().idxmax()
+    baselines = {
+        "majority_class": majority_class,
+        "majority_accuracy": float((test_df[TARGET_COLUMN] == majority_class).mean()),
+        "persistence": persistence_baseline(test_df, majority_class),
+    }
+    print(f"Baselines on test set: majority ({majority_class}) "
+          f"{baselines['majority_accuracy']:.4f} | "
+          f"persistence {baselines['persistence']['accuracy']:.4f}")
+
     feature_cols = FEATURE_COLUMNS_NUMERIC + FEATURE_COLUMNS_CATEGORICAL + FEATURE_COLUMNS_BOOL
     X_train, y_train = train_df[feature_cols], train_df[TARGET_COLUMN]
     X_test, y_test = test_df[feature_cols], test_df[TARGET_COLUMN]
@@ -295,6 +380,7 @@ def main():
     results = {"noise_sigma_dB": sigmas}
     roc_curves = {}
     results["dataset_sha256"] = sha
+    results["baselines"] = baselines
     results["split"] = {k: v for k, v in split_info.items()
                        if k not in ("train_passes", "test_passes")}
     for name, clf in models.items():
@@ -303,7 +389,7 @@ def main():
             ("clf", clf),
         ])
         pipeline.fit(X_train, y_train)
-        y_pred, y_proba = evaluate_model(name, pipeline, X_test, y_test, results)
+        y_pred, y_proba = evaluate_model(name, pipeline, X_test, y_test, results, test_df)
         roc_curves[name] = (y_test, y_proba)
         pred_path = save_predictions(name, test_df, y_test, y_pred, y_proba)
         pipe_path = save_pipeline(name, pipeline)

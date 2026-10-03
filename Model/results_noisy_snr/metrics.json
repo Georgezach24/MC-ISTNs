@@ -4,6 +4,15 @@
     "Satellite": 5.141426957285067
   },
   "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
+  "baselines": {
+    "majority_class": "Terrestrial",
+    "majority_accuracy": 0.7073694430441195,
+    "persistence": {
+      "accuracy": 0.9468436677309136,
+      "rule": "predict previous sample; fallback to majority where undefined or Outage",
+      "undefined_or_outage_fraction": 0.0637801303235684
+    }
+  },
   "split": {
     "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
     "group_column": "PassID",
@@ -43,6 +52,16 @@
         "support": 53559.0
       }
     },
+    "temporal_breakdown": {
+      "accuracy_steady": 0.9538627062149276,
+      "accuracy_change": 0.8062213156552779,
+      "n_steady": 47402,
+      "n_change": 5883,
+      "n_undefined": 274,
+      "change_fraction": 0.109841483224108,
+      "false_alarm_rate": 0.04613729378507236,
+      "missed_change_rate": 0.1937786843447221
+    },
     "predictions_file": "predictions_LogisticRegression.csv",
     "pipeline_file": "pipeline_LogisticRegression.joblib",
     "pipeline_sha256": "b1ad8d0c58e4c91af8f7a64a0ea64fbd1f160105966c6a644aacd2a501a92681",
@@ -78,6 +97,16 @@
         "f1-score": 0.9392901483805998,
         "support": 53559.0
       }
+    },
+    "temporal_breakdown": {
+      "accuracy_steady": 0.9531876292139572,
+      "accuracy_change": 0.8179500254971953,
+      "n_steady": 47402,
+      "n_change": 5883,
+      "n_undefined": 274,
+      "change_fraction": 0.109841483224108,
+      "false_alarm_rate": 0.046812370786042785,
+      "missed_change_rate": 0.1820499745028047
     },
     "predictions_file": "predictions_RandomForest.csv",
     "pipeline_file": "pipeline_RandomForest.joblib",

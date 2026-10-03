@@ -1,28 +1,31 @@
-"""
-Model/train_model_geometry_only.py
+"""Τέταρτη παραλλαγή: το ίδιο πρόβλημα με μνήμη.
 
-Second, harder ML pass on top of the Part 1 simulation. train_model.py
-gives the classifier ground-truth CandBS_SINR_dB/CandSat_SINR_dB, which
-already near-determine the label (ServingType = argmax of the two) - a
-pipeline sanity check, not a realistic prediction problem.
+Ίδιος στόχος (ServingType), ίδιος διαχωρισμός, ίδια μοντέλα και ίδια
+χαρακτηριστικά με το train_model.py (ακριβές SINR), συν δύο χαρακτηριστικά
+που περιγράφουν την προηγούμενη κατάσταση:
 
-This script removes that shortcut: it drops both candidate SNR columns
-AND both candidate path-loss columns (PathLoss is a near-affine proxy for
-SNR given the fixed per-type EIRP/noise floor in simulateScenario.m, so
-keeping it would let the model reconstruct SNR anyway and reintroduce the
-same shortcut under a different name). What remains is only what a real
-system would know about a link *before* measuring it: geometry
-(CandBS_Distance_m, CandSat_Elevation_deg, CandSat_SlantRange_m,
-CandSat_Visible) and scenario context (NumUsers).
+    PrevTypeFeature         ο τύπος κόμβου στο προηγούμενο δείγμα
+    TimeSincePrevChange_s   πόση ώρα κρατά αυτή η κατάσταση
 
-Because the underlying channel is stochastic (per-link LOS/NLOS draw +
-log-normal shadow fading, TR 38.901 SS7.4), geometry alone does not
-determine the winner - a lower accuracy here than in train_model.py is
-the expected, correct outcome, not a regression. The point is realism,
-not the metric.
+Κίνητρο: με υστέρηση η απόφαση εξαρτάται από το παρελθόν, οπότε η ετικέτα
+έπαψε να είναι συνάρτηση μόνο των στιγμιαίων χαρακτηριστικών. Ένα πραγματικό
+σύστημα ξέρει πού είναι ήδη συνδεδεμένο, άρα η πληροφορία αυτή είναι
+διαθέσιμη και δεν αποτελεί διαρροή.
 
-Usage:
-    python train_model_geometry_only.py
+ΠΡΟΣΟΧΗ, και είναι ο λόγος που υπάρχει το temporal_breakdown: η ετικέτα είναι
+έντονα αυτοσυσχετισμένη. Ο κανόνας "ό,τι ίσχυε και πριν", χωρίς κανένα
+μοντέλο, πιάνει ακρίβεια συγκρίσιμη με τα υπάρχοντα μοντέλα. Επομένως η
+συνολική ακρίβεια ΔΕΝ αποδεικνύει τίποτα εδώ. Το μόνο που μετράει είναι:
+  - η ακρίβεια στις στιγμές που η ετικέτα αλλάζει, όπου η εμμονή πιάνει 0, και
+  - το ποσοστό ψευδών συναγερμών στις σταθερές στιγμές, που αντιστοιχεί σε
+    περιττές μεταπομπές.
+Αν η μνήμη απλώς αντιγράφει την προηγούμενη κατάσταση, θα φανεί ως κατάρρευση
+της ακρίβειας στις στιγμές αλλαγής.
+
+Αιτιότητα: και τα δύο νέα χαρακτηριστικά υπολογίζονται από ετικέτες ΜΕΧΡΙ ΚΑΙ
+το προηγούμενο δείγμα, ποτέ από την τρέχουσα. Ειδικά ο χρόνος παραμονής δεν
+μετριέται "από την τελευταία αλλαγή μέχρι τώρα" - έτσι θα έβγαινε μηδέν
+ακριβώς στη στιγμή της αλλαγής και θα πρόδιδε την ετικέτα.
 """
 
 import hashlib
@@ -60,16 +63,14 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = ROOT / "Dataset" / "dataset.csv"
-RESULTS_DIR = Path(__file__).resolve().parent / "results_geometry_only"
+RESULTS_DIR = Path(__file__).resolve().parent / "results_memory"
 
 # Ίδιο κατώφλι με satParameters.MinElevationDeg στο runSimulation.m
 # (TR 38.821 visibility mask) - όχι μια νέα υπόθεση, απλά επαναχρησιμοποίηση.
 MIN_ELEVATION_DEG = 20.0
+SENTINEL_SINR_DB = -50.0        # "πρακτικά άχρηστος" όταν ο δορυφόρος δεν είναι ορατός
+SENTINEL_PATHLOSS_DB = 300.0
 
-# CandBS_SINR_dB/CandSat_SINR_dB και CandBS_PathLoss_dB/CandSat_PathLoss_dB
-# αποκλείονται σκόπιμα (βλ. docstring): δίνουν στο μοντέλο την απάντηση, ή
-# ένα σχεδόν-affine ισοδύναμό της. Μένουν μόνο γεωμετρικά/context
-# χαρακτηριστικά, διαθέσιμα σε ένα πραγματικό σύστημα πριν τη μέτρηση SNR.
 # Η υποδειγματοληψία στον χρόνο γίνεται ΣΤΗΝ ΠΗΓΗ: το runSimulation.m
 # προχωρά με βήμα 1 s αλλά γράφει μία γραμμή κάθε datasetStride βήματα
 # (5 s), γιατί διαδοχικά δείγματα του ίδιου χρήστη απέχουν 0.83 m και είναι
@@ -78,13 +79,18 @@ MIN_ELEVATION_DEG = 20.0
 ML_SAMPLE_STRIDE = 1
 
 FEATURE_COLUMNS_NUMERIC = [
-    # NodeLoad exclude σκόπιμα: είναι συνέπεια του ServingType, όχι
-    # ανεξάρτητος predictor (βλ. train_model.py).
+    # NodeLoad is deliberately excluded: it's the count of users sharing the
+    # SAME winning node within a scenario, which is a downstream consequence
+    # of ServingType for every user in that scenario (satellite scenarios
+    # mechanically have larger groups) - a circular predictor, not a cause.
     "NumUsers",
-    "CandBS_Distance_m",
-    "CandSat_Elevation_deg", "CandSat_SlantRange_m",
+    "CandBS_SINR_dB", "CandBS_Distance_m", "CandBS_PathLoss_dB",
+    "CandSat_SINR_dB", "CandSat_Elevation_deg", "CandSat_SlantRange_m",
+    "CandSat_PathLoss_dB",
+    # --- μνήμη ---
+    "TimeSincePrevChange_s",
 ]
-FEATURE_COLUMNS_CATEGORICAL = []  # το σενάριο διάδοσης είναι σταθερό (UMa)
+FEATURE_COLUMNS_CATEGORICAL = ["PrevTypeFeature"]
 FEATURE_COLUMNS_BOOL = ["CandSat_Visible"]
 TARGET_COLUMN = "ServingType"
 
@@ -102,6 +108,12 @@ def load_dataset(path: Path) -> pd.DataFrame:
         df = df[df["Step"] % ML_SAMPLE_STRIDE == 1].reset_index(drop=True)
         print(f"Time decimation: kept {len(df)} of {before} rows "
               f"(1 sample every {ML_SAMPLE_STRIDE} s)")
+    # Ο δορυφόρος έχει -Inf SNR / Inf path loss όταν elevation < MinElevationDeg
+    # (visibility mask στο simulateScenario.m). Αντικατάσταση με sentinel τιμές
+    # + ρητό boolean flag, ώστε το μοντέλο να μη σκάει σε μη-πεπερασμένες τιμές.
+    df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
+    df["CandSat_SINR_dB"] = df["CandSat_SINR_dB"].replace([np.inf, -np.inf], SENTINEL_SINR_DB)
+    df["CandSat_PathLoss_dB"] = df["CandSat_PathLoss_dB"].replace([np.inf, -np.inf], SENTINEL_PATHLOSS_DB)
 
     # Προηγούμενη κατάσταση εξυπηρέτησης ανά (διέλευση, χρήστη), υπολογισμένη
     # ΠΡΙΝ πεταχτούν οι γραμμές outage, ώστε το "ήταν σε διακοπή" να μη χαθεί.
@@ -112,12 +124,44 @@ def load_dataset(path: Path) -> pd.DataFrame:
     # το αποτέλεσμα επιστρέφει στην αρχική σειρά. Αλλιώς θα άλλαζε η σειρά
     # εκπαίδευσης και μαζί τα δέντρα του τυχαίου δάσους.
     _srt = df.sort_values(["PassID", "UserID", "Step"])
-    df["PrevServingType"] = (_srt.groupby(["PassID", "UserID"], sort=False)["ServingType"]
-                             .shift(1).reindex(df.index))
+    _g = _srt.groupby(["PassID", "UserID"], sort=False)
+    _prev = _g["ServingType"].shift(1)
+    df["PrevServingType"] = _prev.reindex(df.index)
+
+    # --- χαρακτηριστικά μνήμης ---------------------------------------------
+    # Το PrevServingType κρατιέται με NaN για το temporal_breakdown (εκεί το
+    # NaN σημαίνει "πρώτο δείγμα της διέλευσης"). Για το μοντέλο φτιάχνεται
+    # χωριστή στήλη με ρητή κατηγορία.
+    df["PrevTypeFeature"] = df["PrevServingType"].fillna("Unknown")
+
+    # Χρόνος παραμονής στην ΠΡΟΗΓΟΥΜΕΝΗ κατάσταση, μετρημένος μέχρι τώρα.
+    # Υπολογίζεται ως (παραμονή μέχρι το προηγούμενο δείγμα) + (το βήμα), ώστε
+    # να μη χρησιμοποιηθεί πουθενά η τρέχουσα ετικέτα: αν μετρούσαμε απευθείας
+    # τον χρόνο από την τελευταία αλλαγή, στη στιγμή της αλλαγής θα έβγαινε 0
+    # και το χαρακτηριστικό θα πρόδιδε τον στόχο.
+    _newrun = (_srt["ServingType"] != _prev)
+    _runid = _newrun.groupby([_srt["PassID"], _srt["UserID"]], sort=False).cumsum()
+    _key = (_srt["PassID"].astype(str) + "|" + _srt["UserID"].astype(str)
+            + "|" + _runid.astype(str))
+    _dwell = _srt["Time_s"] - _srt.groupby(_key, sort=False)["Time_s"].transform("first")
+    _dwell_prev = _dwell.groupby([_srt["PassID"], _srt["UserID"]], sort=False).shift(1)
+    _dt = _g["Time_s"].diff()
+    df["TimeSincePrevChange_s"] = (_dwell_prev + _dt).reindex(df.index).fillna(0.0)
+
+    # Έλεγχος αιτιότητας: στις στιγμές που η ετικέτα αλλάζει, ο χρόνος
+    # παραμονής δεν επιτρέπεται να είναι συστηματικά μηδέν - αυτό θα σήμαινε
+    # ότι το χαρακτηριστικό διαβάζει την τρέχουσα ετικέτα.
+    _chg = df["PrevServingType"].notna() & (df["PrevServingType"] != df["ServingType"])
+    if _chg.any() and float((df.loc[_chg, "TimeSincePrevChange_s"] == 0).mean()) > 0.01:
+        raise AssertionError(
+            "TimeSincePrevChange_s είναι μηδέν στις στιγμές αλλαγής: διαρροή ετικέτας."
+        )
 
     # simulateScenario.m πλέον καταγράφει και ServingType="Outage" (κανένας
-    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR) - εξαιρείται
-    # εδώ, ίδια λογική με το train_model.py.
+    # υποψήφιος δεν ξεπερνά το ελάχιστο χρησιμοποιήσιμο SINR). Εξαιρούνται
+    # εδώ: το "ποιος από τους δύο διαθέσιμους κόμβους κερδίζει" είναι
+    # διαφορετικό ερώτημα από το "υπάρχει καθόλου κάλυψη" - η ανάμειξή τους
+    # θα αλλοίωνε το ήδη καθιερωμένο binary πρόβλημα Terrestrial/Satellite.
     numOutage = int((df["ServingType"] == "Outage").sum())
     if numOutage:
         print(f"Excluding {numOutage} Outage rows (no candidate above minimum usable SINR) "
@@ -135,18 +179,64 @@ def load_dataset(path: Path) -> pd.DataFrame:
         print(f"Excluding {numOutOfRange} rows with no valid terrestrial candidate "
               f"(outside UMa/UMi validity range) out of {len(df)}.")
         df = df[~df["BsUnavailReason"].eq("OutOfModelRange")].reset_index(drop=True)
-
-    # CandSat_Elevation_deg/CandSat_SlantRange_m είναι πάντα πεπερασμένα
-    # (γεωμετρία, όχι SNR/path loss) - το μόνο που χρειάζεται είναι η
-    # boolean σημαία ορατότητας.
-    df["CandSat_Visible"] = df["CandSat_Elevation_deg"] >= MIN_ELEVATION_DEG
     return df
+
+
+SINR_MIN_DB = 10 * np.log10(2 ** 0.2344 - 1)   # -7.5346 dB, MCS 0 (TS 38.214 Πίν. 5.1.3.1-1)
+
+# Παράμετροι απόφασης, ίδιες με τις προεπιλογές του runSimulation.m
+# (TS 38.331 §5.5.4.4 Event A3, §6.3.2 Hysteresis / TimeToTrigger).
+HYSTERESIS_DB = 3.0
+TTT_MS = 2560
+DT_SECONDS = 1.0
+
+
+def label_identity_check(path: Path) -> dict:
+    """Συμφωνία του ΣΤΙΓΜΙΑΙΟΥ κανόνα με την καταγεγραμμένη ετικέτα.
+
+    Με υστέρηση και χρόνο επιβεβαίωσης (TS 38.331 §5.5.4.4) η ετικέτα δεν είναι
+    πια στιγμιαία συνάρτηση των δύο υποψήφιων SINR, οπότε η συμφωνία ΔΕΝ είναι
+    πλέον 100% και η διαφορά είναι μέτρηση, όχι σφάλμα: δείχνει σε πόσα βήματα
+    η υστέρηση κράτησε τον χρήστη σε κόμβο που δεν ήταν ο στιγμιαία καλύτερος.
+
+    Ο πλήρης κανόνας με μνήμη ΔΕΝ μπορεί να αναπαραχθεί από τις στήλες που
+    δημοσιεύονται, για δύο λόγους: το αρχείο γράφεται κάθε 5 s ενώ ο μετρητής
+    επιβεβαίωσης προχωρά ανά βήμα, και η ταυτότητα του αντίπαλου υποψηφίου δεν
+    καταγράφεται όταν ο εξυπηρετών είναι ο δορυφόρος. Η επαλήθευση του
+    μηχανισμού στηρίζεται επομένως στις τρεις ιδιότητες που ελέγχονται αλλού:
+    με μηδενική υστέρηση το σύνολο δεδομένων βγαίνει ταυτόσημο byte προς byte,
+    οι μεταβάσεις μειώνονται μονότονα στη σάρωση δώδεκα ρυθμίσεων, και το
+    ποσοστό εκτός κάλυψης παραμένει αμετάβλητο σε όλες.
+    """
+    raw = pd.read_csv(path, usecols=["CandBS_SINR_dB", "CandSat_SINR_dB",
+                                     "CandSat_Elevation_deg", "ServingType"])
+    bs = raw["CandBS_SINR_dB"].fillna(-np.inf).to_numpy()
+    sat = raw["CandSat_SINR_dB"].to_numpy()
+    sat = np.where(raw["CandSat_Elevation_deg"].to_numpy() >= MIN_ELEVATION_DEG, sat, -np.inf)
+    sat = np.where(np.isnan(sat), -np.inf, sat)
+
+    sat_wins = sat > bs                      # ισοπαλία -> επίγειος, όπως στη MATLAB
+    best = np.where(sat_wins, sat, bs)
+    predicted = np.where(best < SINR_MIN_DB, "Outage",
+                         np.where(sat_wins, "Satellite", "Terrestrial"))
+
+    actual = raw["ServingType"].to_numpy()
+    matches = int((predicted == actual).sum())
+    total = len(actual)
+    print(f"\nInstantaneous-rule agreement (SINR_min = {SINR_MIN_DB:.4f} dB): "
+          f"rule reproduces {matches}/{total} labels "
+          f"({100*matches/total:.4f}%, {total-matches} mismatches)")
+    return {"sinr_min_db": float(SINR_MIN_DB), "rows": total,
+            "matches": matches, "mismatches": total - matches}
 
 
 def build_preprocessor() -> ColumnTransformer:
     return ColumnTransformer([
         ("num", StandardScaler(), FEATURE_COLUMNS_NUMERIC),
-        ("cat", OneHotEncoder(drop="if_binary"),
+        # handle_unknown="ignore": η PrevTypeFeature έχει τέσσερις δυνατές
+        # τιμές (Terrestrial/Satellite/Outage/Unknown) και δεν είναι εγγυημένο
+        # ότι εμφανίζονται όλες στις διελεύσεις εκπαίδευσης.
+        ("cat", OneHotEncoder(drop="if_binary", handle_unknown="ignore"),
          FEATURE_COLUMNS_CATEGORICAL + FEATURE_COLUMNS_BOOL),
     ])
 
@@ -247,12 +337,13 @@ def evaluate_model(name, pipeline, X_test, y_test, results, test_df):
     disp = ConfusionMatrixDisplay(cm, display_labels=["Terrestrial", "Satellite"])
     fig, ax = plt.subplots(figsize=(4, 4))
     disp.plot(ax=ax, cmap="Blues", colorbar=False)
-    ax.set_title(f"{name} - Confusion Matrix (geometry-only)")
+    ax.set_title(f"{name} - Confusion Matrix")
     fig.tight_layout()
     fig.savefig(RESULTS_DIR / f"confusion_matrix_{name}.png", dpi=150)
     plt.close(fig)
 
     return y_pred, y_proba
+
 
 
 def dataset_sha256(path: Path) -> str:
@@ -320,6 +411,8 @@ def main():
             "to generate the dataset (see PROD/runSimulation.m)."
         )
 
+    label_check = label_identity_check(DATASET_PATH)
+
     df = load_dataset(DATASET_PATH)
     train_df, test_df = group_train_test_split(df)
     sha = dataset_sha256(DATASET_PATH)
@@ -352,7 +445,7 @@ def main():
         "RandomForest": RandomForestClassifier(n_estimators=300, max_depth=12, random_state=42),
     }
 
-    results = {}
+    results = {"instantaneous_rule_agreement": label_check}
     roc_curves = {}
     results["dataset_sha256"] = sha
     results["baselines"] = baselines
@@ -382,7 +475,7 @@ def main():
 
             fig, ax = plt.subplots(figsize=(7, 5))
             ax.barh([all_feature_names[i] for i in order][::-1], importances[order][::-1])
-            ax.set_title("RandomForest Feature Importance (geometry-only)")
+            ax.set_title("RandomForest Feature Importance")
             ax.set_xlabel("Importance")
             fig.tight_layout()
             fig.savefig(RESULTS_DIR / "feature_importance_RandomForest.png", dpi=150)
@@ -407,7 +500,7 @@ def main():
     fig, ax = plt.subplots(figsize=(5, 5))
     for name, (y_true, y_proba) in roc_curves.items():
         RocCurveDisplay.from_predictions((y_true == "Satellite").astype(int), y_proba, name=name, ax=ax)
-    ax.set_title("ROC Curve - Predicting Satellite vs Terrestrial (geometry-only)")
+    ax.set_title("ROC Curve - Predicting Satellite vs Terrestrial")
     fig.tight_layout()
     fig.savefig(RESULTS_DIR / "roc_curve.png", dpi=150)
     plt.close(fig)

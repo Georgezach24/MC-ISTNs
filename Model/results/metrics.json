@@ -6,6 +6,15 @@
     "mismatches": 14955
   },
   "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
+  "baselines": {
+    "majority_class": "Terrestrial",
+    "majority_accuracy": 0.7073694430441195,
+    "persistence": {
+      "accuracy": 0.9468436677309136,
+      "rule": "predict previous sample; fallback to majority where undefined or Outage",
+      "undefined_or_outage_fraction": 0.0637801303235684
+    }
+  },
   "split": {
     "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
     "group_column": "PassID",
@@ -45,6 +54,16 @@
         "support": 53559.0
       }
     },
+    "temporal_breakdown": {
+      "accuracy_steady": 0.9590101683473271,
+      "accuracy_change": 0.8295087540370559,
+      "n_steady": 47402,
+      "n_change": 5883,
+      "n_undefined": 274,
+      "change_fraction": 0.109841483224108,
+      "false_alarm_rate": 0.040989831652672885,
+      "missed_change_rate": 0.17049124596294407
+    },
     "predictions_file": "predictions_LogisticRegression.csv",
     "pipeline_file": "pipeline_LogisticRegression.joblib",
     "pipeline_sha256": "84e9cdf357789df9a02764ef18e2d735d6166d39cdbbb1cdfadbe3b45efd56ea",
@@ -80,6 +99,16 @@
         "f1-score": 0.9506292217417885,
         "support": 53559.0
       }
+    },
+    "temporal_breakdown": {
+      "accuracy_steady": 0.9616049955698072,
+      "accuracy_change": 0.8558558558558559,
+      "n_steady": 47402,
+      "n_change": 5883,
+      "n_undefined": 274,
+      "change_fraction": 0.109841483224108,
+      "false_alarm_rate": 0.03839500443019282,
+      "missed_change_rate": 0.14414414414414414
     },
     "predictions_file": "predictions_RandomForest.csv",
     "pipeline_file": "pipeline_RandomForest.joblib",

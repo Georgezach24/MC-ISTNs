@@ -48,9 +48,9 @@ Instantaneous-rule agreement (SINR_min = -7.5346 dB): rule reproduces 219621/234
 
 The full memory-bearing rule cannot be replayed from the published columns: the CSV is written every 5 s while the confirmation counter advances per step, and the challenger's identity is not recorded when the satellite is serving. What *is* verified: with zero hysteresis the dataset reproduces byte-for-byte, transitions fall monotonically across the twelve-setting sweep, and the outage fraction is unchanged in all twelve (the numerical proof that hysteresis never holds a dead link).
 
-## Three variants
+## Four variants
 
-All three share: candidate-level features only (never the winning node's own metrics), `NodeLoad` excluded (it is a consequence of the label for the whole pass), train/test split **by `PassID`** via `GroupShuffleSplit` 75/25 — 151 training passes (160,470 rows) and 51 test passes (53,559 rows) — Logistic Regression + Random Forest (300 trees, depth 12).
+All four share: candidate-level features only (never the winning node's own metrics), `NodeLoad` excluded (it is a consequence of the label for the whole pass), train/test split **by `PassID`** via `GroupShuffleSplit` 75/25 — 151 training passes (160,470 rows) and 51 test passes (53,559 rows) — Logistic Regression + Random Forest (300 trees, depth 12).
 
 Splitting by pass matters here: rows inside one pass are a 900 s time series over the same geometry, so a row-level split would put near-duplicate samples on both sides.
 
@@ -59,19 +59,46 @@ Splitting by pass matters here: rows inside one pass are a 900 s time series ove
 | `train_model.py` | exact `CandBS_SINR_dB` / `CandSat_SINR_dB` | correctness check of the MATLAB → CSV → Python chain |
 | `train_model_noisy_snr.py` | SINR + Gaussian noise (σ measured from this dataset: 7.57 dB terrestrial, 5.14 dB satellite) | imperfect/stale measurement |
 | `train_model_geometry_only.py` | no SINR **and** no path loss (collinear proxy) | lower bound: what geometry alone carries |
+| `train_model_memory.py` | exact SINR **+ previous serving type + dwell time** | what the previous state adds, now that hysteresis made the label history-dependent |
+
+The memory variant's two extra features are causal by construction: both are computed from labels up to and including the *previous* sample only. In particular the dwell time is measured as "how long the previous state has been held, as of now", not "time since the last change" — the latter would be exactly zero at every change instant and would leak the target. The script asserts this.
 
 The noise σ is no longer read from a separate file — it is computed from the dataset being trained on, so the two can never drift apart.
 
 ## Results (202-pass run)
 
-| Input features | LR accuracy | LR ROC-AUC | RF accuracy | RF ROC-AUC |
-|---|---:|---:|---:|---:|
-| Exact SINR | 0.9450 | 0.9877 | 0.9502 | 0.9893 |
-| Noisy SINR | 0.9379 | 0.9836 | 0.9386 | 0.9845 |
-| Geometry only | 0.9327 | 0.9800 | 0.9326 | 0.9794 |
-| Majority class | — | — | 0.7171 | — |
+### Read the breakdown, not the headline
 
-**The three variants collapsed onto each other.** The spread from exact SINR to pure geometry is now **1.8 points** (0.9502 → 0.9326); before hysteresis it was 8.6. Since the decision depends on the previous state, the information missing from every variant is not measurement precision but history — so improving the instantaneous input buys little, and all three hit the same ceiling. **A model that is given the previous serving node, or any memory at all, should beat all three clearly. That is now the cheapest and clearest next step for Part 2.**
+Overall accuracy is close to meaningless on this dataset, and it is worth being blunt about why. With hysteresis the label is strongly autocorrelated: in **88.96%** of consecutive samples the serving type is unchanged. So the rule *"predict whatever it was 5 s ago"*, with no model and no features at all, scores **0.9468** on the test set — higher than two of the three original variants. Any accuracy figure here has to be read against that baseline, not against the majority class.
+
+Each script therefore splits the test set in two and reports both halves (`temporal_breakdown` in `metrics.json`):
+
+- **steady** samples, where the label equals the previous one — 47,402 rows (88.5%);
+- **change** samples, where it differs — 5,883 rows (11.0%);
+- plus 274 first-of-pass rows where no previous sample exists.
+
+On steady samples an error is a **false alarm**: the model calls a switch that did not happen, i.e. an unnecessary handover. On change samples an error is a **missed transition**: the user is left on a node that is no longer the right one.
+
+### Random Forest
+
+| Input features | overall | steady | false alarms | **change** | missed |
+|---|---:|---:|---:|---:|---:|
+| Exact SINR | 0.9502 | 0.9616 | 3.84% | **0.8559** | 14.41% |
+| Noisy SINR | 0.9386 | 0.9532 | 4.68% | **0.8180** | 18.20% |
+| Geometry only | 0.9326 | 0.9508 | 4.92% | **0.7831** | 21.69% |
+| + memory | **0.9647** | **0.9917** | **0.83%** | **0.7457** | 25.43% |
+| *persistence baseline* | 0.9468 | 1.0000 | 0% | 0.0000 | 100% |
+| *majority class* | 0.7074 | — | — | — | — |
+
+Logistic Regression, same order: 0.9450 / 0.9379 / 0.9327 / 0.9583 overall, and 0.8295 / 0.8062 / 0.7829 / 0.7149 on the change samples.
+
+**The three original variants do not collapse onto each other.** Overall they span 1.8 points (0.9502 → 0.9326), which is what the previous version of this file reported and which was the wrong reading. On the samples that actually decide anything they span **7.3 points** (0.8559 → 0.7831), and the missed-transition rate falls by a third, 21.7% → 14.4%, as the input improves from pure geometry to exact SINR. Measurement quality matters exactly where it should; the headline metric was diluting it fourfold with samples where nothing happens.
+
+**Memory does not add what was expected.** Giving the model the previous serving type raises overall accuracy to 0.9647 — the best of the four — and cuts false alarms by a factor of 4.6, from 3.84% to **0.83%**. But detection of real transitions gets *worse*, from 0.8559 to 0.7457. Per 1,000 test samples the trade is roughly **34 → 7 unnecessary handovers against 16 → 28 missed transitions**. The model has partly learned to sit still, because 88.5% of the training signal rewards sitting still.
+
+That is not a failure, it is the expected consequence of supervising on labels that a hysteresis policy produced: **the memory model has learned the hysteresis bias itself**. Which also sets the ceiling — a model trained to imitate this policy's decisions cannot outperform the policy. Beating it requires a different objective (throughput, energy, interruption cost) rather than agreement with its labels.
+
+Two smaller results from the same run. The dwell-time feature is **worthless**: permutation importance 0.0002, last of eleven. At 5 s sampling it cannot see a 2,560 ms time-to-trigger window at all. And `PrevTypeFeature` ranks third (0.0585), behind the two satellite-side features — so the memory model is not merely copying the previous state, it is weighting it against the physics.
 
 The two classifiers land within ~0.5 points of each other in every variant, so these runs do **not** support a claim that the problem needs a non-linear model. The meaningful comparison is each classifier against the majority-class baseline.
 
@@ -88,6 +115,7 @@ Each script writes both impurity-based and permutation importances (10 repeats, 
 | Exact SINR | `CandSat_PathLoss_dB` 0.259/0.133 · `CandSat_SINR_dB` 0.255/0.077 · `CandSat_Elevation_deg` 0.146/0.019 · `CandSat_SlantRange_m` 0.120/0.006 |
 | Noisy SINR | `CandSat_SINR_noisy_dB` 0.302/0.146 · `CandSat_Elevation_deg` 0.263/0.038 · `CandSat_Visible` 0.185/0.000 · `CandSat_SlantRange_m` 0.153/0.007 |
 | Geometry only | `CandSat_Elevation_deg` 0.417/0.130 · `CandSat_Visible` 0.272/0.000 · `CandSat_SlantRange_m` 0.225/0.007 · `CandBS_Distance_m` 0.081/0.034 |
+| + memory | `CandSat_PathLoss_dB` —/0.144 · `CandSat_SINR_dB` —/0.117 · `PrevTypeFeature` —/0.059 · `CandBS_PathLoss_dB` —/0.005 (`TimeSincePrevChange_s` 0.0002, last) |
 
 Three caveats belong with any reading of this. SINR and path loss of the same link are collinear, but **not equally on the two segments**: on the satellite link, where the interference term is zero, they are the same quantity (r = −1.0000), while on the terrestrial link interference breaks the exact relation and r falls to −0.9303. The satellite pair's combined importance therefore describes **one** quantity split arbitrarily between two columns; the terrestrial pair only partly overlaps. Impurity importance is biased toward features with many split points, which is why permutation importance on the test set is reported alongside — and the gap between the two columns is large here. And the satellite-side features now dominate, which reflects the temporal structure of this dataset (elevation is the thing that changes during a pass), not a general statement about which segment matters.
 
@@ -98,9 +126,10 @@ pip install -r requirements.txt
 python train_model.py
 python train_model_noisy_snr.py
 python train_model_geometry_only.py
+python train_model_memory.py
 ```
 
-Requires `Dataset/dataset.csv` — generate it first with `runSimulation()` in MATLAB. Column names carry **SINR**, not SNR: the terrestrial candidate value includes inter-site interference (see thesis §3.6), and on the satellite candidate the interference term is zero by the frequency separation, so there SINR equals SNR. Outputs land in `results/`, `results_noisy_snr/`, `results_geometry_only/`: metrics JSON, confusion matrices, ROC and importance plots, plus the reproducibility artefacts described below (`split.json`, `predictions_<Model>.csv`, `pipeline_<Model>.joblib`).
+Requires `Dataset/dataset.csv` — generate it first with `runSimulation()` in MATLAB. Column names carry **SINR**, not SNR: the terrestrial candidate value includes inter-site interference (see thesis §3.6), and on the satellite candidate the interference term is zero by the frequency separation, so there SINR equals SNR. Outputs land in `results/`, `results_noisy_snr/`, `results_geometry_only/`, `results_memory/`: metrics JSON, confusion matrices, ROC and importance plots, plus the reproducibility artefacts described below (`split.json`, `predictions_<Model>.csv`, `pipeline_<Model>.joblib`).
 
 `MIN_ELEVATION_DEG` in all three scripts must match `satParameters.MinElevationDeg` in the simulation (currently 20°); it is used to derive the `CandSat_Visible` flag and inside the label identity check.
 
@@ -116,7 +145,7 @@ Every run writes, next to `metrics.json`, everything needed to re-check a publis
 
 The split is no longer implicit in the code: `SPLIT_TEST_SIZE` and `SPLIT_SEED` are module constants used both by `group_train_test_split` and by what `split.json` reports, so the two cannot disagree. The dataset hash in `split.json` is the same SHA-256 that `runSimulation.m` records in `params.txt`, which ties a set of metrics to one specific dataset file rather than to a filename.
 
-Both halves were checked. Accuracy recomputed directly from each `predictions_<Model>.csv` reproduces every figure in the table above exactly — 0.9450/0.9502, 0.9379/0.9386, 0.9327/0.9326 on the same 53,559 test rows. And reloading `results_geometry_only/pipeline_RandomForest.joblib`, then applying it to the test passes listed in `split.json`, returns predictions identical to the saved ones, row for row. So both the metrics and the model that produced them can be audited from the files, without retraining.
+Both halves were checked. Accuracy recomputed directly from each `predictions_<Model>.csv` reproduces every figure in the table above exactly — 0.9450/0.9502, 0.9379/0.9386, 0.9327/0.9326, 0.9583/0.9647 on the same 53,559 test rows. And reloading `results_geometry_only/pipeline_RandomForest.joblib`, then applying it to the test passes listed in `split.json`, returns predictions identical to the saved ones, row for row. So both the metrics and the model that produced them can be audited from the files, without retraining.
 
 The `.joblib` files are 2 KB (Logistic Regression) to 16 MB (Random Forest, 300 trees) and are rewritten on every training run, so they are **not** tracked in git — `.gitignore` excludes `Model/results*/pipeline_*.joblib`. Their SHA-256 and byte size are recorded in `metrics.json` instead, so a `.joblib` file on disk can be matched against the results it produced. Loading one needs the same scikit-learn version as `requirements.txt`.
 
