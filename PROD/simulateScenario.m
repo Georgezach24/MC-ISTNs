@@ -528,16 +528,25 @@ satNode = polNodeMat(:,3);
 satType = polTypeMat(:,3);
 satSnrPolicy = polSinrMat(:,3);
 
+% Διαθέσιμο φάσμα ανά σκέλος σε αυτό το βήμα (MHz).
+spectrumTerrMHz = BW_bs/1e6;
+if any(isfinite(satSinrDbVec))
+    spectrumSatMHz = satParameters.Bandwidth/1e6;
+else
+    spectrumSatMHz = 0;
+end
+
 policyKpis = struct();
-policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers);
+policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, ...
+    spectrumTerrMHz + spectrumSatMHz);
 
 [capT, thrT, ~, ~, ~, netT] = allocateAndTally(terrNode, terrType, terrSnr, ...
     simParameters, satParameters, alloc);
-policyKpis.TerrestrialOnly = policySummary(capT, thrT, netT, numUsers);
+policyKpis.TerrestrialOnly = policySummary(capT, thrT, netT, numUsers, spectrumTerrMHz);
 
 [capS, thrS, ~, ~, ~, netS] = allocateAndTally(satNode, satType, satSnrPolicy, ...
     simParameters, satParameters, alloc);
-policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers);
+policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers, spectrumSatMHz);
 
 %% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
 % Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
@@ -739,7 +748,7 @@ networkEnergy.OutageUsers     = sum(serviceStateVec == "Outage");
 networkEnergy.TargetNormSe    = alloc.targetNormalizedSe;
 end
 
-function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers)
+function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, spectrumMHz)
 % Δείκτες μιας πολιτικής για ένα βήμα, σε μορφή έτοιμη για συνάθροιση ανά
 % διέλευση. Η μέση χωρητικότητα υπολογίζεται στους χρήστες που εξυπηρετούνται,
 % ενώ η συνολική ρυθμαπόδοση και τα ποσοστά ορίζονται σε όλους - ώστε μια
@@ -759,6 +768,13 @@ s.TotalPower_W     = networkEnergy.TotalPower_W;
 s.TotalPowerRf_W   = networkEnergy.TotalPowerRf_W;
 s.BitPerJoule      = networkEnergy.BitPerJoule;
 s.BitPerJouleRf    = networkEnergy.BitPerJouleRf;
+% Φάσμα που έχει στη διάθεσή της η πολιτική σε αυτό το βήμα. Ορίζεται από τη
+% ΔΙΑΘΕΣΙΜΟΤΗΤΑ και όχι από τις επιλογές της, ώστε να μένει συγκρίσιμο: οι
+% σταθμοί βάσης εκπέμπουν πάντα (και οι δύο στο ίδιο φάσμα, επαναχρησιμοποίηση
+% 1), ενώ ο δορυφόρος μετράει μόνο όταν είναι πάνω από τη γωνία αποκοπής.
+% Χρησιμεύει για να χωριστεί το πλεονέκτημα της μεικτής πολιτικής σε μέρος που
+% οφείλεται στην απόφαση και σε μέρος που οφείλεται στο διαθέσιμο φάσμα.
+s.Spectrum_MHz     = spectrumMHz;
 end
 
 function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)

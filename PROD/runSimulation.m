@@ -297,7 +297,7 @@ passKpi = nan(opts.maxPasses, numKpi);
 % απαλείφεται από τη διαφορά.
 policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly'};
 policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
-                 'FracBelowTarget','FracOutage','BitPerJouleRf'};
+                 'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz'};
 numPolicy       = numel(policyNames);
 numPolicyMetric = numel(policyMetrics);
 policyPassKpi   = nan(opts.maxPasses, numPolicy, numPolicyMetric);
@@ -570,6 +570,19 @@ numPasses = passIdx;
 % στο ίδιο κανάλι και την ίδια τοπολογία. Η στατιστική γίνεται στη ΔΙΑΦΟΡΑ ανά
 % διέλευση, όχι στους δύο μέσους όρους χωριστά.
 pol = policyPassKpi(1:numPasses,:,:);
+
+% Φασματική απόδοση: παράγωγο μέγεθος, υπολογισμένο σε επίπεδο ΔΙΕΛΕΥΣΗΣ ως
+% λόγος των δύο μέσων και όχι ως μέσος των λόγων. Ο λόγος είναι ότι στα βήματα
+% χωρίς ορατό δορυφόρο το φάσμα της αποκλειστικά δορυφορικής πολιτικής είναι
+% μηδέν, οπότε ο ανά βήμα λόγος θα ήταν 0/0. Απομονώνει τη συνεισφορά της
+% απόφασης από τη συνεισφορά του διαθέσιμου φάσματος (βλ. αξιολόγηση #3).
+iRate = find(strcmp(policyMetrics, 'TotalRate_Mbps'), 1);
+iSpec = find(strcmp(policyMetrics, 'Spectrum_MHz'), 1);
+specEff = pol(:,:,iRate) ./ pol(:,:,iSpec);
+specEff(~isfinite(specEff)) = NaN;
+pol(:,:,end+1) = specEff;
+policyMetrics{end+1} = 'SpectralEff_bpsHz';
+numPolicyMetric = numel(policyMetrics);
 
 polPassID = repelem((1:numPasses)', numPolicy);
 polName   = repmat(string(policyNames(:)), numPasses, 1);

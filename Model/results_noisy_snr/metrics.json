@@ -1,154 +1,154 @@
 {
   "noise_sigma_dB": {
-    "Terrestrial": 7.569886890015906,
-    "Satellite": 5.141426957285067
+    "Terrestrial": 6.864594006156846,
+    "Satellite": 4.774581307850087
   },
-  "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
+  "dataset_sha256": "47c54c271199352040808ffedc83477c5f413127a2c7bbdb6087f8b58f14e3b2",
   "baselines": {
     "majority_class": "Terrestrial",
-    "majority_accuracy": 0.7073694430441195,
+    "majority_accuracy": 0.7176903317982156,
     "persistence": {
-      "accuracy": 0.9468436677309136,
+      "accuracy": 0.981259404495919,
       "rule": "predict previous sample; fallback to majority where undefined or Outage",
-      "undefined_or_outage_fraction": 0.0637801303235684
+      "undefined_or_outage_fraction": 0.021810830939461644
     }
   },
   "split": {
-    "dataset_sha256": "0aee7e3a46d408b970b5c42fe62e086285bee00e2237d259736419996f2d3092",
+    "dataset_sha256": "47c54c271199352040808ffedc83477c5f413127a2c7bbdb6087f8b58f14e3b2",
     "group_column": "PassID",
     "test_size": 0.25,
     "seed": 42,
-    "n_train_rows": 160470,
-    "n_test_rows": 53559
+    "n_train_rows": 184047,
+    "n_test_rows": 65793
   },
   "LogisticRegression": {
-    "accuracy": 0.9378815885285386,
-    "f1_satellite": 0.89832217841753,
-    "roc_auc": 0.9836381455784574,
+    "accuracy": 0.9468636481084614,
+    "f1_satellite": 0.9096267190569745,
+    "roc_auc": 0.9878820465942741,
     "classification_report": {
       "Satellite": {
-        "precision": 0.8620952604411075,
-        "recall": 0.9377273017290882,
-        "f1-score": 0.89832217841753,
-        "support": 15673.0
+        "precision": 0.8748881153654898,
+        "recall": 0.9472380747281146,
+        "f1-score": 0.9096267190569745,
+        "support": 18574.0
       },
       "Terrestrial": {
-        "precision": 0.973268330092301,
-        "recall": 0.9379454151929473,
-        "f1-score": 0.9552804548570507,
-        "support": 37886.0
+        "precision": 0.9785478186633978,
+        "recall": 0.9467163641754378,
+        "f1-score": 0.9623689479236185,
+        "support": 47219.0
       },
-      "accuracy": 0.9378815885285386,
+      "accuracy": 0.9468636481084614,
       "macro avg": {
-        "precision": 0.9176817952667042,
-        "recall": 0.9378363584610178,
-        "f1-score": 0.9268013166372904,
-        "support": 53559.0
+        "precision": 0.9267179670144439,
+        "recall": 0.9469772194517763,
+        "f1-score": 0.9359978334902965,
+        "support": 65793.0
       },
       "weighted avg": {
-        "precision": 0.9407356928017774,
-        "recall": 0.9378815885285386,
-        "f1-score": 0.9386127226993067,
-        "support": 53559.0
+        "precision": 0.94928368221947,
+        "recall": 0.9468636481084614,
+        "f1-score": 0.9474793067920536,
+        "support": 65793.0
       }
     },
     "temporal_breakdown": {
-      "accuracy_steady": 0.9538627062149276,
-      "accuracy_change": 0.8062213156552779,
-      "n_steady": 47402,
-      "n_change": 5883,
-      "n_undefined": 274,
-      "change_fraction": 0.109841483224108,
-      "false_alarm_rate": 0.04613729378507236,
-      "missed_change_rate": 0.1937786843447221
+      "accuracy_steady": 0.9502359910038328,
+      "accuracy_change": 0.8459530026109661,
+      "n_steady": 63138,
+      "n_change": 2298,
+      "n_undefined": 357,
+      "change_fraction": 0.034927727873785966,
+      "false_alarm_rate": 0.049764008996167126,
+      "missed_change_rate": 0.15404699738903394
     },
     "predictions_file": "predictions_LogisticRegression.csv",
     "pipeline_file": "pipeline_LogisticRegression.joblib",
-    "pipeline_sha256": "b1ad8d0c58e4c91af8f7a64a0ea64fbd1f160105966c6a644aacd2a501a92681",
-    "pipeline_bytes": 1900
+    "pipeline_sha256": "ed912a58c8aa973e45661c9fbfdf63804df2a8aeb42fc47df6a1f1ace8f0df04",
+    "pipeline_bytes": 1901
   },
   "RandomForest": {
-    "accuracy": 0.938572415467055,
-    "f1_satellite": 0.8994191378783247,
-    "roc_auc": 0.9845043278276501,
+    "accuracy": 0.9474868147067317,
+    "f1_satellite": 0.9107903638100648,
+    "roc_auc": 0.9880303364714267,
     "classification_report": {
       "Satellite": {
-        "precision": 0.8634149204672185,
-        "recall": 0.9385567536527787,
-        "f1-score": 0.8994191378783247,
-        "support": 15673.0
+        "precision": 0.8750682212850409,
+        "recall": 0.9495531387961667,
+        "f1-score": 0.9107903638100648,
+        "support": 18574.0
       },
       "Terrestrial": {
-        "precision": 0.9736323311976343,
-        "recall": 0.9385788945784722,
-        "f1-score": 0.955784324266208,
-        "support": 37886.0
+        "precision": 0.9794688636662431,
+        "recall": 0.9466740083440988,
+        "f1-score": 0.962792250449616,
+        "support": 47219.0
       },
-      "accuracy": 0.938572415467055,
+      "accuracy": 0.9474868147067317,
       "macro avg": {
-        "precision": 0.9185236258324263,
-        "recall": 0.9385678241156254,
-        "f1-score": 0.9276017310722664,
-        "support": 53559.0
+        "precision": 0.9272685424756419,
+        "recall": 0.9481135735701327,
+        "f1-score": 0.9367913071298404,
+        "support": 65793.0
       },
       "weighted avg": {
-        "precision": 0.9413793489093576,
-        "recall": 0.938572415467055,
-        "f1-score": 0.9392901483805998,
-        "support": 53559.0
+        "precision": 0.9499955529555527,
+        "recall": 0.9474868147067317,
+        "f1-score": 0.9481116150865376,
+        "support": 65793.0
       }
     },
     "temporal_breakdown": {
-      "accuracy_steady": 0.9531876292139572,
-      "accuracy_change": 0.8179500254971953,
-      "n_steady": 47402,
-      "n_change": 5883,
-      "n_undefined": 274,
-      "change_fraction": 0.109841483224108,
-      "false_alarm_rate": 0.046812370786042785,
-      "missed_change_rate": 0.1820499745028047
+      "accuracy_steady": 0.9509962304792676,
+      "accuracy_change": 0.8429068755439513,
+      "n_steady": 63138,
+      "n_change": 2298,
+      "n_undefined": 357,
+      "change_fraction": 0.034927727873785966,
+      "false_alarm_rate": 0.04900376952073236,
+      "missed_change_rate": 0.15709312445604873
     },
     "predictions_file": "predictions_RandomForest.csv",
     "pipeline_file": "pipeline_RandomForest.joblib",
-    "pipeline_sha256": "015275757dadd61b23728a0eeef8464831d9e7b31ee7308436d32b66348324b0",
-    "pipeline_bytes": 13602759,
+    "pipeline_sha256": "58930934c89f042c915756f6af2e268adb82f7f56b75c28d3e04498b074f5ba6",
+    "pipeline_bytes": 14559446,
     "feature_importance_impurity": {
-      "CandSat_SINR_noisy_dB": 0.3024236175273865,
-      "CandSat_Elevation_deg": 0.26296283078573524,
-      "CandSat_Visible_True": 0.18520511687929517,
-      "CandSat_SlantRange_m": 0.1525476697947068,
-      "CandBS_Distance_m": 0.05853473162968475,
-      "CandBS_SINR_noisy_dB": 0.0345388196575243,
-      "NumUsers": 0.0037872137256671325
+      "CandSat_Elevation_deg": 0.32419476919945994,
+      "CandSat_SINR_noisy_dB": 0.2175991949577163,
+      "CandSat_Visible_True": 0.2119755204618336,
+      "CandSat_SlantRange_m": 0.1565754191783986,
+      "CandBS_Distance_m": 0.04425073570628159,
+      "CandBS_SINR_noisy_dB": 0.041563828793341424,
+      "NumUsers": 0.003840531702968555
     },
     "feature_importance_permutation": {
-      "CandSat_SINR_noisy_dB": {
-        "mean": 0.14618458148957228,
-        "std": 0.0013393822558089414
-      },
       "CandSat_Elevation_deg": {
-        "mean": 0.03754364345861576,
-        "std": 0.0006501583717413186
-      },
-      "CandBS_Distance_m": {
-        "mean": 0.024464609122649826,
-        "std": 0.0005044660510816302
+        "mean": 0.09186691593330598,
+        "std": 0.0008722743466078976
       },
       "CandBS_SINR_noisy_dB": {
-        "mean": 0.008566254037603416,
-        "std": 0.0004682513665876467
+        "mean": 0.016305686015229526,
+        "std": 0.0004720466656935202
+      },
+      "CandBS_Distance_m": {
+        "mean": 0.015036554040703365,
+        "std": 0.0008118712811996537
       },
       "CandSat_SlantRange_m": {
-        "mean": 0.0073134300491047525,
-        "std": 0.000528626710549687
+        "mean": 0.006169349322876272,
+        "std": 0.000262418237272198
+      },
+      "CandSat_SINR_noisy_dB": {
+        "mean": 0.00448679950754638,
+        "std": 0.00032490725070174244
       },
       "CandSat_Visible": {
-        "mean": 0.0020836834145522174,
-        "std": 0.0004209223258376612
+        "mean": 0.0033483805268037514,
+        "std": 0.00029730243670924537
       },
       "NumUsers": {
-        "mean": -0.00014936798670622808,
-        "std": 0.00020858104212205454
+        "mean": 0.000518292219537031,
+        "std": 0.0001669767308704618
       }
     }
   }
