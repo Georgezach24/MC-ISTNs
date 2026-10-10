@@ -12,7 +12,6 @@ function T = energyModelValidation(outputDir, label)
 %      επίπεδο δικτύου, σε αντίθεση με την ενέργεια ανά bit, αποτυπώνει τη
 %      σύνθεση των εξυπηρετούμενων χρηστών.
 %
-% Γράφει CSV/PNG και αποθηκεύει versioned αντίγραφο της εκτέλεσης.
 
 if nargin < 1 || isempty(outputDir)
     outputDir = fullfile(fileparts(mfilename('fullpath')), '..', 'Results');
