@@ -68,7 +68,7 @@ The run is a loop over **satellite passes**; inside each pass a 1 s time loop ad
 | User speed / direction | 3 km/h, fixed per pass, uniformly random azimuth | ITU-R M.2412-0 §8.4, TABLE 5 b)/c) — "fixed and identical speed of all UEs of the same mobility class, randomly and uniformly distributed direction" |
 | Total duration | fixed, 300 passes | ITU-R M.2412-0 §7.1 — "a sufficient number of drops … to ensure convergence" plus "the width of confidence intervals"; extended to satellite evaluation by ITU-R M.2514-0 §8.2.4 |
 
-No standard fixes a total duration — TR 38.821's own NTN system-level calibration table (6.1.1.1-5) has no duration field at all. The run therefore uses a **fixed** number of passes, the same for every scenario, so that pass *n* carries the same randomness everywhere and scenarios can be compared pass-by-pass. The confidence interval no longer stops the run; it is **reported**, as §7.1 asks. The target is a 95% half-width, computed **across passes**, below 5% (relative, for rate and energy metrics) or 2 percentage points (absolute, for fractions). The previous convergence-driven run met it at pass 227, which is where the default of 300 comes from. At the end the run states whether the target was met and from which pass it held uninterrupted. The convergence trace is saved as a result in its own right (`Results/convergence.csv` and `convergence.png`), which is what makes the sample size defensible instead of arbitrary.
+No standard fixes a total duration — TR 38.821's own NTN system-level calibration table (6.1.1.1-5) has no duration field at all. The run therefore uses a **fixed** number of passes, the same for every scenario, so that pass *n* carries the same randomness everywhere and scenarios can be compared pass-by-pass. The confidence interval no longer stops the run; it is **reported**, as §7.1 asks. The target is a 95% half-width, computed **across passes**, below 5% (relative, for rate and energy metrics) or 2 percentage points (absolute, for fractions). The previous convergence-driven run met it at pass 227, which is where the default of 300 comes from. At the end the run states whether the target was met and from which pass it held uninterrupted. The convergence trace is saved as a result in its own right (`convergence.png`, with the numbers in `simulation_results.mat`), which is what makes the sample size defensible instead of arbitrary.
 
 Each pass is an independent *drop* in the ITU-R sense: users are re-dropped at new positions and the channel state is reset between passes, while being threaded step-to-step **within** a pass. `PassID` is therefore the unit for the ML train/test split, for confidence intervals, and for any per-repeat aggregation — users inside one pass are not independent observations.
 
@@ -93,13 +93,14 @@ Because the users move, the run asserts on **every step of every pass** that the
 | File | Content |
 |---|---|
 | `Dataset/dataset.csv` | one row per pass/step/user — geometry, per-candidate diagnostics, serving decision, capacity, delivered throughput, service state, link state, energy. Written every 5th step. Feeds both the results and the ML side. Gitignored. |
-| `Results/convergence.csv` / `.png` | per-pass running means and CI half-widths of the tracked KPIs, against the precision target |
-| `Results/policy_comparison.csv` | per pass × policy KPIs for the paired comparison |
-| `Results/policy_paired.csv` / `policy_comparison.png` | the per-pass differences with 95% CIs and the fraction of passes in which each difference is positive |
-| `Results/reference_pass.csv` | the first pass at full 1 s resolution, for the time series |
+| `Results/policy_gain.png` | how much better the hybrid policy is than terrestrial-only and satellite-only: mean paired per-pass difference with 95% CI. Rate and energy as relative change, user fractions in percentage points; positive always means the hybrid is better (outage sign flipped). Available spectrum is printed in the title as context, not plotted as a gain |
+| `Results/convergence.png` | per-pass CI half-widths of the tracked KPIs, against the precision target |
+| `Results/simulation_results.mat` | the numbers behind every figure: reference pass at full 1 s resolution, convergence trace, per pass × policy KPIs, paired differences, summary |
 | `Results/temporal_*.png` | time series over the reference pass |
 | `Results/network_3d.png` | topology and serving links at closest approach |
-| `Results/runs/<timestamp>_runSimulation[_label]/` | versioned copy of all of the above plus the exact parameters |
+| `Results/runs/<timestamp>_runSimulation[_label]/` | versioned copy of the `.mat`, the policy and 3D figures, the time series and the convergence plot, plus the exact parameters |
+
+`Dataset/dataset.csv` is the **only** CSV the MATLAB side writes; it is the input of the ML model.
 
 ### Verification scripts
 
@@ -109,7 +110,7 @@ energyModelValidation()               % user-count dependence of the energy metr
 linkBudgetValidation()                % 52 checks over the link budget and resource allocation
 ```
 
-All three print explicit pass/fail lines, write CSV/PNG, and `error()` out on the first failure.
+All three print explicit pass/fail lines, write a PNG, store their result table in the run's `params.mat` (field `results`), and `error()` out on the first failure.
 
 `geometryValidation` confirms the user height reaching the path-loss model never drifts with distance, that 3D range is consistent with 2D distance and heights, and that the 5 km validity gate fires — and quantifies the error the earlier ENU-based geometry introduced. `energyModelValidation` shows that per-user capacity scales as 1/L while energy-per-bit stays flat (the user count cancels algebraically), and that the network bit/J metric — unlike energy-per-bit — does respond to user composition.
 

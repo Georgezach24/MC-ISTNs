@@ -46,12 +46,13 @@ function [convTable, summary] = runSimulation(opts)
 % πλήρη ανάλυση, όπου χρειάζεται για τις χρονοσειρές.
 %
 % Έξοδοι:
-%   Dataset/dataset.csv        μία γραμμή ανά (διέλευση, δείγμα, χρήστη)
-%   Results/reference_pass.csv η διέλευση αναφοράς σε πλήρη ανάλυση 1 s
-%   Results/convergence.csv    καμπύλη σύγκλισης ανά διέλευση
-%   Results/policy_comparison.csv  δείκτες ανά διέλευση για τις τρεις πολιτικές
-%   Results/policy_paired.csv      διαφορές κατά ζεύγη, με 95% CI
+%   Dataset/dataset.csv        μία γραμμή ανά (διέλευση, δείγμα, χρήστη)· το
+%                              ΜΟΝΟ csv της εκτέλεσης, είσοδος του ML μοντέλου
+%   Results/policy_gain.png    πόσο καλύτερη είναι η υπό εξέταση πολιτική από
+%                              καθεμία από τις δύο αποκλειστικές, με 95% CI
 %   Results/*.png              χρονοσειρές διέλευσης αναφοράς + καμπύλη σύγκλισης
+%   Results/simulation_results.mat  οι αριθμοί πίσω από τα γραφήματα (διέλευση
+%                              αναφοράς, σύγκλιση, δείκτες πολιτικών, διαφορές)
 
 %% ------------------ Επιλογές ------------------
 if nargin < 1 || isempty(opts)
@@ -91,7 +92,7 @@ datasetDir = fileparts(opts.datasetPath);
 if ~isempty(datasetDir) && ~isfolder(datasetDir)
     mkdir(datasetDir);
 end
-refPassCsv     = fullfile(opts.outputDir, 'reference_pass.csv');
+resultsMat     = fullfile(opts.outputDir, 'simulation_results.mat');
 checkpointPath = fullfile(opts.outputDir, 'runSimulation_checkpoint.mat');
 
 % Σημείο ελέγχου: μια μεγάλη εκτέλεση μπορεί να διακοπεί (π.χ. από έλλειψη
@@ -100,7 +101,10 @@ checkpointPath = fullfile(opts.outputDir, 'runSimulation_checkpoint.mat');
 resumeState = [];
 if opts.resume && isfile(checkpointPath) && isfile(opts.datasetPath)
     S = load(checkpointPath);
-    if isfield(S,'ckpt') && checkpointMatches(S.ckpt.opts, opts)
+    % Σημεία ελέγχου παλαιότερης μορφής δεν κρατούν τη διέλευση αναφοράς (τότε
+    % ζούσε σε csv), οπότε δεν μπορούν να συνεχιστούν.
+    if isfield(S,'ckpt') && isfield(S.ckpt,'refPassTable') && ...
+            checkpointMatches(S.ckpt.opts, opts)
         % Το σημείο ελέγχου γράφεται αμέσως μετά την εγγραφή της διέλευσης στο
         % CSV. Αν η διακοπή έπεσε ακριβώς ανάμεσα στα δύο, το CSV έχει μία
         % διέλευση παραπάνω από όση ξέρει το σημείο ελέγχου· τότε η συνέχιση θα
@@ -125,7 +129,7 @@ end
 
 if isempty(resumeState)
     if isfile(opts.datasetPath),  delete(opts.datasetPath);  end
-    if isfile(refPassCsv),        delete(refPassCsv);        end
+    if isfile(resultsMat),        delete(resultsMat);        end
     if isfile(checkpointPath),    delete(checkpointPath);    end
 end
 
@@ -352,8 +356,8 @@ if ~isempty(resumeState)
     totalRows   = resumeState.totalRows;
     checksRun   = resumeState.checksRun;
     refSnapshot = resumeState.refSnapshot;
-    if isfile(refPassCsv)
-        refPassTable = readtable(refPassCsv, 'TextType', 'string');
+    if isfield(resumeState, 'refPassTable')
+        refPassTable = resumeState.refPassTable;
     end
 end
 
@@ -523,10 +527,10 @@ while passIdx < opts.numPasses
     passTable = buildPassTable(numBuf(keep,:), strBuf(keep,:));
     if passIdx == 1
         writetable(passTable, opts.datasetPath);
-        % Η διέλευση αναφοράς αποθηκεύεται και σε πλήρη ανάλυση, για τις
-        % χρονοσειρές: εκεί χρειάζεται κάθε βήμα, όχι δείγμα.
+        % Η διέλευση αναφοράς κρατείται και σε πλήρη ανάλυση, για τις
+        % χρονοσειρές: εκεί χρειάζεται κάθε βήμα, όχι δείγμα. Ταξιδεύει μέσα
+        % στο σημείο ελέγχου, ώστε να επιβιώνει μιας διακοπής.
         refPassTable = buildPassTable(numBuf, strBuf);
-        writetable(refPassTable, refPassCsv);
     else
         writetable(passTable, opts.datasetPath, 'WriteMode', 'append');
     end
@@ -567,7 +571,8 @@ while passIdx < opts.numPasses
     ckpt = struct('passIdx', passIdx, 'passKpi', passKpi(1:passIdx,:), ...
         'policyPassKpi', policyPassKpi(1:passIdx,:,:), ...
         'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
-        'checksRun', checksRun, 'refSnapshot', refSnapshot, 'opts', opts);
+        'checksRun', checksRun, 'refSnapshot', refSnapshot, ...
+        'refPassTable', refPassTable, 'opts', opts);
     save(checkpointPath, 'ckpt');
 end
 
@@ -605,8 +610,6 @@ end
 policyTable = array2table(polVals, 'VariableNames', policyMetrics);
 policyTable = addvars(policyTable, polPassID, polName, 'Before', 1, ...
     'NewVariableNames', {'PassID','Policy'});
-policyCsv = fullfile(opts.outputDir, 'policy_comparison.csv');
-writetable(policyTable, policyCsv);
 
 % Οι δύο συγκρίσεις: η υπό εξέταση πολιτική έναντι καθεμιάς από τις δύο
 % αποκλειστικές.
@@ -618,6 +621,7 @@ pairN        = zeros(nComp*numPolicyMetric,1);
 pairMean     = nan(nComp*numPolicyMetric,1);
 pairHw       = nan(nComp*numPolicyMetric,1);
 pairRelPct   = nan(nComp*numPolicyMetric,1);
+pairBaseMean = nan(nComp*numPolicyMetric,1);
 pairWinFrac  = nan(nComp*numPolicyMetric,1);
 q = 0;
 for c = 1:nComp
@@ -635,6 +639,7 @@ for c = 1:nComp
             pairMean(q)    = mean(d);
             pairHw(q)      = 1.96*std(d)/sqrt(numel(d));
             baseMean       = mean(b(ok), 'omitnan');
+            pairBaseMean(q) = baseMean;
             if abs(baseMean) > eps
                 pairRelPct(q) = 100*mean(d)/abs(baseMean);
             end
@@ -643,11 +648,9 @@ for c = 1:nComp
     end
 end
 pairedTable = table(pairBaseline, pairMetric, pairN, pairMean, pairHw, ...
-    pairMean - pairHw, pairMean + pairHw, pairRelPct, pairWinFrac, ...
+    pairMean - pairHw, pairMean + pairHw, pairBaseMean, pairRelPct, pairWinFrac, ...
     'VariableNames', {'Baseline','Metric','NumPasses','MeanDiff','CI95HalfWidth', ...
-                      'CI95Low','CI95High','RelDiffPct','FracPassesPositive'});
-pairedCsv = fullfile(opts.outputDir, 'policy_paired.csv');
-writetable(pairedTable, pairedCsv);
+                      'CI95Low','CI95High','BaselineMean','RelDiffPct','FracPassesPositive'});
 
 fprintf('\n  Σύγκριση πολιτικών στην ίδια διέλευση (%d διελεύσεις)\n', numPasses);
 fprintf('    %-18s %12s %12s %12s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός');
@@ -668,37 +671,8 @@ end
 fprintf('\n');
 
 %% ------------------ Γράφημα σύγκρισης πολιτικών ------------------
-figPol = figure('Visible','off','Position',[100 100 1050 330]);
-
-subplot(1,3,1);
-mv = arrayfun(@(pI) mean(pol(:,pI,2),'omitnan'), 1:numPolicy);
-ev = arrayfun(@(pI) 1.96*std(pol(:,pI,2),'omitnan')/sqrt(numPasses), 1:numPolicy);
-bar(mv); hold on; errorbar(1:numPolicy, mv, ev, 'k', 'LineStyle','none', 'LineWidth',1.2);
-set(gca,'XTickLabel',{'υπό εξέταση','μόνο επίγεια','μόνο δορυφ.'});
-ylabel('Συνολική ρυθμαπόδοση [Mbps]'); grid on;
-title('Ρυθμαπόδοση ανά πολιτική');
-
-subplot(1,3,2);
-mv2 = arrayfun(@(pI) 100*mean(pol(:,pI,3),'omitnan'), 1:numPolicy);
-ev2 = arrayfun(@(pI) 100*1.96*std(pol(:,pI,3),'omitnan')/sqrt(numPasses), 1:numPolicy);
-bar(mv2); hold on; errorbar(1:numPolicy, mv2, ev2, 'k', 'LineStyle','none', 'LineWidth',1.2);
-set(gca,'XTickLabel',{'υπό εξέταση','μόνο επίγεια','μόνο δορυφ.'});
-ylabel('Εξυπηρετούμενοι [%]'); grid on;
-title('Εξυπηρέτηση ανά πολιτική');
-
-subplot(1,3,3);
-dT = pol(:,1,2) - pol(:,2,2);
-dS = pol(:,1,2) - pol(:,3,2);
-histogram(dT, 'DisplayName','έναντι μόνο επίγειας'); hold on;
-histogram(dS, 'DisplayName','έναντι μόνο δορυφορικής');
-xline(0,'k--','HandleVisibility','off');
-xlabel('Διαφορά ρυθμαπόδοσης ανά διέλευση [Mbps]'); ylabel('Διελεύσεις');
-legend('Location','northoutside'); grid on;
-title('Κατανομή των διαφορών');
-
-polPng = fullfile(opts.outputDir, 'policy_comparison.png');
-saveas(figPol, polPng);
-close(figPol);
+polPng = fullfile(opts.outputDir, 'policy_gain.png');
+plotPolicyGain(pairedTable, numPasses, polPng);
 
 
 %% ------------------ Καμπύλη σύγκλισης ------------------
@@ -706,8 +680,6 @@ convMat = vertcat(convRows{1:numPasses});
 convVarNames = [{'PassID','CumulativeRows'}, ...
     strcat('Mean_', kpiNames), strcat('RelCI_', kpiNames)];
 convTable = array2table(convMat, 'VariableNames', convVarNames);
-convCsv = fullfile(opts.outputDir, 'convergence.csv');
-writetable(convTable, convCsv);
 
 %% ------------------ Ακρίβεια στο τέλος της εκτέλεσης ------------------
 % Το πλήθος διελεύσεων είναι σταθερό· εδώ ελέγχεται αν ήταν αρκετό. Η
@@ -777,8 +749,10 @@ end
 % Το dataset ΔΕΝ αντιγράφεται στον versioned φάκελο: είναι δεκάδες MB και το
 % Results/runs/ παρακολουθείται από το git. Αντ' αυτού καταγράφεται το άθροισμα
 % ελέγχου SHA-256 του, που το συνδέει με τη συγκεκριμένη εκτέλεση και το commit.
-outFiles = {refPassCsv, convCsv, policyCsv, pairedCsv, polPng, ...
-            fullfile(opts.outputDir,'network_3d.png')};
+% Το μόνο csv είναι το dataset· οι αριθμοί πίσω από τα γραφήματα κρατούνται σε
+% ένα .mat, ώστε κάθε γράφημα να μπορεί να ξαναφτιαχτεί χωρίς νέα εκτέλεση.
+save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'summary');
+outFiles = {resultsMat, polPng, fullfile(opts.outputDir,'network_3d.png')};
 
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SINR_dB','SatElevation_deg'};
 kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SINR (dB)','Γωνία ανύψωσης (deg)'};
@@ -983,6 +957,118 @@ end
 
 function s = ternary(cond, a, b)
 if cond, s = a; else, s = b; end
+end
+
+function plotPolicyGain(pairedTable, numPasses, pngPath)
+% Πόσο καλύτερη είναι η υπό εξέταση πολιτική από καθεμία από τις δύο
+% αποκλειστικές: μέση διαφορά κατά ζεύγη ανά διέλευση, με 95% CI. Θετική τιμή
+% σημαίνει ΠΑΝΤΑ ότι η υπό εξέταση πολιτική είναι καλύτερη· για το ποσοστό
+% εκτός κάλυψης το πρόσημο αντιστρέφεται ώστε να ισχύει το ίδιο.
+% Ρυθμοί και ενέργεια ως σχετική μεταβολή ως προς τη βάση. Τα ποσοστά χρηστών
+% σε ποσοστιαίες μονάδες: η σχετική μεταβολή ενός ποσοστού φουσκώνει όταν η
+% βάση είναι μικρή, όπως το outage της αποκλειστικά επίγειας πολιτικής.
+% Το φάσμα δεν είναι δείκτης απόδοσης αλλά διαθέσιμος πόρος, οπότε δεν
+% σχεδιάζεται ως «βελτίωση»· αναγράφεται στον τίτλο ως πλαίσιο, γιατί χωρίς
+% αυτό η αύξηση της ρυθμαπόδοσης διαβάζεται ως κέρδος της απόφασης.
+baselines = ["TerrestrialOnly","SatelliteOnly"];
+baseLabel = {'έναντι μόνο επίγειας','έναντι μόνο δορυφορικής'};
+relMetric = ["MeanCapacity_Mbps","TotalRate_Mbps","BitPerJouleRf","SpectralEff_bpsHz"];
+relLabel  = {'Μέση χωρητικότητα χρήστη','Συνολική ρυθμαπόδοση', ...
+             'Ενεργειακή απόδοση (bit/J)','Φασματική απόδοση'};
+ppMetric  = ["FracServed","FracOutage"];
+ppSign    = [1 -1];
+ppLabel   = {'Αύξηση εξυπηρετούμενων','Μείωση εκτός κάλυψης'};
+
+[relVal, relHw] = gainMatrix(pairedTable, baselines, relMetric, ones(1,numel(relMetric)), true);
+[ppVal,  ppHw]  = gainMatrix(pairedTable, baselines, ppMetric, ppSign, false);
+specVal         = gainMatrix(pairedTable, baselines, "Spectrum_MHz", 1, true);
+
+fig = figure('Visible','off','Position',[100 100 1400 520]);
+try
+    theme(fig, 'light');   % λευκό φόντο για το κείμενο της εργασίας (R2025a+)
+catch
+end
+subplot(1,2,1);
+gainPanel(relVal, relHw, relLabel, baseLabel, '%');
+xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
+title('Ρυθμός και ενέργεια');
+
+subplot(1,2,2);
+gainPanel(ppVal, ppHw, ppLabel, baseLabel, ' μον.');
+xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
+title('Κάλυψη χρηστών');
+
+sgtitle(sprintf(['Υπό εξέταση πολιτική έναντι των αποκλειστικών: %d διελεύσεις, 95%% CI ' ...
+    '(ns: το CI περιέχει το 0)\nΔιαθέσιμο φάσμα: %+.0f%% έναντι μόνο επίγειας, ' ...
+    '%+.0f%% έναντι μόνο δορυφορικής'], numPasses, specVal(1), specVal(2)));
+saveas(fig, pngPath);
+close(fig);
+end
+
+function [val, hw] = gainMatrix(T, baselines, metrics, sgn, relative)
+% Πίνακας (δείκτης x βάση) με τη μέση διαφορά και το ημιεύρος του CI της,
+% είτε σχετικά (%) είτε σε ποσοστιαίες μονάδες.
+val = nan(numel(metrics), numel(baselines));
+hw  = nan(numel(metrics), numel(baselines));
+for i = 1:numel(metrics)
+    for j = 1:numel(baselines)
+        r = find(T.Baseline == baselines(j) & T.Metric == metrics(i), 1);
+        if isempty(r) || ~isfinite(T.MeanDiff(r))
+            continue;
+        end
+        scale = 100;
+        if relative
+            base = abs(T.BaselineMean(r));
+            if ~(base > eps)
+                continue;   % χωρίς βάση η σχετική μεταβολή δεν ορίζεται
+            end
+            scale = 100 / base;
+        end
+        val(i,j) = sgn(i) * T.MeanDiff(r) * scale;
+        hw(i,j)  = T.CI95HalfWidth(r) * scale;
+    end
+end
+end
+
+function gainPanel(val, hw, labels, seriesLabels, unit)
+% Οριζόντιες ομαδοποιημένες μπάρες, μία ομάδα ανά δείκτη και μία μπάρα ανά βάση.
+nM   = size(val,1);
+cols = [0.20 0.45 0.75; 0.90 0.55 0.15];
+span = max([abs(val(:)) + hw(:); 1], [], 'omitnan');
+pad  = 0.03 * span;
+
+b = barh(val, 'grouped');
+hold on;
+for j = 1:numel(b)
+    b(j).FaceColor = cols(j,:);
+    y = b(j).XEndPoints;
+    x = b(j).YEndPoints;
+    errorbar(x, y, [], [], hw(:,j)', hw(:,j)', 'k', 'LineStyle', 'none', ...
+        'LineWidth', 1, 'HandleVisibility', 'off');
+    for i = 1:nM
+        if ~isfinite(x(i))
+            continue;
+        end
+        txt = sprintf('%+.1f%s', x(i), unit);
+        if abs(x(i)) <= hw(i,j)
+            txt = [txt ' (ns)']; %#ok<AGROW>
+        end
+        if x(i) >= 0
+            text(x(i) + hw(i,j) + pad, y(i), txt, 'HorizontalAlignment', 'left', 'FontSize', 8);
+        else
+            text(x(i) - hw(i,j) - pad, y(i), txt, 'HorizontalAlignment', 'right', 'FontSize', 8);
+        end
+    end
+end
+xline(0, 'k-', 'HandleVisibility', 'off');
+hold off;
+
+lo = min([0; val(:) - hw(:)], [], 'omitnan');
+hi = max([0; val(:) + hw(:)], [], 'omitnan');
+xlim([lo - (lo < 0)*0.35*span - pad, hi + 0.35*span]);
+set(gca, 'YTick', 1:nM, 'YTickLabel', labels, 'YDir', 'reverse');
+grid on;
+legend(seriesLabels, 'Location', 'southoutside', 'Orientation', 'horizontal');
 end
 
 function T = buildPassTable(numBuf, strBuf)

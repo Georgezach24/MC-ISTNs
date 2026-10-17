@@ -398,13 +398,11 @@ legend({'διαθέσιμο','άθροισμα μεριδίων'}, 'Location','n
     'Orientation','horizontal');
 title('Διατήρηση εύρους ζώνης');
 
-csvPath = fullfile(outputDir, 'link_budget_validation.csv');
 pngPath = fullfile(outputDir, 'link_budget_validation.png');
-writetable(T, csvPath);
 saveas(fig, pngPath);
 close(fig);
 
-fprintf('Αποτελέσματα -> %s\n', csvPath);
+fprintf('Αποτελέσματα -> %s\n', pngPath);
 
 %% ------------------ Versioning ------------------
 runParams = struct('rngSeeds', [7 11 13 17], 'scenario', 'UMa', ...
@@ -419,7 +417,9 @@ runParams = struct('rngSeeds', [7 11 13 17], 'scenario', 'UMa', ...
     'tieComparisons', nCmp, 'finiteTies', tieCount);
 runParams.terrestrialPower = simParameters.Power;
 runParams.satellitePower   = satParameters.Power;
-saveRunVersion('linkBudgetValidation', runParams, {csvPath, pngPath}, label);
+% Οι αριθμοί του γραφήματος κρατούνται στο params.mat της εκτέλεσης, όχι σε csv.
+runParams.results = T;
+saveRunVersion('linkBudgetValidation', runParams, {pngPath}, label);
 
 if nPass < nAll
     error('linkBudgetValidation:Failed', ...

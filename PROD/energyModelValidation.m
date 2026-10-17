@@ -161,13 +161,11 @@ plot(T.NumUsers, T.BitPerJouleB/1e6, '-s', 'LineWidth', 1.4); grid on;
 xlabel('Πλήθος χρηστών L'); ylabel('Mbit/J'); title('Απόδοση δικτύου');
 legend({'ίδια απόσταση','αυξανόμενη απόσταση'}, 'Location','best');
 
-csvPath = fullfile(outputDir, 'energy_model_validation.csv');
 pngPath = fullfile(outputDir, 'energy_model_validation.png');
-writetable(T, csvPath);
 saveas(fig, pngPath);
 close(fig);
 
-fprintf('Αποτελέσματα -> %s\n', csvPath);
+fprintf('Αποτελέσματα -> %s\n', pngPath);
 
 runParams = struct('rngSeed', 1, 'scenario', 'UMa', 'userCounts', userCounts, ...
     'refDistance_m', dRefM, 'distStep_m', distStepM, ...
@@ -175,7 +173,9 @@ runParams = struct('rngSeed', 1, 'scenario', 'UMa', 'userCounts', userCounts, ..
     'MinElevationDeg', satParameters.MinElevationDeg);
 runParams.terrestrialPower = simParameters.Power;
 runParams.satellitePower   = satParameters.Power;
-saveRunVersion('energyModelValidation', runParams, {csvPath, pngPath}, label);
+% Οι αριθμοί του γραφήματος κρατούνται στο params.mat της εκτέλεσης, όχι σε csv.
+runParams.results = T;
+saveRunVersion('energyModelValidation', runParams, {pngPath}, label);
 
 end
 

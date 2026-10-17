@@ -123,20 +123,20 @@ xline(5000, '--', 'όριο 5 km');
 grid on; xlabel('Οριζόντια απόσταση d_{2D} [m]'); ylabel('Σφάλμα απωλειών [dB]');
 title('Σφάλμα από τη γεωμετρία ENU');
 
-csvPath = fullfile(outputDir, 'geometry_validation.csv');
 pngPath = fullfile(outputDir, 'geometry_validation.png');
-writetable(T, csvPath);
 saveas(fig, pngPath);
 close(fig);
 
-fprintf('Αποτελέσματα -> %s\n', csvPath);
+fprintf('Αποτελέσματα -> %s\n', pngPath);
 
 %% ------------------ Versioning ------------------
 runParams = struct('rngSeed', 42, 'scenario', 'UMa', 'hBS_m', hBs, 'hUT_m', hUt, ...
     'CarrierFrequency_Hz', fcHz, 'd2D_targets_m', d2dTargets, ...
     'validity_d2D_min_m', 10, 'validity_d2D_max_m', 5000, ...
     'validity_hUT_min_m', 1.5, 'validity_hUT_max_m', 22.5);
-saveRunVersion('geometryValidation', runParams, {csvPath, pngPath}, label);
+% Οι αριθμοί του γραφήματος κρατούνται στο params.mat της εκτέλεσης, όχι σε csv.
+runParams.results = T;
+saveRunVersion('geometryValidation', runParams, {pngPath}, label);
 
 end
 
