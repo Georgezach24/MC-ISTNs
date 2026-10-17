@@ -100,6 +100,11 @@ if isfield(simParameters, 'Mobility')
 else
     hysDb = 0; tttMs = 0; dtSecHys = 1;
 end
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'PingPongMtsS')
+    pingPongMtsS = simParameters.Mobility.PingPongMtsS;
+else
+    pingPongMtsS = 1;
+end
 % Ο χρόνος επιβεβαίωσης μετατρέπεται σε διαδοχικά βήματα. Η στρογγυλοποίηση
 % είναι προς τα πάνω επειδή το πρότυπο απαιτεί η συνθήκη να ΙΣΧΥΕΙ για τη
 % διάρκεια αυτή· με Δt = 1 s οι τιμές κάτω από 1024 ms δεν διακρίνονται.
@@ -132,12 +137,24 @@ bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
 bestBsNodeVec       = strings(numUsers,1);   % ποιος BS κέρδισε, για τη σύγκριση πολιτικών
 policyNamesLocal    = {'Actual','TerrestrialOnly','SatelliteOnly'};
+% Prev/Stay: ο κόμβος πριν το τελευταίο handover και τα βήματα παραμονής στον
+% τρέχοντα από τότε. Χρειάζονται μόνο για την καταμέτρηση των ping-pong· δεν
+% επηρεάζουν την απόφαση.
 newDecision = struct();
 for pol = policyNamesLocal
     newDecision.(pol{1}) = struct('Node', strings(numUsers,1), ...
-        'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1));
+        'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), ...
+        'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1));
 end
 hasPrevDecision = ~isempty(prevDecision);
+
+% Handovers του βήματος ανά πολιτική, ανά τύπο: επίγειο-επίγειο, επίγειο-
+% δορυφορικό (και προς τις δύο κατευθύνσεις), δορυφορικό-δορυφορικό.
+hoCount = struct();
+for pol = policyNamesLocal
+    hoCount.(pol{1}) = struct('TerrTerr', 0, 'TerrSat', 0, 'SatSat', 0, 'PingPong', 0, ...
+        'TerrTerrForced', 0, 'TerrSatForced', 0, 'SatSatForced', 0);
+end
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
 bestSinrDbVec        = nan(numUsers,1);
@@ -452,14 +469,16 @@ for u = 1:numUsers
             otherwise,              keepMask = isSat;
         end
 
-        pN = ""; pP = ""; pC = 0;
+        pN = ""; pP = ""; pC = 0; pPrev = ""; pStay = 0;
         if hasPrevDecision
             pN = prevDecision.(polName).Node(u);
             pP = prevDecision.(polName).Pending(u);
             pC = prevDecision.(polName).Count(u);
+            pPrev = prevDecision.(polName).Prev(u);
+            pStay = prevDecision.(polName).Stay(u);
         end
 
-        [ci, pendN, pendC] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
+        [ci, pendN, pendC, isForced] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
             keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
 
         if ci == 0
@@ -470,6 +489,40 @@ for u = 1:numUsers
         newDecision.(polName).Node(u)    = selNode;
         newDecision.(polName).Pending(u) = pendN;
         newDecision.(polName).Count(u)   = pendC;
+
+        % Handover = αλλαγή από έναν εξυπηρετούντα κόμβο σε άλλον, με τον ίδιο
+        % ορισμό που χρησιμοποιεί το runSimulation.m για το LinkState
+        % "InTransition". Η επανασύνδεση μετά από outage (None -> κόμβος) και η
+        % πρώτη σύνδεση της διέλευσης δεν μετρούν.
+        isHo = pN ~= "" && pN ~= "None" && selNode ~= "None" && selNode ~= pN;
+        if isHo
+            fromSat = startsWith(pN, "SAT");
+            toSat   = startsWith(selNode, "SAT");
+            if ~fromSat && ~toSat
+                hoType = 'TerrTerr';
+            elseif fromSat && toSat
+                hoType = 'SatSat';
+            else
+                hoType = 'TerrSat';
+            end
+            hoCount.(polName).(hoType) = hoCount.(polName).(hoType) + 1;
+            % Αναγκαστικό: ο προηγούμενος κόμβος χάθηκε. Αλλιώς η αλλαγή είναι
+            % απόφαση του A3, με υστέρηση και χρόνο επιβεβαίωσης.
+            if isForced
+                hoCount.(polName).([hoType 'Forced']) = hoCount.(polName).([hoType 'Forced']) + 1;
+            end
+            % Παραμονή στον pN = βήματα από την είσοδο σε αυτόν ως τώρα.
+            if selNode == pPrev && (pStay + 1)*dtSecHys <= pingPongMtsS
+                hoCount.(polName).PingPong = hoCount.(polName).PingPong + 1;
+            end
+            newDecision.(polName).Prev(u) = pN;
+            newDecision.(polName).Stay(u) = 0;
+        elseif selNode ~= "None" && selNode == pN
+            newDecision.(polName).Prev(u) = pPrev;
+            newDecision.(polName).Stay(u) = pStay + 1;
+        end
+        % Αλλιώς (outage ή πρώτη σύνδεση) Prev = "" και Stay = 0 από την
+        % αρχικοποίηση: η αλυσίδα των handovers ξεκινά από την αρχή.
 
         if strcmp(polName, 'Actual')
             if ci == 0
@@ -538,15 +591,17 @@ end
 
 policyKpis = struct();
 policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, ...
-    spectrumTerrMHz + spectrumSatMHz);
+    spectrumTerrMHz + spectrumSatMHz, hoCount.Actual, dtSecHys);
 
 [capT, thrT, ~, ~, ~, netT] = allocateAndTally(terrNode, terrType, terrSnr, ...
     simParameters, satParameters, alloc);
-policyKpis.TerrestrialOnly = policySummary(capT, thrT, netT, numUsers, spectrumTerrMHz);
+policyKpis.TerrestrialOnly = policySummary(capT, thrT, netT, numUsers, spectrumTerrMHz, ...
+    hoCount.TerrestrialOnly, dtSecHys);
 
 [capS, thrS, ~, ~, ~, netS] = allocateAndTally(satNode, satType, satSnrPolicy, ...
     simParameters, satParameters, alloc);
-policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers, spectrumSatMHz);
+policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers, spectrumSatMHz, ...
+    hoCount.SatelliteOnly, dtSecHys);
 
 %% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
 % Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
@@ -559,7 +614,7 @@ newChannelState.FiltSinrSat_dB  = filtSinrSatVec;
 
 end
 
-function [chosenIdx, pendNode, pendCount] = applyHysteresis(candNode, candSinr, ...
+function [chosenIdx, pendNode, pendCount, forced] = applyHysteresis(candNode, candSinr, ...
     candSinrMeas, keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt)
 % Απόφαση επιλογής κόμβου με υστέρηση και χρόνο επιβεβαίωσης, κατά τη μεταφορά
 % του Event A3 του TS 38.331 §5.5.4.4:
@@ -580,6 +635,10 @@ function [chosenIdx, pendNode, pendCount] = applyHysteresis(candNode, candSinr, 
 % Με l3Alpha = 1 τα δύο ταυτίζονται και η συμπεριφορά ανάγεται στην παλιά.
 usable = keepMask & (candSinr >= minUsableSinrDb);
 chosenIdx = 0; pendNode = ""; pendCount = 0;
+% forced: ο εξυπηρετών κόμβος υπήρχε αλλά δεν είναι πια αξιοποιήσιμος (κάτω από
+% το κατώφλι, εκτός πεδίου ισχύος του μοντέλου ή κάτω από τη γωνία αποκοπής),
+% οπότε η επιλογή δεν περνά από τον κανόνα A3. Αφορά μόνο την καταμέτρηση.
+forced = false;
 
 if ~any(usable)
     return;   % κανένας επιλέξιμος υποψήφιος -> εκτός κάλυψης
@@ -602,6 +661,7 @@ if iPrev == 0
     % μετάβαση προς καλύτερο κόμβο· δεν κρατά μια ζεύξη που έχει πάψει να
     % είναι αξιοποιήσιμη. Η επιλογή γίνεται άμεσα.
     chosenIdx = iBest;
+    forced = prevNode ~= "" && prevNode ~= "None";
     return;
 end
 
@@ -748,7 +808,7 @@ networkEnergy.OutageUsers     = sum(serviceStateVec == "Outage");
 networkEnergy.TargetNormSe    = alloc.targetNormalizedSe;
 end
 
-function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, spectrumMHz)
+function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, spectrumMHz, ho, dtS)
 % Δείκτες μιας πολιτικής για ένα βήμα, σε μορφή έτοιμη για συνάθροιση ανά
 % διέλευση. Η μέση χωρητικότητα υπολογίζεται στους χρήστες που εξυπηρετούνται,
 % ενώ η συνολική ρυθμαπόδοση και τα ποσοστά ορίζονται σε όλους - ώστε μια
@@ -775,6 +835,21 @@ s.BitPerJouleRf    = networkEnergy.BitPerJouleRf;
 % Χρησιμεύει για να χωριστεί το πλεονέκτημα της μεικτής πολιτικής σε μέρος που
 % οφείλεται στην απόφαση και σε μέρος που οφείλεται στο διαθέσιμο φάσμα.
 s.Spectrum_MHz     = spectrumMHz;
+% Handovers ανά χρήστη ανά λεπτό. Ο ρυθμός (και όχι το πλήθος) κάνει τα βήματα
+% και τις διελεύσεις με διαφορετικό πλήθος χρηστών συγκρίσιμα, και ο μέσος
+% όρος του πάνω στα βήματα της διέλευσης είναι ο ρυθμός της διέλευσης.
+perUserMin = 60 / (numUsers * dtS);
+s.HoRate_perUserMin         = (ho.TerrTerr + ho.TerrSat + ho.SatSat) * perUserMin;
+s.HoRateTerrTerr_perUserMin = ho.TerrTerr * perUserMin;
+s.HoRateTerrSat_perUserMin  = ho.TerrSat  * perUserMin;
+s.HoRateSatSat_perUserMin   = ho.SatSat   * perUserMin;
+s.PingPongRate_perUserMin   = ho.PingPong * perUserMin;
+% Το μέρος των παραπάνω που ήταν αναγκαστικό (απώλεια του εξυπηρετούντος
+% κόμβου). Η διαφορά από τον συνολικό ρυθμό είναι οι αποφάσεις του A3.
+s.HoRateForced_perUserMin         = (ho.TerrTerrForced + ho.TerrSatForced + ho.SatSatForced) * perUserMin;
+s.HoRateTerrTerrForced_perUserMin = ho.TerrTerrForced * perUserMin;
+s.HoRateTerrSatForced_perUserMin  = ho.TerrSatForced  * perUserMin;
+s.HoRateSatSatForced_perUserMin   = ho.SatSatForced   * perUserMin;
 end
 
 function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)

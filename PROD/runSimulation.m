@@ -70,6 +70,7 @@ def = struct( ...
     'datasetStride', 5, ...     % κάθε πόσα βήματα γράφεται γραμμή στο dataset
     'hysteresisDb',  3, ...      % TS 38.331 §6.3.2: 0..15 dB, βήμα 0.5 dB (τιμή πεδίου 6)
     'timeToTriggerMs', 2560, ... % TS 38.331 §6.3.2: απαριθμημένη τιμή, 3 βήματα στο Δt = 1 s
+    'pingPongMtsS',  1, ...      % s, ελάχιστος χρόνος παραμονής (MTS) για τον ορισμό του ping-pong
     'l3FilterK',     4, ...      % TS 38.331 §6.3.2 filterCoefficient (DEFAULT fc4)· 0 = χωρίς φίλτρο
     'measPeriodMs',  200, ...    % TS 38.133 Πίν. 9.2.5.2-1, FR1 χωρίς DRX
     'measAveraging', true, ...   % μέση τιμή μέτρησης μέσα στο βήμα· false = στιγμιαίο δείγμα
@@ -186,6 +187,11 @@ simParameters.Power.Psleep = 75;
 simParameters.Mobility.HysteresisDb    = opts.hysteresisDb;
 simParameters.Mobility.TimeToTriggerMs = opts.timeToTriggerMs;
 simParameters.Mobility.DtSeconds       = opts.dtSeconds;
+% Ping-pong: επιστροφή στον αμέσως προηγούμενο κόμβο μετά από παραμονή στον
+% ενδιάμεσο το πολύ PingPongMtsS (ορισμός MTS του 3GPP TR 36.839). Με Δt = 1 s
+% ο χρόνος παραμονής μετριέται σε ακέραια βήματα, οπότε το «< 1 s» του ορισμού
+% γίνεται «<= 1 βήμα»: η μικρότερη παραμονή που μπορεί να παρατηρηθεί.
+simParameters.Mobility.PingPongMtsS    = opts.pingPongMtsS;
 
 % Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1 & 6.1.3.2-1).
 % Η πυκνότητα EIRP (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
@@ -315,7 +321,12 @@ passKpi = nan(opts.numPasses, numKpi);
 % απαλείφεται από τη διαφορά.
 policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly'};
 policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
-                 'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz'};
+                 'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz', ...
+                 'HoRate_perUserMin','HoRateTerrTerr_perUserMin', ...
+                 'HoRateTerrSat_perUserMin','HoRateSatSat_perUserMin', ...
+                 'PingPongRate_perUserMin','HoRateForced_perUserMin', ...
+                 'HoRateTerrTerrForced_perUserMin','HoRateTerrSatForced_perUserMin', ...
+                 'HoRateSatSatForced_perUserMin'};
 numPolicy       = numel(policyNames);
 numPolicyMetric = numel(policyMetrics);
 policyPassKpi   = nan(opts.numPasses, numPolicy, numPolicyMetric);
@@ -595,6 +606,16 @@ specEff = pol(:,:,iRate) ./ pol(:,:,iSpec);
 specEff(~isfinite(specEff)) = NaN;
 pol(:,:,end+1) = specEff;
 policyMetrics{end+1} = 'SpectralEff_bpsHz';
+
+% Ποσοστό ping-pong επί των handovers, με την ίδια λογική: λόγος των δύο ρυθμών
+% της διέλευσης, αφού το πλήθος χρηστών είναι σταθερό μέσα σε αυτήν. Ανά βήμα
+% θα ήταν 0/0 σε κάθε βήμα χωρίς handover. NaN σε διέλευση χωρίς handovers.
+iHo = find(strcmp(policyMetrics, 'HoRate_perUserMin'), 1);
+iPp = find(strcmp(policyMetrics, 'PingPongRate_perUserMin'), 1);
+ppFrac = pol(:,:,iPp) ./ pol(:,:,iHo);
+ppFrac(~isfinite(ppFrac)) = NaN;
+pol(:,:,end+1) = ppFrac;
+policyMetrics{end+1} = 'PingPongFrac';
 numPolicyMetric = numel(policyMetrics);
 
 polPassID = repelem((1:numPasses)', numPolicy);
@@ -626,9 +647,11 @@ pairWinFrac  = nan(nComp*numPolicyMetric,1);
 q = 0;
 for c = 1:nComp
     for mI = 1:numPolicyMetric
-        a = pol(:,compIdx(c,1),mI);
-        b = pol(:,compIdx(c,2),mI);
-        d = a - b;
+        % Όχι a/b: το a είναι ο μεγάλος ημιάξονας της τροχιάς και καταγράφεται
+        % παρακάτω στο runParams.
+        valPol  = pol(:,compIdx(c,1),mI);
+        valBase = pol(:,compIdx(c,2),mI);
+        d = valPol - valBase;
         ok = isfinite(d);
         d = d(ok);
         q = q + 1;
@@ -638,7 +661,7 @@ for c = 1:nComp
         if numel(d) >= 2
             pairMean(q)    = mean(d);
             pairHw(q)      = 1.96*std(d)/sqrt(numel(d));
-            baseMean       = mean(b(ok), 'omitnan');
+            baseMean       = mean(valBase(ok), 'omitnan');
             pairBaseMean(q) = baseMean;
             if abs(baseMean) > eps
                 pairRelPct(q) = 100*mean(d)/abs(baseMean);
@@ -653,11 +676,17 @@ pairedTable = table(pairBaseline, pairMetric, pairN, pairMean, pairHw, ...
                       'CI95Low','CI95High','BaselineMean','RelDiffPct','FracPassesPositive'});
 
 fprintf('\n  Σύγκριση πολιτικών στην ίδια διέλευση (%d διελεύσεις)\n', numPasses);
-fprintf('    %-18s %12s %12s %12s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός');
+iPpFrac = find(strcmp(policyMetrics, 'PingPongFrac'), 1);
+iForced = find(strcmp(policyMetrics, 'HoRateForced_perUserMin'), 1);
+fprintf('    %-18s %12s %12s %12s %14s %10s %12s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός', ...
+    'HO/χρήστη/min', 'ping-pong', 'αναγκαστικά');
 for pI = 1:numPolicy
-    fprintf('    %-18s %12.2f %12.4f %12.4f\n', policyNames{pI}, ...
+    hoM = mean(pol(:,pI,iHo),'omitnan');
+    fprintf('    %-18s %12.2f %12.4f %12.4f %14.3f %9.1f%% %11.1f%%\n', policyNames{pI}, ...
         mean(pol(:,pI,2),'omitnan'), mean(pol(:,pI,3),'omitnan'), ...
-        mean(pol(:,pI,5),'omitnan'));
+        mean(pol(:,pI,5),'omitnan'), hoM, ...
+        100*mean(pol(:,pI,iPpFrac),'omitnan'), ...
+        100*mean(pol(:,pI,iForced),'omitnan')/hoM);
 end
 fprintf('\n    Διαφορές ανά διέλευση (η υπό εξέταση μείον τη βάση), 95%% CI:\n');
 for q = 1:height(pairedTable)
@@ -673,6 +702,9 @@ fprintf('\n');
 %% ------------------ Γράφημα σύγκρισης πολιτικών ------------------
 polPng = fullfile(opts.outputDir, 'policy_gain.png');
 plotPolicyGain(pairedTable, numPasses, polPng);
+
+hoPng = fullfile(opts.outputDir, 'handover_rates.png');
+plotHandoverRates(pol, policyMetrics, policyNames, numPasses, opts.pingPongMtsS, hoPng);
 
 
 %% ------------------ Καμπύλη σύγκλισης ------------------
@@ -752,7 +784,7 @@ end
 % Το μόνο csv είναι το dataset· οι αριθμοί πίσω από τα γραφήματα κρατούνται σε
 % ένα .mat, ώστε κάθε γράφημα να μπορεί να ξαναφτιαχτεί χωρίς νέα εκτέλεση.
 save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'summary');
-outFiles = {resultsMat, polPng, fullfile(opts.outputDir,'network_3d.png')};
+outFiles = {resultsMat, polPng, hoPng, fullfile(opts.outputDir,'network_3d.png')};
 
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SINR_dB','SatElevation_deg'};
 kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SINR (dB)','Γωνία ανύψωσης (deg)'};
@@ -814,6 +846,7 @@ runParams.ciTargetKpis     = strjoin(kpiNames(kpiHasTarget), ', ');
 runParams.ciHalfWidthFinal = lastHw;
 runParams.hysteresis_dB    = opts.hysteresisDb;
 runParams.timeToTrigger_ms = opts.timeToTriggerMs;
+runParams.pingPongMts_s    = opts.pingPongMtsS;
 runParams.timeToTrigger_steps = max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000)));
 runParams.measAveraging    = opts.measAveraging;
 runParams.measNAvgTerrestrial = simParameters.Meas.NAvg;
@@ -859,6 +892,7 @@ runParams.sources          = struct( ...
     'ueMobility', 'ITU-R M.2412-0 §8.4 ΠΙΝΑΚΑΣ 5 b)/c) (3 km/h, τυχαία ομοιόμορφη κατεύθυνση)', ...
     'validity',   'TR 38.901 §7.4.1 Πίν. 7.4.1-1 (10 m - 5 km, h_UT 1.5-22.5 m)', ...
     'hysteresis', 'TS 38.331 §5.5.4.4 (Event A3) + §6.3.2 (Hysteresis, TimeToTrigger)', ...
+    'pingPong',   '3GPP TR 36.839 (ping-pong: επιστροφή στην αρχική κυψέλη με χρόνο παραμονής < MTS = 1 s)', ...
     'measFilter', 'TS 38.331 §5.5.3.2 (Layer 3 filtering, F_n = (1-a)F_{n-1} + a M_n· NOTE 1 k=0· NOTE 2 λογαριθμικό)', ...
     'measPeriod', 'TS 38.133 Πίν. 9.2.5.2-1 (FR1 χωρίς DRX: >= 200 ms)', ...
     'measAvg',    'Clarke 1968, αυτοσυσχέτιση ισχύος J0(2*pi*fD*tau)^2 -> ισοδύναμο πλήθος ανεξάρτητων δειγμάτων ανά βήμα');
@@ -908,7 +942,9 @@ function tf = checkpointMatches(a, b)
 % Το σημείο ελέγχου χρησιμοποιείται μόνο αν οι παράμετροι που καθορίζουν τι
 % παράγει η εκτέλεση είναι ίδιες. Οτιδήποτε άλλο (π.χ. label) δεν πειράζει.
 keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
-        'numPasses','geometryGrid','datasetPath'};
+        'numPasses','geometryGrid','datasetPath', ...
+        'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
+        'pingPongMtsS'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
@@ -939,7 +975,29 @@ try
     end
     h = lower(reshape(dec2hex(typecast(md.digest(), 'uint8')).', 1, []));
 catch
-    h = '';   % π.χ. MATLAB χωρίς JVM
+    % MATLAB χωρίς JVM (π.χ. όταν η Java του συστήματος είναι headless): το
+    % εργαλείο του λειτουργικού δίνει το ίδιο άθροισμα.
+    h = systemSha256(path);
+end
+end
+
+function h = systemSha256(path)
+h = '';
+if ispc
+    cmd = sprintf('certutil -hashfile "%s" SHA256', path);
+elseif ismac
+    cmd = sprintf('shasum -a 256 "%s"', path);
+else
+    cmd = sprintf('sha256sum "%s"', path);
+end
+[st, out] = system(cmd);
+if st ~= 0
+    return;
+end
+% Το certutil σε παλαιότερα Windows χωρίζει τα bytes με κενά.
+tok = regexp(strrep(out, ' ', ''), '[0-9a-fA-F]{64}', 'match', 'once');
+if ~isempty(tok)
+    h = lower(tok);
 end
 end
 
@@ -1001,6 +1059,88 @@ title('Κάλυψη χρηστών');
 sgtitle(sprintf(['Υπό εξέταση πολιτική έναντι των αποκλειστικών: %d διελεύσεις, 95%% CI ' ...
     '(ns: το CI περιέχει το 0)\nΔιαθέσιμο φάσμα: %+.0f%% έναντι μόνο επίγειας, ' ...
     '%+.0f%% έναντι μόνο δορυφορικής'], numPasses, specVal(1), specVal(2)));
+saveas(fig, pngPath);
+close(fig);
+end
+
+function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, pngPath)
+% Ρυθμός handovers ανά πολιτική, σε απόλυτες τιμές και όχι ως «βελτίωση»: η
+% αποκλειστικά δορυφορική πολιτική με έναν δορυφόρο δεν έχει κανένα handover,
+% οπότε η σχετική διαφορά από αυτήν δεν ορίζεται. Στοιβαγμένα ανά τύπο και, μέσα
+% σε κάθε τύπο, σε αποφάσεις του A3 (σκούρο) και αναγκαστικά (ανοιχτό, απώλεια
+% του εξυπηρετούντος κόμβου). Το 95% CI αφορά το σύνολο, πάνω στις διελεύσεις.
+% Τύποι που είναι μηδενικοί σε όλες τις πολιτικές παραλείπονται από το υπόμνημα
+% (π.χ. δορυφορικό-δορυφορικό με έναν δορυφόρο).
+typeKey   = {'TerrTerr','TerrSat','SatSat'};
+typeLabel = {'επίγειο \leftrightarrow επίγειο','επίγειο \leftrightarrow δορυφορικό', ...
+             'δορυφορικό \leftrightarrow δορυφορικό'};
+polLabel  = {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική'};
+cols      = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
+lightMix  = 0.55;   % ανάμειξη με λευκό για το αναγκαστικό τμήμα
+numPolicy = numel(policyNames);
+
+idx    = @(name) find(strcmp(policyMetrics, name), 1);
+polMean = @(name) mean(pol(:,:,idx(name)), 1, 'omitnan')';
+stackV  = zeros(numPolicy, 0);
+segCol  = zeros(0, 3);
+segLbl  = {};
+for t = 1:numel(typeKey)
+    allV    = polMean(['HoRate' typeKey{t} '_perUserMin']);
+    forcedV = polMean(['HoRate' typeKey{t} 'Forced_perUserMin']);
+    if ~any(allV > 0)
+        continue;
+    end
+    stackV(:,end+1) = allV - forcedV; %#ok<AGROW>
+    stackV(:,end+1) = forcedV;        %#ok<AGROW>
+    segCol(end+1,:) = cols(t,:);                              %#ok<AGROW>
+    segCol(end+1,:) = cols(t,:) + lightMix*(1 - cols(t,:));   %#ok<AGROW>
+    segLbl{end+1} = [typeLabel{t} ' (A3)'];          %#ok<AGROW>
+    segLbl{end+1} = [typeLabel{t} ' (αναγκαστικό)']; %#ok<AGROW>
+end
+totV    = pol(:,:,idx('HoRate_perUserMin'));
+totM    = mean(totV, 1, 'omitnan');
+totHw   = 1.96 * std(totV, 0, 1, 'omitnan') ./ sqrt(sum(isfinite(totV), 1));
+forcedM = mean(pol(:,:,idx('HoRateForced_perUserMin')), 1, 'omitnan');
+ppM     = 100 * mean(pol(:,:,idx('PingPongFrac')), 1, 'omitnan');
+
+fig = figure('Visible','off','Position',[100 100 820 520]);
+try
+    theme(fig, 'light');
+catch
+end
+if isempty(stackV)
+    stackV = zeros(numPolicy, 1);   % κανένα handover σε καμία πολιτική
+end
+b = bar(stackV, 'stacked');
+for k = 1:min(numel(b), size(segCol,1))
+    b(k).FaceColor = segCol(k,:);
+end
+hold on;
+errorbar(1:numPolicy, totM, totHw, 'k', 'LineStyle', 'none', 'LineWidth', 1.2, ...
+    'HandleVisibility', 'off');
+top = max(totM + totHw, [], 'omitnan');
+if ~(top > 0), top = 1; end
+for pI = 1:numPolicy
+    if totM(pI) > 0
+        lbl = sprintf('%.3f\nαναγκαστικά %.0f%%\nping-pong %.1f%%', totM(pI), ...
+            100*forcedM(pI)/totM(pI), ppM(pI));
+    else
+        lbl = sprintf('%.3f\nκανένα handover', totM(pI));
+    end
+    text(pI, totM(pI) + max(totHw(pI), 0) + 0.04*top, lbl, ...
+        'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', 'FontSize', 9);
+end
+hold off;
+ylim([0 1.45*top]);
+set(gca, 'XTick', 1:numPolicy, 'XTickLabel', polLabel);
+ylabel('Handovers ανά χρήστη ανά λεπτό');
+if ~isempty(segLbl)
+    legend(segLbl, 'Location', 'northoutside', 'NumColumns', 2);
+end
+grid on;
+title(sprintf(['Ρυθμός handovers ανά πολιτική: %d διελεύσεις, 95%% CI\n' ...
+    'αναγκαστικό = απώλεια του εξυπηρετούντος κόμβου· ping-pong = επιστροφή με παραμονή \\leq %g s'], ...
+    numPasses, mtsS));
 saveas(fig, pngPath);
 close(fig);
 end
