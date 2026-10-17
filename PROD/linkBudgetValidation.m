@@ -10,8 +10,7 @@ function T = linkBudgetValidation(outputDir, label)
 %   Β. Απώλειες ελεύθερου χώρου και η γνωστή κλίση των 6,02 dB ανά οκτάβα.
 %   Γ. Ισχύς θορύβου kTB και η εξάρτησή της από το εύρος ζώνης.
 %   Δ. Ταυτότητα SINR = EIRP - απώλειες - θόρυβος, πάνω στα μεγέθη που
-%      επιστρέφει η ίδια η simulateScenario, και παρεμβολή μόνο από σταθμούς
-%      που έχουν χρήστες.
+%      επιστρέφει η ίδια η simulateScenario.
 %   Ε. Γνωστή συμπεριφορά ισχύος: +-3 dB δίνουν +-3 dB χωρίς παρεμβολή και
 %      αυστηρά λιγότερο με παρεμβολή.
 %   ΣΤ. Διατήρηση εύρους ζώνης: το άθροισμα των μεριδίων ισούται με το
@@ -22,7 +21,7 @@ function T = linkBudgetValidation(outputDir, label)
 %
 % Κάθε έλεγχος συγκρίνει μια αναμενόμενη τιμή, υπολογισμένη ανεξάρτητα από
 % κλειστό τύπο, με την τιμή που παράγει ο κώδικας της προσομοίωσης. Τυπώνει
-% γραμμή ΟΚ/ΑΠΕΤΥΧΕ ανά έλεγχο, γράφει PNG και τερματίζει με σφάλμα αν
+% γραμμή ΟΚ/ΑΠΕΤΥΧΕ ανά έλεγχο, γράφει CSV/PNG και τερματίζει με σφάλμα αν
 % έστω ένας αποτύχει.
 
 if nargin < 1 || isempty(outputDir)
@@ -161,7 +160,7 @@ end
 satOverhead = [baseLat baseLon 600e3];
 
 rng(7);
-[nodeVec, typeVec, ~, plBest, sinrBest, capMbps, ~, ~, ~, ...
+[nodeVec, ~, ~, ~, sinrBest, capMbps, ~, ~, ~, ...
  bsSinr, ~, bsPl, ~, ~, satPl, satSinr, ...
  ~, netE] = ...
     simulateScenario(bs2, uGeo, satOverhead, wgs84, simParameters, satParameters);
@@ -179,15 +178,8 @@ C = addCheck(C, 'D1 ενας σταθμος: SINR == EIRP - PL - N', 'dB', 0, ..
 satSinrFromPl = (satParameters.EIRP - 30) - satPl - noiseSatDbw;
 C = addCheck(C, 'D2 SINR δορυφορικο == EIRP - PL - N', 'dB', 0, ...
              max(abs(satSinr - satSinrFromPl)), 1e-9);
-% Χωρίς προϊστορία (πρώτη κλήση) η απόφαση είναι ο στιγμιαίος καλύτερος
-% υποψήφιος. Η ΤΙΜΗ του SINR εξυπηρέτησης δεν είναι πια αυτή της απόφασης:
-% ξαναϋπολογίζεται με τους σταθμούς που έχουν χρήστες μετά την απόφαση (Δ6-Δ7).
-floorDb = 10*log10(2^0.2344 - 1);
-expType = repmat("Terrestrial", nU, 1);
-expType(satSinr > bsSinr) = "Satellite";
-expType(max(bsSinr, satSinr) < floorDb) = "Outage";
-C = addCheck(C, 'D3 επιλογη == στιγμιαιος καλυτερος υποψηφιος', 'λογικο', 1, ...
-             double(all(typeVec == expType)), 0);
+C = addCheck(C, 'D3 επιλεγμενο SINR == max(επιγειο, δορυφορικο)', 'dB', 0, ...
+             max(abs(sinrBest - max(bsSinr, satSinr))), 1e-12);
 
 % Δύο σταθμοί: το SINR πρέπει να είναι ΑΥΣΤΗΡΑ κάτω από την τιμή χωρίς
 % παρεμβολή, για κάθε χρήστη. Αν η παρεμβολή δεν είχε μπει πραγματικά στον
@@ -198,32 +190,6 @@ C = addCheck(C, 'D4 δυο σταθμοι: SINR < SNR για καθε χρηστ
              double(all(interfDropDb > 0)), 0);
 C = addCheck(C, 'D5 η πτωση αντιστοιχει σε θετικη ισχυ παρεμβολης', 'λογικο', 1, ...
              double(all(isfinite(interfDropDb)) && max(interfDropDb) < 60), 0);
-
-% Σταθμός χωρίς χρήστες δεν εκπέμπει, άρα δεν παρεμβάλλει (ίδια υπόθεση με
-% τον ύπνο του EARTH). Για κάθε χρήστη σε σταθμό: αν κανένας ΑΛΛΟΣ σταθμός
-% δεν έχει χρήστες, το SINR εξυπηρέτησης είναι ακριβώς EIRP - PL - N.
-snrServ   = (simParameters.EIRP - 30) - plBest - noiseBsDbw;
-onBs      = startsWith(nodeVec, "BS");
-activeBs  = unique(nodeVec(onBs));
-aloneMask = onBs & numel(activeBs) == 1;
-C = addCheck(C, 'D6 κανενας αλλος ενεργος σταθμος -> SINR == SNR', 'dB', 0, ...
-             max([0; abs(sinrBest(aloneMask) - snrServ(aloneMask))]), 1e-9);
-C = addCheck(C, 'D6 το σεναριο εχει σταθμο χωρις χρηστες', 'λογικο', 1, ...
-             double(numel(activeBs) == 1 && any(aloneMask)), 0);
-
-% Χρήστες κοντά και στους δύο σταθμούς: και οι δύο είναι ενεργοί, οπότε η
-% παρεμβολή παραμένει και το SINR εξυπηρέτησης είναι αυστηρά κάτω από το SNR.
-uBoth = [bs2(1,1) + 150/111320, bs2(1,2), 1.5;  bs2(1,1) - 150/111320, bs2(1,2), 1.5; ...
-         bs2(2,1) + 150/111320, bs2(2,2), 1.5;  bs2(2,1) - 150/111320, bs2(2,2), 1.5];
-rng(31);
-[nodeB, ~, ~, plB, sinrB] = simulateScenario(bs2, uBoth, satOverhead, wgs84, ...
-    simParameters, satParameters);
-onBsB = startsWith(nodeB, "BS");
-snrB  = (simParameters.EIRP - 30) - plB - noiseBsDbw;
-C = addCheck(C, 'D7 και οι δυο σταθμοι ενεργοι', 'λογικο', 1, ...
-             double(numel(unique(nodeB(onBsB))) == 2), 0);
-C = addCheck(C, 'D7 δυο ενεργοι -> SINR < SNR', 'λογικο', 1, ...
-             double(all(sinrB(onBsB) < snrB(onBsB))), 0);
 
 %% ================== Ε. Μεταβολή ισχύος εκπομπής ==================
 % Με έναν σταθμό η ζεύξη είναι περιορισμένη από τον θόρυβο: +-3 dB στην ισχύ

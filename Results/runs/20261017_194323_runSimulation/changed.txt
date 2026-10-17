@@ -1,0 +1,5 @@
+Σύγκριση vs 20261017_174855_runSimulation
+
+  ~ datasetSha256 :   ->  57111af57ff022111ef9126024edd5067b1b085d85721a985628292c3e10cfa9
+  ~ policyMetrics : MeanCapacity_Mbps, TotalRate_Mbps, FracServed, FracBelowTarget, FracOutage, BitPerJouleRf, Spectrum_MHz, HoRate_perUserMin, HoRateTerrTerr_perUserMin, HoRateTerrSat_perUserMin, HoRateSatSat_perUserMin, PingPongRate_perUserMin, SpectralEff_bpsHz, PingPongFrac  ->  MeanCapacity_Mbps, TotalRate_Mbps, FracServed, FracBelowTarget, FracOutage, BitPerJouleRf, Spectrum_MHz, HoRate_perUserMin, HoRateTerrTerr_perUserMin, HoRateTerrSat_perUserMin, HoRateSatSat_perUserMin, PingPongRate_perUserMin, HoRateForced_perUserMin, HoRateTerrTerrForced_perUserMin, HoRateTerrSatForced_perUserMin, HoRateSatSatForced_perUserMin, SpectralEff_bpsHz, PingPongFrac
+  ~ semiMajorAxis_m : [0.032258065;0.062015504;0.038461538]  ->  6978137
