@@ -197,20 +197,55 @@ hasPrevState = ~isempty(prevChannelState) && ...
 % Κατάσταση του φίλτρου L3 ανά υποψήφιο. NaN σημαίνει "δεν υπάρχει
 % προηγούμενη μέτρηση", οπότε F_0 = M_1 όπως ορίζει η §5.5.3.2. Ταξιδεύει
 % μέσα στο prevChannelState, δηλαδή μηδενίζεται στην αρχή κάθε διέλευσης μαζί
-% με το υπόλοιπο κανάλι. Η μέτρηση είναι ΚΟΙΝΗ για τις τρεις πολιτικές: δεν
-% εξαρτάται από το ποιος κόμβος εξυπηρετεί, άρα η σύγκριση κατά ζεύγη μένει
-% έγκυρη.
+% με το υπόλοιπο κανάλι. Το κανάλι (απώλειες, σκίαση, διαλείψεις) είναι ΚΟΙΝΟ
+% για τις τρεις πολιτικές· η επίγεια μέτρηση όμως κρατείται ΑΝΑ πολιτική,
+% επειδή η παρεμβολή εξαρτάται από το ποιοι σταθμοί είναι ενεργοί σε καθεμία
+% (βλ. παρακάτω). Η δορυφορική μέτρηση δεν έχει παρεμβολή και μένει κοινή.
+numPol = numel(policyNamesLocal);
 hasPrevFilt = hasPrevState && isfield(prevChannelState, 'FiltSinrBs_dB') && ...
-    isequal(size(prevChannelState.FiltSinrBs_dB), [numUsers, numBs]);
+    isequal(size(prevChannelState.FiltSinrBs_dB), [numUsers, numBs, numPol]);
 if hasPrevFilt
     prevFiltBs  = prevChannelState.FiltSinrBs_dB;
     prevFiltSat = prevChannelState.FiltSinrSat_dB;
 else
-    prevFiltBs  = nan(numUsers, numBs);
+    prevFiltBs  = nan(numUsers, numBs, numPol);
     prevFiltSat = nan(numUsers, 1);
 end
-filtSinrBsMat  = nan(numUsers, numBs);
+filtSinrBsMat  = nan(numUsers, numBs);           % της πολιτικής Actual, διαγνωστικό
+filtSinrBsPol  = nan(numUsers, numBs, numPol);
 filtSinrSatVec = nan(numUsers, 1);
+
+%% ------------------ Ενεργοί σταθμοί και παρεμβολή ------------------
+% Σταθμός χωρίς χρήστες δεν εκπέμπει δεδομένα, άρα δεν παρεμβάλλει. Είναι η
+% ίδια υπόθεση με το ενεργειακό μοντέλο, όπου ο ίδιος σταθμός μετρά σε ύπνο
+% (EARTH, Auer et al. 2011: P_out = 0 σε sleep), και η συνήθης στη
+% βιβλιογραφία: παρεμβολή μόνο από ενεργούς σταθμούς (Gong et al., IEEE TWC
+% 2014, arXiv:1305.4996, εξ. 6), ή ανάλογη του φόρτου κάθε κυψέλης (Siomina &
+% Yuan, IEEE TWC 2012, arXiv:1201.4116). Εδώ ο φόρτος είναι δυαδικός: ενεργός
+% σταθμός εκπέμπει σε όλο το φάσμα (full buffer, ITU-R M.2412), ανενεργός
+% καθόλου. Το full buffer του M.2412 προϋποθέτει ότι κάθε κυψέλη έχει χρήστες,
+% οπότε δεν καλύπτει την κυψέλη χωρίς χρήστες.
+%
+% Η απόφαση και η παρεμβολή εξαρτώνται η μία από την άλλη. Η εξάρτηση λύνεται
+% αιτιατά, σε δύο χρόνους:
+%   απόφαση:      με την παρεμβολή των σταθμών που ήταν ενεργοί στο
+%                 ΠΡΟΗΓΟΥΜΕΝΟ βήμα, δηλαδή αυτή που μέτρησε ο χρήστης·
+%   χωρητικότητα: με τους σταθμούς που είναι ενεργοί ΜΕΤΑ την απόφαση, ο ίδιος
+%                 ακριβώς σύνολο που μετρά και το ενεργειακό μοντέλο.
+% Στο πρώτο βήμα της διέλευσης δεν υπάρχει προηγούμενη κατάσταση και όλοι οι
+% σταθμοί θεωρούνται ενεργοί (συντηρητικό, η παλιά υπόθεση). Ανενεργός σταθμός
+% παραμένει υποψήφιος: η απόφαση τον αποτιμά σαν να εξυπηρετούσε.
+activePrev = true(numBs, numPol);
+if hasPrevDecision
+    for pI = 1:numPol
+        for b = 1:numBs
+            activePrev(b,pI) = any(prevDecision.(policyNamesLocal{pI}).Node == "BS" + string(b));
+        end
+    end
+end
+rxPowMat = zeros(numUsers, numBs);   % λαμβανόμενη ισχύς ανά ζεύξη [W], 0 εκτός πεδίου ισχύος
+noiseLinW = 10^(noisePowerBS_dBW/10);
+sinrPolMat = nan(numUsers, numBs, numPol);
 
 %% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SINR) ------------------
 for u = 1:numUsers
@@ -313,6 +348,9 @@ for u = 1:numUsers
     % βαθμονόμησης του TR 38.901 §7.8 (Πίν. 7.8-1 "Geometry", Πίν. 7.8-2
     % "Wideband SIR", Πίν. 7.8-3 "Wideband SINR").
     %
+    % Παρεμβάλλουν μόνο οι ενεργοί σταθμοί της κάθε πολιτικής (βλ. «Ενεργοί
+    % σταθμοί και παρεμβολή» παραπάνω).
+    %
     % Ορισμός: TR 38.821 Πίν. 6.1.1.2-1, ΣΗΜΕΙΩΣΗ:
     %   Geometry SINR = -10*log10(I/C + N/C)  <=>  SINR = C / (I + N)
     % με C, I, N μετρημένα στο ίδιο εύρος ζώνης. Επειδή σήμα, παρεμβολή και
@@ -323,23 +361,31 @@ for u = 1:numUsers
     % παρεμβολέας, γιατί οι απώλειές του δεν είναι υπολογίσιμες με το UMa/UMi
     % χωρίς να παραβιαστεί ο έλεγχος εγκυρότητας. Η παρεμβολή είναι επομένως
     % κάτω φράγμα, όπως και λόγω του μικρού πλήθους σταθμών.
-    noiseLinW   = 10^(noisePowerBS_dBW/10);
     rxPowLinW   = 10.^(((simParameters.EIRP - 30) - pathLossMat(u,:))/10);
     rxPowLinW(~isfinite(rxPowLinW)) = 0;
-    totalRxLinW = sum(rxPowLinW);
+    rxPowMat(u,:) = rxPowLinW;
 
     for b = 1:numBs
         if ~isfinite(pathLossMat(u,b))
             continue;
         end
-        interfLinW     = totalRxLinW - rxPowLinW(b);
-        sinr_db        = 10*log10(rxPowLinW(b) / (noiseLinW + interfLinW));
+        for pI = 1:numPol
+            interferers = activePrev(:,pI);
+            interferers(b) = false;
+            sinrPolMat(u,b,pI) = 10*log10(rxPowLinW(b) / ...
+                (noiseLinW + sum(rxPowLinW(interferers))));
+            filtSinrBsPol(u,b,pI) = l3Filter(sinrPolMat(u,b,pI), prevFiltBs(u,b,pI), l3Alpha);
+        end
+        % Τα διαγνωστικά (και το dataset) αφορούν την πολιτική Actual.
+        sinr_db        = sinrPolMat(u,b,1);
         sinrDbMat(u,b) = sinr_db;
-        filtSinrBsMat(u,b) = l3Filter(sinr_db, prevFiltBs(u,b), l3Alpha);
+        filtSinrBsMat(u,b) = filtSinrBsPol(u,b,1);
 
-        % Η επιλογή είναι μονότονη ως προς τη λαμβανόμενη ισχύ: με κοινό
-        % άθροισμα ισχύων, το SINR αυξάνει με το C, οπότε ο καλύτερος σταθμός
-        % είναι ο ίδιος με ή χωρίς παρεμβολή. Αλλάζει η τιμή, όχι η επιλογή.
+        % Με παρεμβολή μόνο από ενεργούς σταθμούς η επιλογή ΔΕΝ είναι πια
+        % μονότονη ως προς τη λαμβανόμενη ισχύ: ένας ενεργός σταθμός δεν
+        % παρεμβάλλει στον εαυτό του, ενώ ένας ανενεργός υποψήφιος βλέπει
+        % όλους τους ενεργούς. Αυτό είναι σωστό: η μετάβαση σε κοιμισμένο
+        % σταθμό τον ξυπνά, και τότε ο ήδη ενεργός παρεμβάλλει.
         if sinr_db > userBestSinr
             userBestSinr      = sinr_db;
             userBestNode      = "BS" + string(b);
@@ -429,16 +475,16 @@ for u = 1:numUsers
     % επίγειων σταθμών, που αποτελεί το μεγαλύτερο μέρος του φαινομένου.
     nCand = 0;
     candNode = strings(numBs+1,1); candType = strings(numBs+1,1);
-    candSinr = -inf(numBs+1,1);    candDist = nan(numBs+1,1);
-    candSinrMeas = -inf(numBs+1,1);
+    candSinr = -inf(numBs+1,numPol);    candDist = nan(numBs+1,1);
+    candSinrMeas = -inf(numBs+1,numPol);
     candPl   = nan(numBs+1,1);     candElev = nan(numBs+1,1);
     for b = 1:numBs
         if isfinite(sinrDbMat(u,b))
             nCand = nCand + 1;
             candNode(nCand) = "BS" + string(b);
             candType(nCand) = "Terrestrial";
-            candSinr(nCand) = sinrDbMat(u,b);
-            candSinrMeas(nCand) = filtSinrBsMat(u,b);
+            candSinr(nCand,:)     = reshape(sinrPolMat(u,b,:), 1, []);
+            candSinrMeas(nCand,:) = reshape(filtSinrBsPol(u,b,:), 1, []);
             candDist(nCand) = range3DMat(u,b);
             candPl(nCand)   = pathLossMat(u,b);
         end
@@ -447,15 +493,15 @@ for u = 1:numUsers
         nCand = nCand + 1;
         candNode(nCand) = "SAT-1";
         candType(nCand) = "Satellite";
-        candSinr(nCand) = satSinrDb;
-        candSinrMeas(nCand) = filtSinrSatVec(u);
+        candSinr(nCand,:)     = satSinrDb;
+        candSinrMeas(nCand,:) = filtSinrSatVec(u);
         candDist(nCand) = slantRangeSat;
         candPl(nCand)   = satPathLoss;
         candElev(nCand) = elevSat;
     end
     candNode = candNode(1:nCand); candType = candType(1:nCand);
-    candSinr = candSinr(1:nCand); candDist = candDist(1:nCand);
-    candSinrMeas = candSinrMeas(1:nCand);
+    candSinr = candSinr(1:nCand,:); candDist = candDist(1:nCand);
+    candSinrMeas = candSinrMeas(1:nCand,:);
     candPl   = candPl(1:nCand);   candElev = candElev(1:nCand);
 
     isTerr = (candType == "Terrestrial");
@@ -478,13 +524,13 @@ for u = 1:numUsers
             pStay = prevDecision.(polName).Stay(u);
         end
 
-        [ci, pendN, pendC, isForced] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
-            keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
+        [ci, pendN, pendC, isForced] = applyHysteresis(candNode, candSinr(:,pI), ...
+            candSinrMeas(:,pI), keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
 
         if ci == 0
             selNode = "None"; selType = "Outage"; selSinr = NaN;
         else
-            selNode = candNode(ci); selType = candType(ci); selSinr = candSinr(ci);
+            selNode = candNode(ci); selType = candType(ci); selSinr = candSinr(ci,pI);
         end
         newDecision.(polName).Node(u)    = selNode;
         newDecision.(polName).Pending(u) = pendN;
@@ -542,7 +588,7 @@ for u = 1:numUsers
                 bestNodeTypeVec(u)     = candType(ci);
                 bestDistanceVec(u)     = candDist(ci);
                 bestPathLossVec(u)     = candPl(ci);
-                bestSinrDbVec(u)       = candSinr(ci);
+                bestSinrDbVec(u)       = candSinr(ci,pI);   % αναθεωρείται μετά την απόφαση
                 bestElevationDegVec(u) = candElev(ci);
             end
         else
@@ -551,6 +597,18 @@ for u = 1:numUsers
             polSinrMat(u,pI) = selSinr;
         end
     end
+end
+
+%% ------------------ SINR εξυπηρέτησης με τους σταθμούς που είναι ενεργοί τώρα ------------------
+% Η απόφαση πάρθηκε με την παρεμβολή του προηγούμενου βήματος. Η ζεύξη όμως
+% φέρει δεδομένα στο τρέχον βήμα, όπου παρεμβάλλουν οι σταθμοί που έχουν
+% χρήστες ΤΩΡΑ. Αυτό είναι το ίδιο σύνολο που μετρά το ενεργειακό μοντέλο
+% (allocateAndTally), ώστε σταθμός σε ύπνο να μην παρεμβάλλει ποτέ.
+% Ο δορυφόρος δεν έχει παρεμβολή και μένει ως έχει.
+bestSinrDbVec = servingSinrActiveNow(bestNodeVec, bestSinrDbVec, rxPowMat, noiseLinW, numBs);
+for pI = 2:numPol
+    polSinrMat(:,pI) = servingSinrActiveNow(polNodeMat(:,pI), polSinrMat(:,pI), ...
+        rxPowMat, noiseLinW, numBs);
 end
 
 %% ------------------ Κατανομή πόρων, χωρητικότητα, ενέργεια ------------------
@@ -609,9 +667,28 @@ newChannelState.UserGeo         = user_geo;
 newChannelState.IsLOS           = losMat;
 newChannelState.LosLatent       = losLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
-newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
+newChannelState.FiltSinrBs_dB   = filtSinrBsPol;   % χρήστης x σταθμός x πολιτική
 newChannelState.FiltSinrSat_dB  = filtSinrSatVec;
 
+end
+
+function sinrDbVec = servingSinrActiveNow(nodeVec, sinrDbVec, rxPowMat, noiseLinW, numBs)
+% SINR κάθε χρήστη που εξυπηρετείται από σταθμό, με παρεμβολή ΜΟΝΟ από τους
+% σταθμούς που έχουν τουλάχιστον έναν χρήστη στο ίδιο βήμα. Οι υπόλοιποι
+% χρήστες (δορυφόρος, outage) κρατούν την τιμή τους.
+active = false(numBs,1);
+for b = 1:numBs
+    active(b) = any(nodeVec == "BS" + string(b));
+end
+for u = 1:numel(nodeVec)
+    if ~startsWith(nodeVec(u), "BS")
+        continue;
+    end
+    b = str2double(extractAfter(nodeVec(u), "BS"));
+    interferers = active;
+    interferers(b) = false;
+    sinrDbVec(u) = 10*log10(rxPowMat(u,b) / (noiseLinW + sum(rxPowMat(u,interferers))));
+end
 end
 
 function [chosenIdx, pendNode, pendCount, forced] = applyHysteresis(candNode, candSinr, ...
