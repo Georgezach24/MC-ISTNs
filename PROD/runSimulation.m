@@ -20,9 +20,12 @@ function [convTable, summary] = runSimulation(opts)
 %     simulated to ensure convergence in the UE and system performance metrics.
 %     The proponent should provide information on the width of confidence
 %     intervals". Το ITU-R M.2514-0 §8.2.4 επεκτείνει ρητά τη διαδικασία του
-%     M.2412 στις δορυφορικές αξιολογήσεις. Η προσομοίωση τρέχει επομένως
-%     διέλευση-διέλευση μέχρι τα διαστήματα εμπιστοσύνης των δεικτών να
-%     σταθεροποιηθούν, και η καμπύλη σύγκλισης αποθηκεύεται ως αποτέλεσμα.
+%     M.2412 στις δορυφορικές αξιολογήσεις. Η προσομοίωση τρέχει ΣΤΑΘΕΡΟ πλήθος
+%     διελεύσεων (numPasses), ίδιο σε κάθε σενάριο, ώστε η διέλευση n να έχει
+%     την ίδια τυχαιότητα παντού και τα σενάρια να συγκρίνονται κατά ζεύγη. Το
+%     διάστημα εμπιστοσύνης δεν σταματά την εκτέλεση· αναφέρεται στο τέλος ως
+%     η απαίτηση του §7.1, μαζί με την καμπύλη σύγκλισης που δείχνει ότι το
+%     πλήθος αρκεί.
 %
 %   * Κίνηση χρηστών: ITU-R M.2412-0 §8.4, ΠΙΝΑΚΑΣ 5 b) και c): "Fixed and
 %     identical speed |v| of all UEs of the same mobility class, randomly and
@@ -32,8 +35,8 @@ function [convTable, summary] = runSimulation(opts)
 %
 % Χρήση:
 %   runSimulation()                                   % προεπιλογές
-%   runSimulation(struct('maxPasses',10))             % σύντομο τρέξιμο δοκιμής
-%   runSimulation(struct('ciTolerance',0.005))        % αυστηρότερη σύγκλιση
+%   runSimulation(struct('numPasses',10))             % σύντομο τρέξιμο δοκιμής
+%   runSimulation(struct('geometryGrid',false))       % τυχαία γεωμετρία ανά διέλευση
 %
 % Η προσομοίωση προχωρά πάντα με βήμα dtSeconds και όλοι οι δείκτες
 % υπολογίζονται σε αυτή την ανάλυση. Στο αρχείο όμως γράφεται μία γραμμή κάθε
@@ -59,10 +62,10 @@ def = struct( ...
     'dtSeconds',    1, ...      % s, βήμα (M.2412 Παρ.1 §5.3.2 + TR 38.821 Πίν. 7.3.2.1.4-1)
     'ueSpeedKmh',   3, ...      % km/h, πεζός χρήστης (M.2412 ΠΙΝ. 5 b/c)
     'passWindowS',  900, ...    % s, παράθυρο ανά διέλευση γύρω από τη μέγιστη προσέγγιση
-    'minPasses',    30, ...     % ελάχιστες διελεύσεις πριν ελεγχθεί η σύγκλιση
-    'maxPasses',    600, ...    % ασφαλιστικό άνω όριο
-    'ciTolerance',  0.05, ...   % σχετικό ημιεύρος 95% CI (δείκτες ρυθμού/ενέργειας)
-    'ciToleranceFrac', 0.02, ...% απόλυτο ημιεύρος 95% CI (δείκτες ποσοστού)
+    'numPasses',    300, ...    % σταθερό πλήθος διελεύσεων (η εκτέλεση αναφοράς έπιασε το στόχο CI στις 227)
+    'geometryGrid', true, ...   % στρωματοποιημένη εγκάρσια μετατόπιση ίχνους· false = rand() ανά διέλευση
+    'ciTolerance',  0.05, ...   % στόχος αναφοράς: σχετικό ημιεύρος 95% CI (ρυθμός/ενέργεια)
+    'ciToleranceFrac', 0.02, ...% στόχος αναφοράς: απόλυτο ημιεύρος 95% CI (ποσοστά)
     'datasetStride', 5, ...     % κάθε πόσα βήματα γράφεται γραμμή στο dataset
     'hysteresisDb',  3, ...      % TS 38.331 §6.3.2: 0..15 dB, βήμα 0.5 dB (τιμή πεδίου 6)
     'timeToTriggerMs', 2560, ... % TS 38.331 §6.3.2: απαριθμημένη τιμή, 3 βήματα στο Δt = 1 s
@@ -275,19 +278,30 @@ raanSpanRad = findMaxRaanOffset(raanBase, uPeakRad, meanMotion, inclDeg, a, ...
     omegaEarth, tPeakS, opts.passWindowS, centerLat, centerLon, wgs84, ...
     satParameters.MinElevationDeg);
 
+% Στρωματοποίηση της μετατόπισης: το [-1, 1] χωρίζεται σε numPasses ίσα
+% διαστήματα και κάθε διέλευση παίρνει το μέσο ενός από αυτά. Η κατανομή-στόχος
+% είναι η ίδια ομοιόμορφη με το rand(), αλλά με σταθερό πλήθος είναι εγγυημένο
+% ότι κάθε περιοχή γεωμετριών, από οριακή ως ζενιθιακή, καλύπτεται ισόποσα.
+% Η σειρά ανακατεύεται με δική της γεννήτρια, ώστε η καμπύλη σύγκλισης να μη
+% σαρώνει τη γεωμετρία μονότονα και η τυχαιότητα κάθε διέλευσης να μην αλλάζει.
+if opts.geometryGrid
+    gridStream = RandStream('mt19937ar', 'Seed', opts.rngSeed);
+    raanOffsetFrac = -1 + (2*randperm(gridStream, opts.numPasses) - 1) / opts.numPasses;
+end
+
 %% ------------------ Δείκτες σύγκλισης ------------------
 % Παρακολουθούνται ανά διέλευση (η διέλευση είναι η ανεξάρτητη μονάδα: οι
 % χρήστες μέσα στην ίδια διέλευση αλληλεξαρτώνται μέσω της κατανομής πόρων).
 kpiNames = {'MeanCapacity_Mbps','MeanSinr_dB','FracServed','FracSatellite','MeanBitPerJouleRf'};
 kpiIsFraction = [false false true true false];
-% Ο κανόνας τερματισμού δεν περιλαμβάνει το μέσο SINR: είναι μέσος όρος
+% Ο στόχος ακρίβειας δεν περιλαμβάνει το μέσο SINR: είναι μέσος όρος
 % λογαριθμικού μεγέθους πάνω σε ανάμεικτο πληθυσμό επίγειων και δορυφορικών
 % χρηστών, με εύρος δεκάδων dB, και η εργασία δεν τον αναφέρει ως δείκτη (το
 % SINR παρουσιάζεται ως κατανομή). Το διάστημα εμπιστοσύνης του καταγράφεται
 % κανονικά στην καμπύλη σύγκλισης.
-kpiInStopRule = [true false true true true];
+kpiHasTarget = [true false true true true];
 numKpi = numel(kpiNames);
-passKpi = nan(opts.maxPasses, numKpi);
+passKpi = nan(opts.numPasses, numKpi);
 
 %% ------------------ Σύγκριση πολιτικών (ITU-R M.2412-0 §7.1) ------------------
 % Κάθε βήμα αποτιμάται και με τις τρεις πολιτικές πάνω στην ΙΔΙΑ πραγματοποίηση
@@ -300,13 +314,11 @@ policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
                  'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz'};
 numPolicy       = numel(policyNames);
 numPolicyMetric = numel(policyMetrics);
-policyPassKpi   = nan(opts.maxPasses, numPolicy, numPolicyMetric);
+policyPassKpi   = nan(opts.numPasses, numPolicy, numPolicyMetric);
 
-convRows = cell(opts.maxPasses,1);
+convRows = cell(opts.numPasses,1);
 checksRun = 0;
 totalRows = 0;
-converged = false;
-convergedAtPass = NaN;
 
 fprintf('Ενιαία προσομοίωση ISTN\n');
 fprintf('  Δt = %g s | ταχύτητα χρήστη = %g km/h (%.3f m/s) | παράθυρο διέλευσης = %g s\n', ...
@@ -314,15 +326,16 @@ fprintf('  Δt = %g s | ταχύτητα χρήστη = %g km/h (%.3f m/s) | π�
 fprintf('  Μετατόπιση ανά βήμα = %.3f m (όριο M.2412 Παρ.1 §5.3.2: 1 m)\n', ueSpeedMps*opts.dtSeconds);
 fprintf('  Τροχιακή περίοδος = %.0f s | ταχύτητα ίχνους = %.0f m/s\n', orbitalPeriodS, groundSpeedMps);
 fprintf('  Εύρος εγκάρσιας μετατόπισης ίχνους = ±%.2f°\n', rad2deg(raanSpanRad));
-fprintf('  Σύγκλιση (ITU-R M.2412-0 §7.1): 95%% CI < %.0f%% σχετικό / %.0f ποσοστιαίες μονάδες\n', ...
+fprintf('  Διελεύσεις: %d (σταθερό πλήθος) | γεωμετρία: %s\n', opts.numPasses, ...
+    ternary(opts.geometryGrid, 'στρωματοποιημένη', 'τυχαία'));
+fprintf('  Στόχος ακρίβειας (ITU-R M.2412-0 §7.1, μόνο αναφορά): 95%% CI < %.0f%% σχετικό / %.0f ποσοστιαίες μονάδες\n', ...
     100*opts.ciTolerance, 100*opts.ciToleranceFrac);
 fprintf('  Υστέρηση = %.1f dB | χρόνος επιβεβαίωσης = %d ms (%d βήματα)\n', ...
     opts.hysteresisDb, opts.timeToTriggerMs, ...
     max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000))));
 fprintf('  Μέτρηση: μέσος όρος %d (επίγ.) / %d (δορυφ.) δειγμάτων ανά βήμα | φίλτρο L3 k = %d -> a = %.3f\n', ...
     simParameters.Meas.NAvg, satParameters.Meas.NAvg, opts.l3FilterK, l3Alpha);
-fprintf('  Δείκτες κανόνα τερματισμού: %s | ελάχιστο %d διελεύσεις\n\n', ...
-    strjoin(kpiNames(kpiInStopRule), ', '), opts.minPasses);
+fprintf('  Δείκτες με στόχο ακρίβειας: %s\n\n', strjoin(kpiNames(kpiHasTarget), ', '));
 
 %% ------------------ Βρόχος διελεύσεων ------------------
 passIdx = 0;
@@ -344,7 +357,7 @@ if ~isempty(resumeState)
     end
 end
 
-while passIdx < opts.maxPasses
+while passIdx < opts.numPasses
     passIdx = passIdx + 1;
 
     % Ένας σπόρος ανά διέλευση: η τυχαιότητα μέσα στη διέλευση (τοπολογία,
@@ -372,7 +385,11 @@ while passIdx < opts.maxPasses
     walkAzimuthDeg = 360*rand(numUsers,1);
 
     % -- Γεωμετρία της συγκεκριμένης διέλευσης --
-    raanRad = raanBase + (2*rand()-1)*raanSpanRad;
+    if opts.geometryGrid
+        raanRad = raanBase + raanOffsetFrac(passIdx)*raanSpanRad;
+    else
+        raanRad = raanBase + (2*rand()-1)*raanSpanRad;
+    end
     tStart  = tPeakS - opts.passWindowS/2;
     numSteps = floor(opts.passWindowS/opts.dtSeconds) + 1;
 
@@ -516,7 +533,9 @@ while passIdx < opts.maxPasses
     totalRows = totalRows + height(passTable);
     clear numBuf strBuf passTable;
 
-    % -- Σύγκλιση: 95% CI του μέσου όρου πάνω στις διελεύσεις --
+    % -- Ακρίβεια: 95% CI του μέσου όρου πάνω στις διελεύσεις ως τώρα --
+    % Καταγράφεται σε κάθε διέλευση για την καμπύλη σύγκλισης· δεν σταματά
+    % την εκτέλεση.
     relHw = nan(1,numKpi);
     for k = 1:numKpi
         x = passKpi(1:passIdx,k);
@@ -535,18 +554,11 @@ while passIdx < opts.maxPasses
 
     convRows{passIdx} = [passIdx, totalRows, mean(passKpi(1:passIdx,:),1,'omitnan'), relHw];
 
-    tolVec = opts.ciTolerance * ones(1,numKpi);
-    tolVec(kpiIsFraction) = opts.ciToleranceFrac;
-    if passIdx >= opts.minPasses && all(relHw(kpiInStopRule) < tolVec(kpiInStopRule))
-        converged = true;
-        convergedAtPass = passIdx;
-    end
-
-    if mod(passIdx,10) == 0 || passIdx <= 3 || converged
-        fprintf('  Διέλευση %3d | γραμμές %8d | χωρητ. %6.2f Mbps | served %5.1f%% | sat %5.1f%% | max rel.CI %.4f | μνήμη %5.2f GB\n', ...
-            passIdx, totalRows, mean(passKpi(1:passIdx,1),'omitnan'), ...
+    if mod(passIdx,10) == 0 || passIdx <= 3 || passIdx == opts.numPasses
+        fprintf('  Διέλευση %3d/%d | γραμμές %8d | χωρητ. %6.2f Mbps | served %5.1f%% | sat %5.1f%% | max rel.CI %.4f | μνήμη %5.2f GB\n', ...
+            passIdx, opts.numPasses, totalRows, mean(passKpi(1:passIdx,1),'omitnan'), ...
             100*mean(passKpi(1:passIdx,3),'omitnan'), ...
-            100*mean(passKpi(1:passIdx,4),'omitnan'), max(relHw(kpiInStopRule)), ...
+            100*mean(passKpi(1:passIdx,4),'omitnan'), max(relHw(kpiHasTarget)), ...
             matlabMemoryGb());
     end
 
@@ -557,10 +569,6 @@ while passIdx < opts.maxPasses
         'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
         'checksRun', checksRun, 'refSnapshot', refSnapshot, 'opts', opts);
     save(checkpointPath, 'ckpt');
-
-    if converged
-        break;
-    end
 end
 
 numPasses = passIdx;
@@ -701,35 +709,51 @@ convTable = array2table(convMat, 'VariableNames', convVarNames);
 convCsv = fullfile(opts.outputDir, 'convergence.csv');
 writetable(convTable, convCsv);
 
+%% ------------------ Ακρίβεια στο τέλος της εκτέλεσης ------------------
+% Το πλήθος διελεύσεων είναι σταθερό· εδώ ελέγχεται αν ήταν αρκετό. Η
+% διέλευση από την οποία ο στόχος ισχύει ΑΔΙΑΛΕΙΠΤΑ ως το τέλος δείχνει πόσο
+% περιθώριο αφήνει το numPasses (NaN: ο στόχος δεν πιάστηκε).
+tolVec = opts.ciTolerance * ones(1,numKpi);
+tolVec(kpiIsFraction) = opts.ciToleranceFrac;
+hwMat = convMat(:, end-numKpi+1:end);
+withinTarget = all(hwMat(:,kpiHasTarget) < tolVec(kpiHasTarget), 2);
+lastHw = hwMat(end,:);
+ciTargetMet = withinTarget(end);
+ciTargetFromPass = NaN;
+if ciTargetMet
+    ciTargetFromPass = find(~withinTarget, 1, 'last') + 1;
+    if isempty(ciTargetFromPass), ciTargetFromPass = 1; end
+end
+
 %% ------------------ Σύνοψη ------------------
 simulatedTimeS = numPasses * opts.passWindowS;
 summary = struct();
-summary.numPasses       = numPasses;
-summary.numRows         = totalRows;
-summary.simulatedTime_s = simulatedTimeS;
-summary.converged       = converged;
-summary.convergedAtPass = convergedAtPass;
-summary.checksRun       = checksRun;
+summary.numPasses        = numPasses;
+summary.numRows          = totalRows;
+summary.simulatedTime_s  = simulatedTimeS;
+summary.ciTargetMet      = ciTargetMet;
+summary.ciTargetFromPass = ciTargetFromPass;
+summary.checksRun        = checksRun;
 for k = 1:numKpi
     summary.(kpiNames{k}) = mean(passKpi(1:numPasses,k), 'omitnan');
+    summary.(['CI95_' kpiNames{k}]) = lastHw(k);
 end
 
 fprintf('\n--- Σύνοψη ---\n');
-lastHw = convMat(end, end-numKpi+1:end);
-if converged
-    fprintf('  Σύγκλιση στη διέλευση %d (95%% CI εντός ορίου για όλους τους δείκτες του κανόνα)\n', ...
-        convergedAtPass);
+if ciTargetMet
+    fprintf('  Στόχος ακρίβειας: ΕΠΙΤΕΥΧΘΗΚΕ με %d διελεύσεις (εντός στόχου αδιάλειπτα από τη διέλευση %d)\n', ...
+        numPasses, ciTargetFromPass);
 else
-    fprintf('  ΔΕΝ συνέκλινε μέσα σε %d διελεύσεις. Μέγιστο CI κανόνα = %.4f\n', ...
-        numPasses, max(lastHw(kpiInStopRule)));
+    fprintf('  Στόχος ακρίβειας: ΔΕΝ επιτεύχθηκε με %d διελεύσεις. Μέγιστο CI = %.4f. Αύξησε το numPasses.\n', ...
+        numPasses, max(lastHw(kpiHasTarget)));
 end
 for k = 1:numKpi
     if kpiIsFraction(k)
         fprintf('    %-20s %10.4f  (95%% CI ±%.4f)%s\n', kpiNames{k}, ...
-            mean(passKpi(1:numPasses,k),'omitnan'), lastHw(k), ternary(kpiInStopRule(k),'',' [εκτός κανόνα]'));
+            mean(passKpi(1:numPasses,k),'omitnan'), lastHw(k), ternary(kpiHasTarget(k),'',' [χωρίς στόχο]'));
     else
         fprintf('    %-20s %10.4f  (95%% CI ±%.2f%%)%s\n', kpiNames{k}, ...
-            mean(passKpi(1:numPasses,k),'omitnan'), 100*lastHw(k), ternary(kpiInStopRule(k),'',' [εκτός κανόνα]'));
+            mean(passKpi(1:numPasses,k),'omitnan'), 100*lastHw(k), ternary(kpiHasTarget(k),'',' [χωρίς στόχο]'));
     end
 end
 fprintf('  Διελεύσεις: %d | συνολικός χρόνος προσομοίωσης: %.0f s (%.2f h)\n', ...
@@ -781,8 +805,8 @@ hold on;
 for k = 2:numKpi
     plot(convTable.PassID, convTable.(['RelCI_' kpiNames{k}]), '-o', 'DisplayName', kpiNames{k});
 end
-yline(opts.ciTolerance, '--k', 'DisplayName', 'κατώφλι (σχετικό)');
-yline(opts.ciToleranceFrac, ':k', 'DisplayName', 'κατώφλι (ποσοστά)');
+yline(opts.ciTolerance, '--k', 'DisplayName', 'στόχος (σχετικό)');
+yline(opts.ciToleranceFrac, ':k', 'DisplayName', 'στόχος (ποσοστά)');
 hold off; grid on;
 xlabel('Πλήθος διελεύσεων'); ylabel('Ημιεύρος 95% CI (σχετικό)');
 legend('Location','best','Interpreter','none');
@@ -806,11 +830,14 @@ runParams.datasetBytes     = dir(opts.datasetPath).bytes;
 runParams.datasetSha256    = fileSha256(opts.datasetPath);
 runParams.datasetStride    = opts.datasetStride;
 runParams.datasetSampling_s = opts.datasetStride*opts.dtSeconds;
-runParams.converged        = converged;
-runParams.convergedAtPass  = convergedAtPass;
+runParams.durationRule     = 'σταθερό πλήθος διελεύσεων (numPasses)· CI μόνο αναφορά';
+runParams.geometryGrid     = opts.geometryGrid;
+runParams.ciTargetMet      = ciTargetMet;
+runParams.ciTargetFromPass = ciTargetFromPass;
 runParams.ciTolerance      = opts.ciTolerance;
 runParams.ciToleranceFrac  = opts.ciToleranceFrac;
-runParams.stopRuleKpis     = strjoin(kpiNames(kpiInStopRule), ', ');
+runParams.ciTargetKpis     = strjoin(kpiNames(kpiHasTarget), ', ');
+runParams.ciHalfWidthFinal = lastHw;
 runParams.hysteresis_dB    = opts.hysteresisDb;
 runParams.timeToTrigger_ms = opts.timeToTriggerMs;
 runParams.timeToTrigger_steps = max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000)));
@@ -823,8 +850,6 @@ runParams.l3FilterAlphaAtDt = l3Alpha;
 runParams.measPeriod_ms    = opts.measPeriodMs;
 runParams.policies         = strjoin(policyNames, ', ');
 runParams.policyMetrics    = strjoin(policyMetrics, ', ');
-runParams.minPasses        = opts.minPasses;
-runParams.maxPasses        = opts.maxPasses;
 runParams.rngSeed          = opts.rngSeed;
 runParams.rngScheme        = 'rng(rngSeed+passIdx) στην αρχή κάθε διέλευσης';
 runParams.checksRun        = checksRun;
@@ -855,7 +880,7 @@ runParams.terrestrial.Power = simParameters.Power;
 runParams.satellite        = satParameters;
 runParams.sources          = struct( ...
     'timeStep',   'ITU-R M.2412-0 Παρ.1 §5.3.2 (<1 m/βήμα) + TR 38.821 §7.3.2.1.4 Πίν. 7.3.2.1.4-1 (6.61 s)', ...
-    'duration',   'ITU-R M.2412-0 §7.1 (σύγκλιση + διαστήματα εμπιστοσύνης)· ITU-R M.2514-0 §8.2.4', ...
+    'duration',   'ITU-R M.2412-0 §7.1 (επαρκές πλήθος drops + αναφορά εύρους διαστημάτων εμπιστοσύνης)· ITU-R M.2514-0 §8.2.4', ...
     'passWindow', 'TR 38.821 Πίν. 4.2-3 NOTE 1 (visibility time of the satellite)', ...
     'ueMobility', 'ITU-R M.2412-0 §8.4 ΠΙΝΑΚΑΣ 5 b)/c) (3 km/h, τυχαία ομοιόμορφη κατεύθυνση)', ...
     'validity',   'TR 38.901 §7.4.1 Πίν. 7.4.1-1 (10 m - 5 km, h_UT 1.5-22.5 m)', ...
@@ -909,7 +934,7 @@ function tf = checkpointMatches(a, b)
 % Το σημείο ελέγχου χρησιμοποιείται μόνο αν οι παράμετροι που καθορίζουν τι
 % παράγει η εκτέλεση είναι ίδιες. Οτιδήποτε άλλο (π.χ. label) δεν πειράζει.
 keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
-        'ciTolerance','ciToleranceFrac','minPasses','maxPasses','datasetPath'};
+        'numPasses','geometryGrid','datasetPath'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))

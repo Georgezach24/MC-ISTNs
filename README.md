@@ -48,14 +48,14 @@ matlab -batch "addpath('PROD'); runSimulation()"
 There is **one** simulation and it runs **once**. It produces every number in the thesis and the ML training set from the same execution. Options are passed as a struct:
 
 ```matlab
-runSimulation(struct('maxPasses', 10))            % quick check
-runSimulation(struct('ciTolerance', 0.02))        % tighter convergence
+runSimulation(struct('numPasses', 10))            % quick check
+runSimulation(struct('geometryGrid', false))      % random instead of stratified pass geometry
 runSimulation(struct('hysteresisDb', 0, ...       % reproduce the no-hysteresis rule
                      'timeToTriggerMs', 0))
 runSimulation(struct('label', 'v2'))              % tag the versioned run folder
 ```
 
-A full run takes roughly 100 minutes. A checkpoint is written after every pass, so an interrupted run resumes from where it stopped rather than from the start.
+A full run (300 passes) takes roughly 130 minutes. A checkpoint is written after every pass, so an interrupted run resumes from where it stopped rather than from the start.
 
 ### How the simulated time is structured
 
@@ -66,13 +66,13 @@ The run is a loop over **satellite passes**; inside each pass a 1 s time loop ad
 | Elementary window | one pass, 900 s | TR 38.821 Table 4.2-3 NOTE 1 — "a period of time corresponding to the visibility time of the satellite" |
 | Time step | 1 s | ITU-R M.2412-0 Annex 1 §5.3.2 (UE displacement below 1 m per step) and TR 38.821 §7.3.2.1.4 Table 7.3.2.1.4-1 (fastest LEO mobility timescale 6.61 s) |
 | User speed / direction | 3 km/h, fixed per pass, uniformly random azimuth | ITU-R M.2412-0 §8.4, TABLE 5 b)/c) — "fixed and identical speed of all UEs of the same mobility class, randomly and uniformly distributed direction" |
-| Total duration | until the KPIs converge | ITU-R M.2412-0 §7.1 — "a sufficient number of drops … to ensure convergence" plus "the width of confidence intervals"; extended to satellite evaluation by ITU-R M.2514-0 §8.2.4 |
+| Total duration | fixed, 300 passes | ITU-R M.2412-0 §7.1 — "a sufficient number of drops … to ensure convergence" plus "the width of confidence intervals"; extended to satellite evaluation by ITU-R M.2514-0 §8.2.4 |
 
-No standard fixes a total duration — TR 38.821's own NTN system-level calibration table (6.1.1.1-5) has no duration field at all. The stopping rule is therefore a convergence criterion: the loop ends when the 95% confidence-interval half-width of the tracked KPIs, computed **across passes**, falls below 5% (relative, for rate and energy metrics) or 2 percentage points (absolute, for fractions). The convergence trace is saved as a result in its own right (`Results/convergence.csv` and `convergence.png`), which is what makes the sample size defensible instead of arbitrary.
+No standard fixes a total duration — TR 38.821's own NTN system-level calibration table (6.1.1.1-5) has no duration field at all. The run therefore uses a **fixed** number of passes, the same for every scenario, so that pass *n* carries the same randomness everywhere and scenarios can be compared pass-by-pass. The confidence interval no longer stops the run; it is **reported**, as §7.1 asks. The target is a 95% half-width, computed **across passes**, below 5% (relative, for rate and energy metrics) or 2 percentage points (absolute, for fractions). The previous convergence-driven run met it at pass 227, which is where the default of 300 comes from. At the end the run states whether the target was met and from which pass it held uninterrupted. The convergence trace is saved as a result in its own right (`Results/convergence.csv` and `convergence.png`), which is what makes the sample size defensible instead of arbitrary.
 
 Each pass is an independent *drop* in the ITU-R sense: users are re-dropped at new positions and the channel state is reset between passes, while being threaded step-to-step **within** a pass. `PassID` is therefore the unit for the ML train/test split, for confidence intervals, and for any per-repeat aggregation — users inside one pass are not independent observations.
 
-Pass geometry varies: the RAAN is offset per pass so transits range from grazing (peak elevation at the 20° mask) to near-zenith. The largest useful offset is found numerically at startup rather than assumed.
+Pass geometry varies: the RAAN is offset per pass so transits range from grazing (peak elevation at the 20° mask) to near-zenith. The largest useful offset is found numerically at startup rather than assumed. The offset is **stratified**: the range is split into `numPasses` equal strata and each pass takes the midpoint of one, in a shuffled order drawn from its own random stream. The target distribution is the same uniform one as before, but every part of the geometry range is guaranteed equal coverage, and the shuffle keeps the convergence curve from sweeping the geometry monotonically.
 
 ### Hysteresis and time-to-trigger
 
@@ -93,7 +93,7 @@ Because the users move, the run asserts on **every step of every pass** that the
 | File | Content |
 |---|---|
 | `Dataset/dataset.csv` | one row per pass/step/user — geometry, per-candidate diagnostics, serving decision, capacity, delivered throughput, service state, link state, energy. Written every 5th step. Feeds both the results and the ML side. Gitignored. |
-| `Results/convergence.csv` / `.png` | per-pass running means and CI half-widths of the tracked KPIs, against the stopping threshold |
+| `Results/convergence.csv` / `.png` | per-pass running means and CI half-widths of the tracked KPIs, against the precision target |
 | `Results/policy_comparison.csv` | per pass × policy KPIs for the paired comparison |
 | `Results/policy_paired.csv` / `policy_comparison.png` | the per-pass differences with 95% CIs and the fraction of passes in which each difference is positive |
 | `Results/reference_pass.csv` | the first pass at full 1 s resolution, for the time series |
@@ -145,7 +145,7 @@ Three passes on the generated dataset — exact SINR, noisy SINR, and geometry-o
 ```
 PROD/
   simulateScenario.m        Core: link budget, fading, node selection, allocation, energy, service state
-  runSimulation.m           The entry point — one run: passes, moving users, convergence, dataset
+  runSimulation.m           The entry point — one run: passes, moving users, precision report, dataset
   geometryValidation.m      Regression check on link geometry / antenna heights
   energyModelValidation.m   Check of how the energy metrics depend on user count
   linkBudgetValidation.m    52 numeric checks on the link budget and resource allocation
