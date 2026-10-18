@@ -790,6 +790,10 @@ kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SINR_dB','SatElevation_deg'};
 kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SINR (dB)','Γωνία ανύψωσης (deg)'};
 for k = 1:numel(kpiList)
     fig = figure('Visible','off');
+    try
+        theme(fig, 'light');
+    catch
+    end
     hold on;
     for u = 1:max(refPassTable.UserID)
         r = sortrows(refPassTable(refPassTable.UserID == u, :), 'Step');
@@ -804,17 +808,25 @@ for k = 1:numel(kpiList)
     outFiles{end+1} = f; %#ok<AGROW>
 end
 
-% Καμπύλη σύγκλισης
-fig = figure('Visible','off');
-plot(convTable.PassID, convTable.(['RelCI_' kpiNames{1}]), '-o', 'DisplayName', kpiNames{1});
+% Καμπύλη σύγκλισης. Γραμμές χωρίς σημάδια (300 σημεία ανά καμπύλη) και άξονας
+% περιορισμένος στην περιοχή των στόχων: τα πρώτα σημεία φτάνουν το ~0.9 και
+% συμπίεζαν την περιοχή που ενδιαφέρει.
+fig = figure('Visible','off','Position',[100 100 900 520]);
+try
+    theme(fig, 'light');
+catch
+end
+plot(convTable.PassID, convTable.(['RelCI_' kpiNames{1}]), '-', 'LineWidth', 1.3, 'DisplayName', kpiNames{1});
 hold on;
 for k = 2:numKpi
-    plot(convTable.PassID, convTable.(['RelCI_' kpiNames{k}]), '-o', 'DisplayName', kpiNames{k});
+    plot(convTable.PassID, convTable.(['RelCI_' kpiNames{k}]), '-', 'LineWidth', 1.3, 'DisplayName', kpiNames{k});
 end
-yline(opts.ciTolerance, '--k', 'DisplayName', 'στόχος (σχετικό)');
-yline(opts.ciToleranceFrac, ':k', 'DisplayName', 'στόχος (ποσοστά)');
+yline(opts.ciTolerance, '--k', 'LineWidth', 1.2, 'DisplayName', 'στόχος (σχετικό)');
+yline(opts.ciToleranceFrac, ':k', 'LineWidth', 1.2, 'DisplayName', 'στόχος (ποσοστά)');
 hold off; grid on;
-xlabel('Πλήθος διελεύσεων'); ylabel('Ημιεύρος 95% CI (σχετικό)');
+ylim([0 max(0.25, 2*opts.ciTolerance)]);
+xlabel('Πλήθος διελεύσεων');
+ylabel('Ημιεύρος 95% CI (σχετικό· για τα ποσοστά απόλυτο)');
 legend('Location','best','Interpreter','none');
 title('Σύγκλιση δεικτών κατά ITU-R M.2412-0 §7.1');
 f = fullfile(opts.outputDir, 'convergence.png');
