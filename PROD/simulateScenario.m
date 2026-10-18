@@ -86,6 +86,10 @@ end
 % (τυχαίο πλάτος LOS κατά Nakagami-m), οπότε δεν προστίθεται χωριστός
 % λογαριθμοκανονικός όρος. Παράμετροι (b0,m,Ω) από την ανύψωση, εξ. (19).
 satFadeElevRangeDeg = [20 80];   % πεδίο ισχύος της προσαρμογής της εξ. (19)
+% Απόσταση συσχέτισης της σκίασης στο οριζόντιο επίπεδο: TR 38.811 Πίν.
+% 6.7.2-3a (Urban, S-band), SF 37 m για LOS. Το Shadowed Rician έχει πάντα
+% συνιστώσα LOS (σκιασμένη κατά Nakagami-m), οπότε ισχύει η τιμή LOS.
+satShadowDcorrM     = 37;
 terrKdBLos          = 9;         % Rician K επίγειο LOS, TR 38.901 Πίν. 7.5-6
 
 %% ------------------ Υστέρηση και χρόνος επιβεβαίωσης ------------------
@@ -193,6 +197,12 @@ satSinrDbVec       = nan(numUsers,1);
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
     isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
+% Κρυφή γκαουσιανή μεταβλητή της δορυφορικής σκίασης ανά χρήστη (βλ.
+% «Satellite candidate»). Ταξιδεύει μέσα στο prevChannelState και
+% μηδενίζεται στην αρχή κάθε διέλευσης μαζί με το υπόλοιπο κανάλι.
+hasPrevSatShadow = hasPrevState && isfield(prevChannelState, 'SatShadowLatent') && ...
+    numel(prevChannelState.SatShadowLatent) == numUsers;
+satShadowLatentVec = zeros(numUsers,1);
 
 % Κατάσταση του φίλτρου L3 ανά υποψήφιο. NaN σημαίνει "δεν υπάρχει
 % προηγούμενη μέτρηση", οπότε F_0 = M_1 όπως ορίζει η §5.5.3.2. Ταξιδεύει
@@ -366,6 +376,17 @@ for u = 1:numUsers
     bestBsPathLossVec(u) = userBestPathLoss;
 
     %% ===== Satellite candidate =====
+    % Σκίαση με χρονική συσχέτιση: η μεταβλητή εξελίσσεται σε ΚΑΘΕ βήμα, ακόμη
+    % και όταν ο δορυφόρος είναι κάτω από τη μάσκα, ώστε όταν ξαναφανεί να
+    % συνεχίζει από τη σωστή κατάσταση και όχι από νέα κλήρωση.
+    if hasPrevSatShadow
+        rhoSat = exp(-userMoveDistance / satShadowDcorrM);
+        satShadowLatentVec(u) = rhoSat*prevChannelState.SatShadowLatent(u) + ...
+            sqrt(1 - rhoSat^2)*randn();
+    else
+        satShadowLatentVec(u) = randn();
+    end
+
     [~, elevSat, slantRangeSat] = geodetic2aer( ...
         sat_geo(1), sat_geo(2), sat_geo(3), ...
         user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
@@ -382,17 +403,29 @@ for u = 1:numUsers
         gasAttenuationDb = gasAttenuationSlantP676(satParameters.CarrierFrequency, elevSat);
         satPathLoss = satPathLoss + gasAttenuationDb;
 
-        % Shadowed Rician· i.i.d. ανά κλήση (ο δορυφόρος κινείται -> η γεωμετρία
-        % σκίασης αποσυσχετίζεται γρήγορα). Η ανύψωση περιορίζεται στο πεδίο
-        % ισχύος της προσαρμογής· εναλλακτικά σταθερή κατάσταση σκίασης μέσω
-        % satParameters.ShadowingState (για ανάλυση ευαισθησίας).
+        % Shadowed Rician. Η σκίαση (πλάτος LOS κατά Nakagami-m) συσχετίζεται
+        % με τη μετατόπιση του χρήστη, με εκθετική αυτοσυσχέτιση και απόσταση
+        % satShadowDcorrM (TR 38.811 Πίν. 6.7.2-3a), όπως και η επίγεια
+        % σκίαση. Η κρυφή γκαουσιανή μεταβλητή μετατρέπεται στην κατανομή του
+        % μοντέλου μέσω της αθροιστικής της (copula), οπότε η κατανομή μένει
+        % ακριβώς η Gamma του Abdi και αλλάζει ΜΟΝΟ η συσχέτιση στον χρόνο.
+        % Όταν αλλάζει η ανύψωση αλλάζουν οι παράμετροι, αλλά το εκατοστημόριο
+        % της σκίασης (πόσο «σκιασμένος» είναι ο χρήστης) συνεχίζει ομαλά.
+        % Δεν μοντελοποιείται η αποσυσχέτιση από την κίνηση του δορυφόρου· το
+        % πρότυπο δίνει μόνο την οριζόντια απόσταση, και η NOTE 2 του ίδιου
+        % εδαφίου σημειώνει ότι στην πράξη οι αποστάσεις μπορεί να είναι
+        % μικρότερες.
+        % Η ανύψωση περιορίζεται στο πεδίο ισχύος της προσαρμογής· εναλλακτικά
+        % σταθερή κατάσταση σκίασης μέσω satParameters.ShadowingState (για
+        % ανάλυση ευαισθησίας).
         if isfield(satParameters, 'ShadowingState') && ~isempty(satParameters.ShadowingState)
             [b0, mNak, omega] = shadowedRicianStateParams(satParameters.ShadowingState);
         else
             elevClamped = min(max(elevSat, satFadeElevRangeDeg(1)), satFadeElevRangeDeg(2));
             [b0, mNak, omega] = shadowedRicianElevParams(elevClamped);
         end
-        satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega, measNAvgSat);
+        uShadow = 0.5*erfc(-satShadowLatentVec(u)/sqrt(2));   % γκαουσιανή -> ομοιόμορφη
+        satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega, measNAvgSat, uShadow);
 
         % Ο όρος παρεμβολής είναι μηδενικός στο δορυφορικό σκέλος: 2.0 GHz
         % έναντι 3.5 GHz του επίγειου (TR 38.821 Πίν. 6.1.3.2-1 και TR 38.901),
@@ -608,6 +641,7 @@ policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers, spectrumSat
 newChannelState.UserGeo         = user_geo;
 newChannelState.IsLOS           = losMat;
 newChannelState.LosLatent       = losLatentMat;
+newChannelState.SatShadowLatent = satShadowLatentVec;
 newChannelState.ShadowFading_dB = sfMat;
 newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
 newChannelState.FiltSinrSat_dB  = filtSinrSatVec;
@@ -951,7 +985,7 @@ switch lower(string(state))
 end
 end
 
-function fadeDb = shadowedRicianFadingDb(b0, m, omega, nAvg)
+function fadeDb = shadowedRicianFadingDb(b0, m, omega, nAvg, uShadow)
 % Κέρδος Shadowed Rician σε dB (Abdi et al. 2003, εξ. 1): σκεδαζόμενη
 % συνιστώσα Rayleigh μέσης ισχύος 2*b0 συν συνιστώσα LOS με πλάτος
 % κατά Nakagami-m μέσης ισχύος omega. E[|h|^2] = omega + 2*b0 < 1, δηλαδή
@@ -964,7 +998,15 @@ function fadeDb = shadowedRicianFadingDb(b0, m, omega, nAvg)
 if nargin < 4 || isempty(nAvg)
     nAvg = 1;
 end
-losAmp  = sqrt(gammaRand(m, omega/m));            % |Z|, E[Z^2] = omega
+% Z^2 ~ Gamma(m, omega/m). Με uShadow (εκατοστημόριο της σκίασης από τη
+% συσχετισμένη μεταβλητή) η τιμή παίρνεται από την αντίστροφη αθροιστική· η
+% gammaincinv ανήκει στη βασική MATLAB. Χωρίς uShadow, ανεξάρτητο δείγμα.
+if nargin >= 5 && ~isempty(uShadow)
+    uShadow = min(max(uShadow, eps), 1 - eps);
+    losAmp  = sqrt((omega/m) * gammaincinv(uShadow, m));   % |Z|, E[Z^2] = omega
+else
+    losAmp  = sqrt(gammaRand(m, omega/m));
+end
 scatter = sqrt(b0)*(randn(1,nAvg) + 1i*randn(1,nAvg));   % E[|A|^2] = 2*b0
 if nAvg == 1
     fadeDb = 20*log10(abs(losAmp + scatter));   % ίδια έκφραση με πριν (βλ. smallScaleFadingDb)

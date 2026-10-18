@@ -3,10 +3,9 @@ function T = energyModelValidation(outputDir, label)
 %
 % Δύο πειράματα, με μοναδική μεταβλητή το πλήθος χρηστών ανά κόμβο:
 %
-%   Α. Πανομοιότυποι χρήστες στην ίδια απόσταση. Επαληθεύεται ότι η
-%      χωρητικότητα ανά χρήστη κλιμακώνεται ως 1/L ενώ η ενέργεια ανά bit
-%      παραμένει σταθερή, δηλαδή ότι το L απλοποιείται αλγεβρικά:
-%      E = (P/L) / ((B/L)*SE) = P/(B*SE).
+%   Α. Χρήστες στην ίδια απόσταση. Επαληθεύεται, για κάθε χρήστη και κάθε L,
+%      ότι η χωρητικότητα είναι (B/L)*SE_u και η ενέργεια ανά bit P/(B*SE_u),
+%      δηλαδή ότι το L απλοποιείται αλγεβρικά: E = (P/L) / ((B/L)*SE) = P/(B*SE).
 %
 %   Β. Χρήστες σε αυξανόμενες αποστάσεις. Δείχνει ότι ο δείκτης bit/J σε
 %      επίπεδο δικτύου, σε αντίθεση με την ενέργεια ανά bit, αποτυπώνει τη
@@ -70,6 +69,9 @@ dRefM      = 800;    % απόσταση χρηστών στο πείραμα Α
 %% ------------------ Πείραμα Α: πανομοιότυποι χρήστες ------------------
 nA = numel(userCounts);
 capA = nan(nA,1); eA = nan(nA,1); bitPerJouleA = nan(nA,1);
+capErrA = nan(nA,1); eErrA = nan(nA,1);
+bwBsHz = simParameters.Carrier.NSizeGrid * 12 * simParameters.Carrier.SubcarrierSpacing * 1e3;
+maxSe  = 5.5547;   % MCS 28, ίδιο όριο με το simulateScenario
 
 for k = 1:nA
     L = userCounts(k);
@@ -80,11 +82,24 @@ for k = 1:nA
         user_geo(u,:) = [baseLat + dRefM*cos(th)/111320, ...
                          baseLon + dRefM*sin(th)/(111320*cosd(baseLat)), 1.5];
     end
-    [~,~,~,~,~, capMbps, ~, ~, ePerBit, ~,~,~,~,~,~,~, ~, netE] = ...
+    [~,~,~,~, sinrDb, capMbps, ~, nodePowW, ePerBit, ~,~,~,~,~,~,~, ~, netE] = ...
         simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters);
-    capA(k) = mean(capMbps);
-    eA(k)   = mean(ePerBit);
+    capA(k) = mean(capMbps, 'omitnan');
+    eA(k)   = mean(ePerBit(isfinite(ePerBit)));
     bitPerJouleA(k) = netE.BitPerJoule;
+
+    % Οι χρήστες δεν είναι πανομοιότυποι ως προς το κανάλι (καθένας έχει τη
+    % δική του σκίαση και διαλείψεις), οπότε το L δεν ελέγχεται μέσω του
+    % μέσου όρου αλλά ανά χρήστη, πάνω στη δική του φασματική απόδοση SE_u:
+    %   C_u = (B/L_s)*SE_u      E_u = (P/L_s)/C_u = P/(B*SE_u)
+    % με L_s τους εξυπηρετούμενους του κόμβου (ένας σταθμός, δορυφόρος
+    % απρόσιτος). Ισχύει για οποιαδήποτε πραγματοποίηση του καναλιού.
+    served = ~isnan(capMbps);
+    Ls  = sum(served);
+    seU = min(log2(1 + 10.^(sinrDb(served)/10)), maxSe);
+    capErrA(k) = max(abs(capMbps(served)*1e6 - bwBsHz/Ls*seU) ./ (bwBsHz/Ls*seU));
+    eErrA(k)   = max(abs(ePerBit(served) - nodePowW(served)./(bwBsHz*seU)*1e6) ./ ...
+                     (nodePowW(served)./(bwBsHz*seU)*1e6));
 end
 
 %% ------------------ Πείραμα Β: χρήστες σε αυξανόμενες αποστάσεις ------------------
@@ -113,11 +128,10 @@ T = table(userCounts(:), capA, eA, bitPerJouleA, capB, eB, bitPerJouleB, ...
                       'CapB_Mbps','EnergyB_uJ','BitPerJouleB'});
 
 %% ------------------ Έλεγχοι ------------------
-% 1/L κλιμάκωση: C(L)*L σταθερό
-scaled   = T.CapA_Mbps .* T.NumUsers;
-scaleOk  = max(abs(scaled - scaled(1))) / scaled(1) < 0.02;
-% ενέργεια ανά bit ανεξάρτητη του L
-energyOk = max(abs(T.EnergyA_uJ - T.EnergyA_uJ(1))) / T.EnergyA_uJ(1) < 0.02;
+% 1/L κλιμάκωση και ανεξαρτησία της ενέργειας ανά bit από το L, ως ταυτότητες
+% ανά χρήστη (βλ. πείραμα Α). Ανοχή σε επίπεδο στρογγυλοποίησης.
+scaleOk  = all(capErrA < 1e-9);
+energyOk = all(eErrA < 1e-9);
 
 fprintf('\n=== Ενεργειακό μοντέλο: εξάρτηση από το πλήθος χρηστών ===\n\n');
 fprintf('Α. Πανομοιότυποι χρήστες σε %d m\n', dRefM);

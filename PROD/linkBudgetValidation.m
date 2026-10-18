@@ -182,12 +182,20 @@ C = addCheck(C, 'D3 επιλεγμενο SINR == max(επιγειο, δορυφ�
              max(abs(sinrBest - max(bsSinr, satSinr))), 1e-12);
 
 % Δύο σταθμοί: το SINR πρέπει να είναι ΑΥΣΤΗΡΑ κάτω από την τιμή χωρίς
-% παρεμβολή, για κάθε χρήστη. Αν η παρεμβολή δεν είχε μπει πραγματικά στον
-% υπολογισμό, αυτός ο έλεγχος θα έδειχνε μηδενική διαφορά.
+% παρεμβολή για κάθε χρήστη που βρίσκεται στο πεδίο ισχύος ΚΑΙ των δύο
+% σταθμών. Αν η παρεμβολή δεν είχε μπει πραγματικά στον υπολογισμό, αυτός ο
+% έλεγχος θα έδειχνε μηδενική διαφορά. Χρήστης εκτός πεδίου ισχύος του
+% δεύτερου σταθμού (εδώ ο 5ος, στα ~5.4 km) δεν έχει παρεμβολέα, οπότε για
+% αυτόν το SINR πρέπει να ισούται ακριβώς με το SNR.
 sinrNoInterf = (simParameters.EIRP - 30) - bsPl - noiseBsDbw;
 interfDropDb = sinrNoInterf - bsSinr;
-C = addCheck(C, 'D4 δυο σταθμοι: SINR < SNR για καθε χρηστη', 'λογικο', 1, ...
-             double(all(interfDropDb > 0)), 0);
+d2dBoth = [distance(bs2(1,1), bs2(1,2), uGeo(:,1), uGeo(:,2), wgs84), ...
+           distance(bs2(2,1), bs2(2,2), uGeo(:,1), uGeo(:,2), wgs84)];
+twoValid = all(d2dBoth >= 10 & d2dBoth <= 5000, 2);
+C = addCheck(C, 'D4 δυο εγκυροι σταθμοι: SINR < SNR', 'λογικο', 1, ...
+             double(any(twoValid) && all(interfDropDb(twoValid) > 0)), 0);
+C = addCheck(C, 'D4 ενας εγκυρος σταθμος: SINR == SNR', 'dB', 0, ...
+             max([0; abs(interfDropDb(~twoValid))]), 1e-9);
 C = addCheck(C, 'D5 η πτωση αντιστοιχει σε θετικη ισχυ παρεμβολης', 'λογικο', 1, ...
              double(all(isfinite(interfDropDb)) && max(interfDropDb) < 60), 0);
 
