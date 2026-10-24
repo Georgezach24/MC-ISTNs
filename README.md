@@ -1,14 +1,16 @@
 # MC-ISTNs — Multi-Connectivity Integrated Satellite-Terrestrial Networks
 
-MATLAB simulation of a joint terrestrial (5G NR) and non-terrestrial (LEO satellite) network, developed as Part 1 of a thesis on ML-aided connectivity management for 6G. It models a set of users, terrestrial base stations, and a LEO satellite; computes the full link budget from each user to every candidate node; selects the serving node; and classifies the resulting service state against a standards-derived requirement.
+MATLAB simulation of a joint terrestrial (5G NR) and non-terrestrial (LEO satellite) network, developed as Part 1 of a thesis on ML-aided connectivity management for 6G. It models a set of users, terrestrial base stations, and LEO satellites; computes the full link budget from each user to every candidate node; selects the serving node; and classifies the resulting service state against a standards-derived requirement.
 
 The simulation is the reference generator for a dataset (Part 2, proof-of-concept — see `Model/`) intended to train a machine-learning model that predicts the best connectivity option per user, in place of the rule used here.
 
-> **Scope note.** This branch implements **single connectivity**: each user is served by exactly one node, or by none (outage). Simultaneous BS+satellite service and fairness-aware load balancing were explored on the abandoned `ml_v1` branch and are **not** part of this code. Handover hysteresis *is* implemented here (since 2026-09-26), but as a transposition of the 3GPP A3 criterion — not as the `ml_v1` mechanism.
+> **Scope note.** This branch implements **single connectivity**: each user is served by exactly one node, or by none (outage). Simultaneous BS+satellite service and the fairness-aware load balancing of the abandoned `ml_v1` branch are **not** part of this code. Handover hysteresis *is* implemented here (since 2026-09-26), as a transposition of the 3GPP A3 criterion, and load balancing is implemented as the standard's own Mobility Load Balancing (a load-dependent A3 offset, since 2026-10-24), in two extra policies alongside the plain one.
 
 ## What it does
 
-For a set of geographic positions (base stations, users, one satellite):
+For a set of geographic positions (base stations, users, satellites):
+
+**Scenario.** 7 base stations on a hexagonal grid with 500 m inter-site distance and 25 m height (the UMa calibration layout of TR 38.901 §7.8, Table 7.8-1). 10–30 users per pass, dropped uniformly over the area whose distance to the **nearest** base station is 760 m–4.25 km, i.e. at the periphery of terrestrial coverage, not inside cells. 3 consecutive LEO-600 satellites in one orbital plane; their spacing (317 s, 19.7°, about 18 per plane) is chosen so that the three are exactly the satellites of the plane that can be seen inside the 900 s window — the next one rises just as the window closes, even on a zenith pass — so no satellite that would really be visible is missing. Consecutive satellites overlap on high passes (satellite↔satellite handover) and leave a gap on low ones. All of these are options (`bsRings`, `bsIsdM`, `numUsersRange`, `numSats`, `satFreqReuse`).
 
 1. **Terrestrial link budget** per user–BS pair, using the 3GPP TR 38.901 `UMa`/`UMi` channel model via MATLAB's 5G Toolbox:
    - geodesic 2D distance and *physical* antenna heights (never ENU vertical coordinates, which drift with Earth curvature);
@@ -16,13 +18,13 @@ For a set of geographic positions (base stations, users, one satellite):
    - a spatially-consistent LOS/NLOS state (§7.4.2 probability, §7.6.3.3 consistency);
    - log-normal shadow fading with the model's own σ (§7.4.1), exponentially correlated across time steps (§7.4.4);
    - small-scale fading: Rician (K = 9 dB, LOS) or Rayleigh (NLOS), flat.
-2. **Satellite link budget**: free-space path loss + gaseous attenuation on the slant path (TR 38.811 §6.6.4 / ITU-R P.676), Shadowed-Rician fading (Abdi et al., 2003) parameterized by elevation, gated by a minimum-elevation visibility mask. The shadowing term (the Nakagami-m LOS amplitude) is **correlated along the user's path** with an exponential autocorrelation and the 37 m horizontal correlation distance of TR 38.811 Table 6.7.2-3a (Urban, S-band, LOS) — the same form as the terrestrial shadow fading. A latent Gaussian evolves as AR(1) with the user's displacement and is mapped to the model's Gamma distribution through its CDF, so the marginal distribution is exactly Abdi's and only the time correlation is new; as elevation changes the parameters change, but the shadowing percentile carries on smoothly. The scatter component stays independent per step. Decorrelation from the satellite's own motion is not modelled: the standard gives only the horizontal distance, and notes that real distances may be shorter.
-3. **SINR** per candidate link. Terrestrial EIRP = conducted power + element gain + array gain (TR 38.901 Table 7.8-1 / §7.3); satellite EIRP is derived from the **EIRP density** of TR 38.821 Table 6.1.1.1-1 (LEO-600 S-band) and the channel bandwidth, with RF power kept distinct from amplifier electrical draw. Terrestrial candidates carry **inter-site interference** — every base station transmits continuously on the whole band (frequency reuse 1), so for candidate *b* the ratio is `P_b / (N + Σ_{j≠b} P_j)`. The satellite's interference term is zero (2.0 vs 3.5 GHz, one beam), so there SINR equals SNR.
+2. **Satellite link budget**: free-space path loss + gaseous attenuation on the slant path (TR 38.811 §6.6.4 / ITU-R P.676), Shadowed-Rician fading (Abdi et al., 2003) parameterized by elevation, gated by a minimum-elevation visibility mask. The shadowing term (the Nakagami-m LOS amplitude) is **correlated along the user's path** with an exponential autocorrelation and the 37 m horizontal correlation distance of TR 38.811 Table 6.7.2-3a (Urban, S-band, LOS) — the same form as the terrestrial shadow fading. One latent Gaussian per user–satellite pair (each satellite is seen through different obstacles; TR 38.811 gives no cross-correlation) evolves as AR(1) with the user's displacement and is mapped to the model's Gamma distribution through its CDF, so the marginal distribution is exactly Abdi's and only the time correlation is new; as elevation changes the parameters change, but the shadowing percentile carries on smoothly. The scatter component stays independent per step. Decorrelation from the satellite's own motion is not modelled: the standard gives only the horizontal distance, and notes that real distances may be shorter.
+3. **SINR** per candidate link. Terrestrial EIRP = conducted power + element gain + array gain (TR 38.901 Table 7.8-1 / §7.3); satellite EIRP is derived from the **EIRP density** of TR 38.821 Table 6.1.1.1-1 (LEO-600 S-band) and the channel bandwidth, with RF power kept distinct from amplifier electrical draw. Terrestrial candidates carry **inter-site interference** — every base station transmits continuously on the whole band (frequency reuse 1), so for candidate *b* the ratio is `P_b / (N + Σ_{j≠b} P_j)`. There is no interference between the two segments (2.0 vs 3.5 GHz). Between satellites, every other beam on the same band is interference (TR 38.821 §6.1.1.1, Fig. 6.1.1.1-2), again full buffer; only satellites above the elevation mask (those illuminating the area) count, so side-lobe interference is not modelled and the figure is a lower bound. The frequency reuse factor is an option (TR 38.821 Table 6.1.1.1-5: Option 1 = 1, default; Option 2 = 3, each beam then gets 30/FRF MHz). With one visible satellite per band, SINR equals SNR.
 4. **Node selection** with **hysteresis**: the candidate with the highest SINR wins, but a *switch* away from the current serving node additionally requires the challenger to lead by a margin `Hys` and to keep that lead for a confirmation time `TTT` — the A3 criterion of TS 38.331 §5.5.4.4 transposed to this rule. If even the best candidate is below the minimum usable SINR (≈ −7.53 dB, the Shannon-equivalent of MCS 0, TS 38.214), the user is declared **out of coverage** instead of being attached to an unusable node. Hysteresis never holds a dead link: a serving node that falls below the floor is dropped immediately, with no timer.
 5. **Resource allocation**: the serving node's bandwidth is split equally among its users; per-user capacity is Shannon, capped at the NR maximum spectral efficiency (5.5547 bit/s/Hz — MCS 28 of the ≤64QAM table, TS 38.214 Table 5.1.3.1-1).
 6. **Service classification**: `Served` / `BelowTarget` / `Outage`, against the 5th-percentile user spectral-efficiency requirement (0.3 bit/s/Hz, TR 37.910 Table 5.4.1.1.1-1). Capacity and *delivered throughput* are reported separately, and the reason a candidate was unusable (below SINR floor / not visible / outside model range) is recorded per link.
 7. **Energy**: per-user energy-per-bit (EARTH linear power model for the BS, Auer et al. 2011; linear PA-efficiency model for the satellite) plus a network-level power / bit-per-joule tally, including idle-BS power and a symmetric amplifier-only figure for fair BS-vs-satellite comparison.
-8. **Paired policy comparison**: every step is additionally scored under two reference policies — terrestrial-only and satellite-only — on the *same* channel realization, with resource allocation recomputed for each. No extra random draws are taken, so the comparison is paired and the statistic is the per-pass difference.
+8. **Paired policy comparison**: every step is additionally scored under two reference policies — terrestrial-only and satellite-only — and under the hybrid and terrestrial-only policies **with Mobility Load Balancing**, all on the *same* channel realization, with resource allocation recomputed for each. No extra random draws are taken, so the comparison is paired and the statistic is the per-pass difference.
 9. **Reporting**: a per-user results table, a 3D plot of the topology and serving links, and a versioned run folder with the exact parameters used.
 
 ## Requirements
@@ -55,7 +57,7 @@ runSimulation(struct('hysteresisDb', 0, ...       % reproduce the no-hysteresis 
 runSimulation(struct('label', 'v2'))              % tag the versioned run folder
 ```
 
-A full run (300 passes) takes roughly 130 minutes. A checkpoint is written after every pass, so an interrupted run resumes from where it stopped rather than from the start.
+A full run (300 passes) takes roughly 6 hours with the 7-BS / 3-satellite / 10–30-user scenario (about 75 s per pass, measured on a 2-pass test). A checkpoint is written after every pass, so an interrupted run resumes from where it stopped rather than from the start.
 
 ### How the simulated time is structured
 
@@ -63,7 +65,7 @@ The run is a loop over **satellite passes**; inside each pass a 1 s time loop ad
 
 | Quantity | Value | Source |
 |---|---|---|
-| Elementary window | one pass, 900 s | TR 38.821 Table 4.2-3 NOTE 1 — "a period of time corresponding to the visibility time of the satellite" |
+| Elementary window | one pass, 900 s, centred on the middle satellite's closest approach and containing the passes of all three | TR 38.821 Table 4.2-3 NOTE 1 — "a period of time corresponding to the visibility time of the satellite" |
 | Time step | 1 s | ITU-R M.2412-0 Annex 1 §5.3.2 (UE displacement below 1 m per step) and TR 38.821 §7.3.2.1.4 Table 7.3.2.1.4-1 (fastest LEO mobility timescale 6.61 s) |
 | User speed / direction | 3 km/h, fixed per pass, uniformly random azimuth | ITU-R M.2412-0 §8.4, TABLE 5 b)/c) — "fixed and identical speed of all UEs of the same mobility class, randomly and uniformly distributed direction" |
 | Total duration | fixed, 300 passes | ITU-R M.2412-0 §7.1 — "a sufficient number of drops … to ensure convergence" plus "the width of confidence intervals"; extended to satellite evaluation by ITU-R M.2514-0 §8.2.4 |
@@ -82,6 +84,17 @@ The standard gives ranges, not values. The defaults, **3 dB and 2,560 ms**, were
 
 One limitation is worth knowing before tuning: with Δt = 1 s, **twelve of the sixteen enumerated TTT values fall below one step** and are therefore indistinguishable. Only 0, 1024, 2560 and 5120 ms give different step counts.
 
+### Mobility Load Balancing (the `*MLB` policies)
+
+With a satellite visible almost all the time and the 7 co-channel base stations interfering with each other at the periphery, a rule that looks only at SINR sends most users to the satellite, whose bandwidth is then split among ~20 users. MLB is the standard's answer: TS 38.300 §15.5.1 defines it as distributing load "by means of optimization of cell reselection/handover parameters", with the change expressed as a delta on the handover trigger (§15.5.1.4) and kept within OAM limits. In the A3 formula that is the per-cell offset (Ocn/Ocp), zero in the plain policies. The decision stays SINR-based; only the threshold moves with the load.
+
+The standard specifies the mechanism, not how much the offset should move. Two published pieces fill that in:
+
+- **Offset rule** — Nasri & Altman, *Handover adaptation for dynamic load balancing in 3GPP LTE systems* (arXiv:1307.1212), eq. 4–5: `HM(e,k) = f(χe − χk)` with `f(x) = f(0) + (f(0) − HMmax)·x`, `f(0) = 6 dB`, `HMmax = 12 dB`. Only the load term is transposed (the planned margin here is the A3 hysteresis): the target gains an offset of `6 dB × (χ_serving − χ_target)`, the difference clipped to [−1, 1]. The rule is antisymmetric (`f(x) + f(−x) = 2f(0)`), which is the condition the paper proves is needed to avoid ping-pong — the loaded cell pushes users out and the light cell delays sending them back.
+- **Load** — the *virtual load* of Awada et al., *A game-theoretic approach to load balancing in cellular radio networks* (PIMRC 2010), eq. 1–3: each user needs the share `κ_u = D_u / (R(SINR_u)·N_tot)` of the node's resources to be satisfied, and `ρ_c = Σ κ_u` may exceed 1. With full buffer every PRB is always occupied, so PRB occupancy cannot tell a full node from an empty one; the virtual load can. The requirement `D_u` is the same service target used for classification, so `κ_u = 0.3 / SE_u` and `ρ_c ≤ 1` means the node can serve all its users.
+
+Loads are those reported at the end of the previous step (load reporting, TS 38.300 §15.5.1), so a decision never sees the load it is about to create. The offset applies only to the comparison against the serving node; first attachment and recovery from a lost link have no cell pair and use the plain measurement. The plain `Actual`, `TerrestrialOnly` and `SatelliteOnly` policies are unchanged — their results are bit-identical with and without the MLB code.
+
 ### Moving users, and what is checked every step
 
 Users walk continuously during a pass. That is also what activates the correlated shadow fading and the spatially-consistent LOS state — with static users the per-step displacement was zero and both models were inert.
@@ -94,6 +107,7 @@ Because the users move, the run asserts on **every step of every pass** that the
 |---|---|
 | `Dataset/dataset.csv` | one row per pass/step/user — geometry, per-candidate diagnostics, serving decision, capacity, delivered throughput, service state, link state, energy. Written every 5th step. Feeds both the results and the ML side. Gitignored. |
 | `Results/policy_gain.png` | how much better the hybrid policy is than terrestrial-only and satellite-only: mean paired per-pass difference with 95% CI. Rate and energy as relative change, user fractions in percentage points; positive always means the hybrid is better (outage sign flipped). Available spectrum is printed in the title as context, not plotted as a gain |
+| `Results/mlb_gain.png` | what MLB adds: hybrid with vs without MLB, terrestrial-only with vs without MLB, and hybrid vs terrestrial-only when both have MLB — same paired statistic and sign convention as `policy_gain.png` (fewer handovers and a lower ping-pong share count as better) |
 | `Results/handover_rates.png` | handovers per user per minute for each policy, stacked by type (terrestrial↔terrestrial, terrestrial↔satellite, satellite↔satellite), with the 95% CI of the total and the ping-pong share. Each type is split into **A3 decisions** (dark) and **forced** switches (light): a forced switch is one where the serving node itself was lost — below the SINR floor, outside the model's validity range or below the elevation mask — so the change bypassed hysteresis and time-to-trigger. With a 3-step TTT, every one-step ping-pong is necessarily forced. A ping-pong is a return to the immediately previous node after a stay of at most `pingPongMtsS` (default 1 s, the MTS of 3GPP TR 36.839); at Δt = 1 s that means a one-step stay. A handover is a change between two serving nodes; first attachment and reconnection after outage do not count |
 | `Results/convergence.png` | per-pass CI half-widths of the tracked KPIs, against the precision target |
 | `Results/simulation_results.mat` | the numbers behind every figure: reference pass at full 1 s resolution, convergence trace, per pass × policy KPIs, paired differences, summary |
@@ -108,7 +122,7 @@ Because the users move, the run asserts on **every step of every pass** that the
 ```matlab
 geometryValidation()                  % antenna-height & distance regression check
 energyModelValidation()               % user-count dependence of the energy metrics
-linkBudgetValidation()                % 53 checks over the link budget and resource allocation
+linkBudgetValidation()                % 56 checks over the link budget and resource allocation
 ```
 
 All three print explicit pass/fail lines, write a PNG, store their result table in the run's `params.mat` (field `results`), and `error()` out on the first failure.
@@ -117,7 +131,7 @@ All three print explicit pass/fail lines, write a PNG, store their result table 
 
 `linkBudgetValidation` compares the code's value against an independently computed closed form, at double-precision tolerance, in eight groups: unit conversions (dBm/dBW/W and both EIRPs, including a round-trip that would fail if the satellite EIRP density were misread as amplifier power), `fspl` against `20·log10(4πd/λ)`, `kTB` noise, the identity `SINR = EIRP − PL − N` on the returned per-candidate values, known behaviour, bandwidth conservation (each user's share recovered as `C_u/SE_u` and summed per node), the network power balance with no double counting, and four pre-specified edge cases — no candidate at all, a single user, a `−Inf` tie, and elevation exactly at the mask.
 
-Two of the known-behaviour checks are worth calling out, because they are what detects whether interference is really in the computation: with a **single** base station the identity `SINR = EIRP − PL − N` holds exactly and ±3 dB of transmit power moves SINR by exactly ±3 dB; with **two**, SINR is strictly below that identity for every user and ±3 dB moves it by strictly less — the signature of an interference-limited system.
+Two of the known-behaviour checks are worth calling out, because they are what detects whether interference is really in the computation: with a **single** base station the identity `SINR = EIRP − PL − N` holds exactly and ±3 dB of transmit power moves SINR by exactly ±3 dB; with **two**, SINR is strictly below that identity for every user and ±3 dB moves it by strictly less — the signature of an interference-limited system. The same is checked between satellites: two visible satellites on one band give SINR strictly below SNR; with frequency reuse 3 they are on different bands and SINR equals SNR exactly; and a satellite below the mask does not interfere.
 
 ### Result versioning
 

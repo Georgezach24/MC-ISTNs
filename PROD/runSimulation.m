@@ -81,6 +81,7 @@ def = struct( ...
     'bsIsdM',        500, ...    % m, απόσταση σταθμών (TR 38.901 Πίν. 7.8-1, UMa)
     'numSats',       3, ...      % διαδοχικοί δορυφόροι στο ίδιο τροχιακό επίπεδο
     'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
+    'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -201,6 +202,10 @@ simParameters.Mobility.DtSeconds       = opts.dtSeconds;
 % ο χρόνος παραμονής μετριέται σε ακέραια βήματα, οπότε το «< 1 s» του ορισμού
 % γίνεται «<= 1 βήμα»: η μικρότερη παραμονή που μπορεί να παρατηρηθεί.
 simParameters.Mobility.PingPongMtsS    = opts.pingPongMtsS;
+% Mobility Load Balancing (TS 38.300 §15.5.1), μόνο στις πολιτικές *MLB: η
+% μετατόπιση του A3 ως προς τον στόχο είναι MlbMaxOffsetDb επί τη διαφορά
+% εικονικού φόρτου, περιορισμένη στο [-1, 1] (βλ. simulateScenario).
+simParameters.Mobility.MlbMaxOffsetDb  = opts.mlbMaxOffsetDb;
 
 % Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1 & 6.1.3.2-1).
 % Η πυκνότητα EIRP (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
@@ -350,19 +355,20 @@ numKpi = numel(kpiNames);
 passKpi = nan(opts.numPasses, numKpi);
 
 %% ------------------ Σύγκριση πολιτικών (ITU-R M.2412-0 §7.1) ------------------
-% Κάθε βήμα αποτιμάται και με τις τρεις πολιτικές πάνω στην ΙΔΙΑ πραγματοποίηση
-% καναλιού: τα δύο υποψήφια SINR είναι κοινά, αλλάζει μόνο ποιος επιλέγεται και
-% άρα ο φόρτος κάθε κόμβου. Η σύγκριση είναι επομένως κατά ζεύγη και όχι μεταξύ
+% Κάθε βήμα αποτιμάται με όλες τις πολιτικές πάνω στην ΙΔΙΑ πραγματοποίηση
+% καναλιού: τα υποψήφια SINR είναι κοινά, αλλάζει μόνο ποιος επιλέγεται και
+% άρα ο φόρτος κάθε κόμβου. Οι πολιτικές *MLB είναι οι Actual/TerrestrialOnly
+% με εξισορρόπηση φόρτου (TS 38.300 §15.5.1) πάνω στον ίδιο A3. Η σύγκριση είναι επομένως κατά ζεύγη και όχι μεταξύ
 % ανεξάρτητων εκτελέσεων, οπότε η διακύμανση της τοπολογίας και του καναλιού
 % απαλείφεται από τη διαφορά.
-policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly'};
+policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly','ActualMLB','TerrestrialOnlyMLB'};
 policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
                  'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz', ...
                  'HoRate_perUserMin','HoRateTerrTerr_perUserMin', ...
                  'HoRateTerrSat_perUserMin','HoRateSatSat_perUserMin', ...
                  'PingPongRate_perUserMin','HoRateForced_perUserMin', ...
                  'HoRateTerrTerrForced_perUserMin','HoRateTerrSatForced_perUserMin', ...
-                 'HoRateSatSatForced_perUserMin'};
+                 'HoRateSatSatForced_perUserMin','FracSatellite'};
 numPolicy       = numel(policyNames);
 numPolicyMetric = numel(policyMetrics);
 policyPassKpi   = nan(opts.numPasses, numPolicy, numPolicyMetric);
@@ -675,10 +681,18 @@ policyTable = array2table(polVals, 'VariableNames', policyMetrics);
 policyTable = addvars(policyTable, polPassID, polName, 'Before', 1, ...
     'NewVariableNames', {'PassID','Policy'});
 
-% Οι δύο συγκρίσεις: η υπό εξέταση πολιτική έναντι καθεμιάς από τις δύο
-% αποκλειστικές.
-compIdx = [1 2; 1 3];
+% Οι συγκρίσεις κατά ζεύγη (πολιτική, βάση): η υπό εξέταση πολιτική έναντι
+% καθεμιάς από τις δύο αποκλειστικές, και τι προσθέτει το MLB στη μεικτή και
+% στην επίγεια, καθώς και η μεικτή έναντι της επίγειας όταν έχουν και οι δύο MLB.
+compNames = {'Actual','TerrestrialOnly'; 'Actual','SatelliteOnly'; ...
+             'ActualMLB','Actual'; 'TerrestrialOnlyMLB','TerrestrialOnly'; ...
+             'ActualMLB','TerrestrialOnlyMLB'};
+compIdx = zeros(size(compNames));
+for c = 1:numel(compNames)
+    compIdx(c) = find(strcmp(policyNames, compNames{c}), 1);
+end
 nComp   = size(compIdx,1);
+pairPolicy   = strings(nComp*numPolicyMetric,1);
 pairBaseline = strings(nComp*numPolicyMetric,1);
 pairMetric   = strings(nComp*numPolicyMetric,1);
 pairN        = zeros(nComp*numPolicyMetric,1);
@@ -698,6 +712,7 @@ for c = 1:nComp
         ok = isfinite(d);
         d = d(ok);
         q = q + 1;
+        pairPolicy(q)   = string(policyNames{compIdx(c,1)});
         pairBaseline(q) = string(policyNames{compIdx(c,2)});
         pairMetric(q)   = string(policyMetrics{mI});
         pairN(q)        = numel(d);
@@ -713,30 +728,31 @@ for c = 1:nComp
         end
     end
 end
-pairedTable = table(pairBaseline, pairMetric, pairN, pairMean, pairHw, ...
+pairedTable = table(pairPolicy, pairBaseline, pairMetric, pairN, pairMean, pairHw, ...
     pairMean - pairHw, pairMean + pairHw, pairBaseMean, pairRelPct, pairWinFrac, ...
-    'VariableNames', {'Baseline','Metric','NumPasses','MeanDiff','CI95HalfWidth', ...
+    'VariableNames', {'Policy','Baseline','Metric','NumPasses','MeanDiff','CI95HalfWidth', ...
                       'CI95Low','CI95High','BaselineMean','RelDiffPct','FracPassesPositive'});
 
 fprintf('\n  Σύγκριση πολιτικών στην ίδια διέλευση (%d διελεύσεις)\n', numPasses);
 iPpFrac = find(strcmp(policyMetrics, 'PingPongFrac'), 1);
 iForced = find(strcmp(policyMetrics, 'HoRateForced_perUserMin'), 1);
-fprintf('    %-18s %12s %12s %12s %14s %10s %12s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός', ...
-    'HO/χρήστη/min', 'ping-pong', 'αναγκαστικά');
+iSatFrac = find(strcmp(policyMetrics, 'FracSatellite'), 1);
+fprintf('    %-18s %12s %12s %12s %10s %14s %10s %12s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός', ...
+    'δορυφ.', 'HO/χρήστη/min', 'ping-pong', 'αναγκαστικά');
 for pI = 1:numPolicy
     hoM = mean(pol(:,pI,iHo),'omitnan');
-    fprintf('    %-18s %12.2f %12.4f %12.4f %14.3f %9.1f%% %11.1f%%\n', policyNames{pI}, ...
+    fprintf('    %-18s %12.2f %12.4f %12.4f %9.1f%% %14.3f %9.1f%% %11.1f%%\n', policyNames{pI}, ...
         mean(pol(:,pI,2),'omitnan'), mean(pol(:,pI,3),'omitnan'), ...
-        mean(pol(:,pI,5),'omitnan'), hoM, ...
+        mean(pol(:,pI,5),'omitnan'), 100*mean(pol(:,pI,iSatFrac),'omitnan'), hoM, ...
         100*mean(pol(:,pI,iPpFrac),'omitnan'), ...
         100*mean(pol(:,pI,iForced),'omitnan')/hoM);
 end
-fprintf('\n    Διαφορές ανά διέλευση (η υπό εξέταση μείον τη βάση), 95%% CI:\n');
+fprintf('\n    Διαφορές ανά διέλευση (πολιτική μείον βάση), 95%% CI:\n');
 for q = 1:height(pairedTable)
     signif = ternary(pairedTable.CI95Low(q) > 0 || pairedTable.CI95High(q) < 0, ...
         '', '   [το CI περιέχει το μηδέν]');
-    fprintf('    %-16s %-18s %+10.4f ± %.4f (%+6.1f%%, θετική στο %4.1f%% των διελεύσεων)%s\n', ...
-        pairedTable.Baseline(q), pairedTable.Metric(q), pairedTable.MeanDiff(q), ...
+    fprintf('    %-18s - %-18s %-18s %+10.4f ± %.4f (%+6.1f%%, θετική στο %4.1f%% των διελεύσεων)%s\n', ...
+        pairedTable.Policy(q), pairedTable.Baseline(q), pairedTable.Metric(q), pairedTable.MeanDiff(q), ...
         pairedTable.CI95HalfWidth(q), pairedTable.RelDiffPct(q), ...
         100*pairedTable.FracPassesPositive(q), signif);
 end
@@ -745,6 +761,8 @@ fprintf('\n');
 %% ------------------ Γράφημα σύγκρισης πολιτικών ------------------
 polPng = fullfile(opts.outputDir, 'policy_gain.png');
 plotPolicyGain(pairedTable, numPasses, polPng);
+mlbPng = fullfile(opts.outputDir, 'mlb_gain.png');
+plotMlbGain(pairedTable, numPasses, opts.mlbMaxOffsetDb, mlbPng);
 
 hoPng = fullfile(opts.outputDir, 'handover_rates.png');
 plotHandoverRates(pol, policyMetrics, policyNames, numPasses, opts.pingPongMtsS, hoPng);
@@ -827,7 +845,7 @@ end
 % Το μόνο csv είναι το dataset· οι αριθμοί πίσω από τα γραφήματα κρατούνται σε
 % ένα .mat, ώστε κάθε γράφημα να μπορεί να ξαναφτιαχτεί χωρίς νέα εκτέλεση.
 save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'summary');
-outFiles = {resultsMat, polPng, hoPng, fullfile(opts.outputDir,'network_3d.png')};
+outFiles = {resultsMat, polPng, mlbPng, hoPng, fullfile(opts.outputDir,'network_3d.png')};
 
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SINR_dB','SatElevation_deg'};
 kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SINR (dB)','Γωνία ανύψωσης (deg)'};
@@ -1008,7 +1026,8 @@ function tf = checkpointMatches(a, b)
 keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'numPasses','geometryGrid','datasetPath', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
-        'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse'};
+        'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse', ...
+        'mlbMaxOffsetDb'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
@@ -1101,9 +1120,10 @@ ppMetric  = ["FracServed","FracOutage"];
 ppSign    = [1 -1];
 ppLabel   = {'Αύξηση εξυπηρετούμενων','Μείωση εκτός κάλυψης'};
 
-[relVal, relHw] = gainMatrix(pairedTable, baselines, relMetric, ones(1,numel(relMetric)), true);
-[ppVal,  ppHw]  = gainMatrix(pairedTable, baselines, ppMetric, ppSign, false);
-specVal         = gainMatrix(pairedTable, baselines, "Spectrum_MHz", 1, true);
+T = pairedTable(pairedTable.Policy == "Actual", :);
+[relVal, relHw] = gainMatrix(T, baselines, relMetric, ones(1,numel(relMetric)), true);
+[ppVal,  ppHw]  = gainMatrix(T, baselines, ppMetric, ppSign, false);
+specVal         = gainMatrix(T, baselines, "Spectrum_MHz", 1, true);
 
 fig = figure('Visible','off','Position',[100 100 1400 520]);
 try
@@ -1127,6 +1147,54 @@ saveas(fig, pngPath);
 close(fig);
 end
 
+function plotMlbGain(pairedTable, numPasses, mlbOffsetDb, pngPath)
+% Τι προσθέτει η εξισορρόπηση φόρτου (MLB): η ίδια πολιτική με και χωρίς MLB,
+% στο ίδιο κανάλι, και η μεικτή έναντι της επίγειας όταν έχουν και οι δύο MLB.
+% Ίδια σύμβαση με το policy_gain: θετική τιμή = καλύτερη η πρώτη πολιτική.
+% Στα handovers και στα ping-pong το πρόσημο αντιστρέφεται (λιγότερα = καλύτερα).
+pairs = ["ActualMLB","Actual"; "TerrestrialOnlyMLB","TerrestrialOnly"; ...
+         "ActualMLB","TerrestrialOnlyMLB"];
+pairLabel = {'μεικτή: με MLB έναντι χωρίς','επίγεια: με MLB έναντι χωρίς', ...
+             'με MLB: μεικτή έναντι επίγειας'};
+relMetric = ["MeanCapacity_Mbps","TotalRate_Mbps","BitPerJouleRf","HoRate_perUserMin"];
+relSign   = [1 1 1 -1];
+relLabel  = {'Μέση χωρητικότητα χρήστη','Συνολική ρυθμαπόδοση', ...
+             'Ενεργειακή απόδοση (bit/J)','Μείωση handovers'};
+ppMetric  = ["FracServed","FracOutage","PingPongFrac"];
+ppSign    = [1 -1 -1];
+ppLabel   = {'Αύξηση εξυπηρετούμενων','Μείωση εκτός κάλυψης','Μείωση ping-pong (μερίδιο HO)'};
+
+nP = size(pairs,1);
+relVal = nan(numel(relMetric), nP); relHw = relVal;
+ppVal  = nan(numel(ppMetric),  nP); ppHw  = ppVal;
+for j = 1:nP
+    T = pairedTable(pairedTable.Policy == pairs(j,1), :);
+    [relVal(:,j), relHw(:,j)] = gainMatrix(T, pairs(j,2), relMetric, relSign, true);
+    [ppVal(:,j),  ppHw(:,j)]  = gainMatrix(T, pairs(j,2), ppMetric,  ppSign,  false);
+end
+
+fig = figure('Visible','off','Position',[100 100 1400 560]);
+try
+    theme(fig, 'light');
+catch
+end
+subplot(1,2,1);
+gainPanel(relVal, relHw, relLabel, pairLabel, '%');
+xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
+title('Ρυθμός, ενέργεια, handovers');
+
+subplot(1,2,2);
+gainPanel(ppVal, ppHw, ppLabel, pairLabel, ' μον.');
+xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
+title('Κάλυψη χρηστών και ping-pong');
+
+sgtitle(sprintf(['Εξισορρόπηση φόρτου (MLB, TS 38.300 §15.5.1): %d διελεύσεις, 95%% CI ' ...
+    '(ns: το CI περιέχει το 0)\nμετατόπιση A3 = %g dB \\times διαφορά εικονικού φόρτου ' ...
+    '(Nasri & Altman), φόρτος κατά Awada et al.'], numPasses, mlbOffsetDb));
+saveas(fig, pngPath);
+close(fig);
+end
+
 function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, pngPath)
 % Ρυθμός handovers ανά πολιτική, σε απόλυτες τιμές και όχι ως «βελτίωση»: η
 % αποκλειστικά δορυφορική πολιτική με έναν δορυφόρο δεν έχει κανένα handover,
@@ -1138,7 +1206,7 @@ function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, png
 typeKey   = {'TerrTerr','TerrSat','SatSat'};
 typeLabel = {'επίγειο \leftrightarrow επίγειο','επίγειο \leftrightarrow δορυφορικό', ...
              'δορυφορικό \leftrightarrow δορυφορικό'};
-polLabel  = {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική'};
+polLabel  = {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική','υπό εξέταση + MLB','μόνο επίγεια + MLB'};
 cols      = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
 lightMix  = 0.55;   % ανάμειξη με λευκό για το αναγκαστικό τμήμα
 numPolicy = numel(policyNames);
@@ -1167,7 +1235,7 @@ totHw   = 1.96 * std(totV, 0, 1, 'omitnan') ./ sqrt(sum(isfinite(totV), 1));
 forcedM = mean(pol(:,:,idx('HoRateForced_perUserMin')), 1, 'omitnan');
 ppM     = 100 * mean(pol(:,:,idx('PingPongFrac')), 1, 'omitnan');
 
-fig = figure('Visible','off','Position',[100 100 820 520]);
+fig = figure('Visible','off','Position',[100 100 1150 560]);
 try
     theme(fig, 'light');
 catch
@@ -1237,7 +1305,7 @@ end
 function gainPanel(val, hw, labels, seriesLabels, unit)
 % Οριζόντιες ομαδοποιημένες μπάρες, μία ομάδα ανά δείκτη και μία μπάρα ανά βάση.
 nM   = size(val,1);
-cols = [0.20 0.45 0.75; 0.90 0.55 0.15];
+cols = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
 span = max([abs(val(:)) + hw(:); 1], [], 'omitnan');
 pad  = 0.03 * span;
 

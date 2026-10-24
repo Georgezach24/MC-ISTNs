@@ -13,12 +13,13 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
 % ανεξάρτητα από την τελική επιλογή) για την εκπαίδευση του ML μοντέλου του Part 2.
 % Το sat_geo έχει μία γραμμή [lat lon alt] ανά δορυφόρο.
 %
-% 23η έξοδος policyKpis: η ίδια πραγματοποίηση καναλιού αποτιμάται και με τις
-% τρεις πολιτικές επιλογής κόμβου (η υπό εξέταση, αποκλειστικά επίγεια,
-% αποκλειστικά δορυφορική), με την κατανομή πόρων να υπολογίζεται εκ νέου σε
-% καθεμία. Τα δύο υποψήφια SINR έχουν ήδη υπολογιστεί για κάθε χρήστη ανεξάρτητα
-% από το ποιος κερδίζει, οπότε οι τρεις πολιτικές διαφέρουν μόνο στην επιλογή
-% και η σύγκριση είναι κατά ζεύγη πάνω στο ίδιο κανάλι.
+% 23η έξοδος policyKpis: η ίδια πραγματοποίηση καναλιού αποτιμάται με όλες τις
+% πολιτικές επιλογής κόμβου (η υπό εξέταση, αποκλειστικά επίγεια, αποκλειστικά
+% δορυφορική, και οι δύο πρώτες με εξισορρόπηση φόρτου, *MLB), με την κατανομή
+% πόρων να υπολογίζεται εκ νέου σε καθεμία. Τα υποψήφια SINR έχουν ήδη
+% υπολογιστεί για κάθε χρήστη ανεξάρτητα από το ποιος κερδίζει, οπότε οι
+% πολιτικές διαφέρουν μόνο στην επιλογή και η σύγκριση είναι κατά ζεύγη πάνω
+% στο ίδιο κανάλι.
 %
 % 8ο όρισμα prevDecision / 24η έξοδος newDecision: κατάσταση της απόφασης
 % (εξυπηρετών κόμβος, υποψήφιος σε εκκρεμότητα, μετρητής επιβεβαίωσης) ανά
@@ -128,6 +129,27 @@ end
 % διάρκεια αυτή· με Δt = 1 s οι τιμές κάτω από 1024 ms δεν διακρίνονται.
 nTtt = max(1, ceil(tttMs / (dtSecHys*1000)));
 
+%% ------------------ Εξισορρόπηση φόρτου (Mobility Load Balancing) ------------------
+% TS 38.300 §15.5.1: το MLB μοιράζει τον φόρτο αλλάζοντας τις παραμέτρους του
+% handover, με την αλλαγή εκφρασμένη ως διαφορά (delta) στο κατώφλι ενεργοποίησης
+% (§15.5.1.4) και πάντα μέσα στα όρια που επιτρέπει το OAM. Στον τύπο του A3
+% (TS 38.331 §5.5.4.4) αυτό είναι η μετατόπιση ανά κυψέλη (Ocn/Ocp). Το πρότυπο
+% δεν ορίζει ΠΟΣΟ αλλάζει η μετατόπιση· ο κανόνας είναι του Nasri & Altman
+% (arXiv:1307.1212, εξ. 4-5): το περιθώριο από την κυψέλη e προς την k είναι
+%     HM(e,k) = f(x),  f(x) = f(0) + (f(0) - HMmax)*x,  x = χe - χk ∈ [-1, 1]
+% με f(0) = 6 dB και HMmax = 12 dB, δηλαδή το περιθώριο μετατοπίζεται γύρω από
+% το προγραμματισμένο κατά -6 dB ανά μονάδα διαφοράς φόρτου. Η αντισυμμετρία
+% f(x) + f(-x) = 2 f(0) είναι ο όρος του θεωρήματός τους που αποτρέπει το
+% ping-pong: η γεμάτη κυψέλη σπρώχνει χρήστες και η άδεια καθυστερεί την
+% επιστροφή τους. Εδώ το προγραμματισμένο περιθώριο είναι η υστέρηση του A3,
+% οπότε μεταφέρεται μόνο ο όρος του φόρτου: μετατόπιση υπέρ του στόχου ίση με
+% MlbMaxOffsetDb * (χ_εξυπηρετούντος - χ_στόχου).
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'MlbMaxOffsetDb')
+    mlbMaxOffsetDb = simParameters.Mobility.MlbMaxOffsetDb;
+else
+    mlbMaxOffsetDb = 6;   % = HMmax - f(0) του Nasri & Altman
+end
+
 %% ------------------ Μέτρηση: μέση τιμή και φίλτρο L3 ------------------
 % Το TS 38.331 §5.5.3.2 ορίζει ότι ο A3 δεν συγκρίνει τη στιγμιαία μέτρηση
 % αλλά τη φιλτραρισμένη, F_n = (1-a)*F_{n-1} + a*M_n ("filter the measured
@@ -154,15 +176,27 @@ l3Alpha      = min(max(measParam(simParameters, 'L3Alpha', 1), 0), 1);
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
 bestBsNodeVec       = strings(numUsers,1);   % ποιος BS κέρδισε, για τη σύγκριση πολιτικών
-policyNamesLocal    = {'Actual','TerrestrialOnly','SatelliteOnly'};
+% Οι τρεις βασικές πολιτικές και οι δύο εκδοχές τους με MLB: ίδιοι υποψήφιοι
+% και ίδιος A3, με επιπλέον τη μετατόπιση φόρτου.
+policyNamesLocal    = {'Actual','TerrestrialOnly','SatelliteOnly', ...
+                       'ActualMLB','TerrestrialOnlyMLB'};
+policyBaseLocal     = {'Actual','TerrestrialOnly','SatelliteOnly', ...
+                       'Actual','TerrestrialOnly'};
+policyMlbLocal      = [false false false true true];
+numPolLocal         = numel(policyNamesLocal);
 % Prev/Stay: ο κόμβος πριν το τελευταίο handover και τα βήματα παραμονής στον
 % τρέχοντα από τότε. Χρειάζονται μόνο για την καταμέτρηση των ping-pong· δεν
 % επηρεάζουν την απόφαση.
 newDecision = struct();
+% LoadNode/LoadRho: εικονικός φόρτος κάθε κόμβου στο τέλος του βήματος, όπως
+% τον αναφέρουν οι σταθμοί ο ένας στον άλλον (TS 38.300 §15.5.1, load
+% reporting). Η απόφαση του επόμενου βήματος βλέπει τον φόρτο αυτού, δηλαδή με
+% καθυστέρηση ενός βήματος, και όχι τον φόρτο που θα προκύψει από την ίδια.
 for pol = policyNamesLocal
     newDecision.(pol{1}) = struct('Node', strings(numUsers,1), ...
         'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), ...
-        'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1));
+        'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1), ...
+        'LoadNode', strings(0,1), 'LoadRho', zeros(0,1));
 end
 hasPrevDecision = ~isempty(prevDecision);
 
@@ -188,10 +222,11 @@ throughputMbpsVec   = zeros(numUsers,1);
 bsUnavailReasonVec  = strings(numUsers,1);
 satUnavailReasonVec = strings(numUsers,1);
 
-% Καταστάσεις εναλλακτικών πολιτικών (στήλες 2 και 3: επίγεια / δορυφορική)
-polNodeMat = strings(numUsers,3);
-polTypeMat = strings(numUsers,3);
-polSinrMat = nan(numUsers,3);
+% Αναθέσεις ανά πολιτική, μία στήλη ανά policyNamesLocal. Η στήλη 1 (Actual)
+% συμπληρώνεται κι αυτή, για τον υπολογισμό του φόρτου της.
+polNodeMat = strings(numUsers,numPolLocal);
+polTypeMat = strings(numUsers,numPolLocal);
+polSinrMat = nan(numUsers,numPolLocal);
 
 % Διαγνωστικοί πίνακες
 groundDistanceMat = nan(numUsers,numBs);
@@ -546,7 +581,7 @@ for u = 1:numUsers
 
     for pI = 1:numel(policyNamesLocal)
         polName = policyNamesLocal{pI};
-        switch polName
+        switch policyBaseLocal{pI}
             case 'Actual',          keepMask = true(nCand,1);
             case 'TerrestrialOnly', keepMask = isTerr;
             otherwise,              keepMask = isSat;
@@ -561,8 +596,25 @@ for u = 1:numUsers
             pStay = prevDecision.(polName).Stay(u);
         end
 
+        % Μετατόπιση φόρτου κάθε υποψηφίου ως προς τον εξυπηρετούντα (0 για
+        % τον ίδιο και για τις πολιτικές χωρίς MLB). Κόμβος που δεν εμφανίζεται
+        % στην αναφορά φόρτου δεν εξυπηρετούσε κανέναν: φόρτος 0.
+        candOffsetDb = zeros(nCand,1);
+        if policyMlbLocal(pI) && hasPrevDecision && pN ~= "" && pN ~= "None"
+            ldNode = prevDecision.(polName).LoadNode;
+            ldRho  = prevDecision.(polName).LoadRho;
+            rhoServ = sum(ldRho(ldNode == pN));
+            for i = 1:nCand
+                if candNode(i) == pN
+                    continue;
+                end
+                x = min(max(rhoServ - sum(ldRho(ldNode == candNode(i))), -1), 1);
+                candOffsetDb(i) = mlbMaxOffsetDb * x;
+            end
+        end
+
         [ci, pendN, pendC, isForced] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
-            keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
+            keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt, candOffsetDb);
 
         if ci == 0
             selNode = "None"; selType = "Outage"; selSinr = NaN;
@@ -628,11 +680,10 @@ for u = 1:numUsers
                 bestSinrDbVec(u)       = candSinr(ci);
                 bestElevationDegVec(u) = candElev(ci);
             end
-        else
-            polNodeMat(u,pI) = selNode;
-            polTypeMat(u,pI) = selType;
-            polSinrMat(u,pI) = selSinr;
         end
+        polNodeMat(u,pI) = selNode;
+        polTypeMat(u,pI) = selType;
+        polSinrMat(u,pI) = selSinr;
     end
 end
 
@@ -640,8 +691,11 @@ end
 % Ο κανόνας ζει σε μία μόνο συνάρτηση (allocateAndTally), επειδή καλείται και
 % για τις εναλλακτικές πολιτικές παρακάτω: αν ήταν αντιγραμμένος, οι δύο
 % αντιγραφές θα μπορούσαν να αποκλίνουν χωρίς να φανεί.
+% Μέγιστη φασματική απόδοση του NR (MCS 28 / 64QAM, TS 38.214 Πίν.
+% 5.1.3.1-1): κοινή για τη χωρητικότητα και για τον φόρτο του MLB.
 alloc = struct('BW_bs', BW_bs, 'pOutPerChainW', pOutPerChainW, ...
-               'targetNormalizedSe', targetNormalizedSe, 'numBs', numBs);
+               'targetNormalizedSe', targetNormalizedSe, 'numBs', numBs, ...
+               'maxSe', 5.5547);
 
 [capacityMbpsVec, throughputMbpsVec, serviceStateVec, nodePowerWattsVec, ...
  energyPerBitUJVec, networkEnergy] = allocateAndTally(bestNodeVec, ...
@@ -653,17 +707,9 @@ alloc = struct('BW_bs', BW_bs, 'pOutPerChainW', pOutPerChainW, ...
 % μόνο ποιος υποψήφιος επιλέγεται, με την κατανομή πόρων να υπολογίζεται εκ νέου
 % ώστε να αποτυπωθεί ο διαφορετικός φόρτος που προκύπτει.
 
-% Οι δύο εναλλακτικές πολιτικές αποφασίστηκαν παραπάνω με τον ΙΔΙΟ κανόνα
+% Οι εναλλακτικές πολιτικές αποφασίστηκαν παραπάνω με τον ΙΔΙΟ κανόνα
 % υστέρησης, καθεμία με τη δική της κατάσταση: μια πολιτική που αλλάζει κόμβο
 % δεν πρέπει να συγκρίνεται με μία που δεν αλλάζει.
-terrNode = polNodeMat(:,2);
-terrType = polTypeMat(:,2);
-terrSnr  = polSinrMat(:,2);
-
-satNode = polNodeMat(:,3);
-satType = polTypeMat(:,3);
-satSnrPolicy = polSinrMat(:,3);
-
 % Διαθέσιμο φάσμα ανά σκέλος σε αυτό το βήμα (MHz). Στο δορυφορικό σκέλος
 % μετράει κάθε διακριτή ζώνη που έχει τουλάχιστον έναν ορατό δορυφόρο: με
 % FRF = 1 όλοι οι δορυφόροι μοιράζονται την ίδια ζώνη, όπως οι BS τη δική τους.
@@ -675,15 +721,26 @@ policyKpis = struct();
 policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, ...
     spectrumTerrMHz + spectrumSatMHz, hoCount.Actual, dtSecHys);
 
-[capT, thrT, ~, ~, ~, netT] = allocateAndTally(terrNode, terrType, terrSnr, ...
-    simParameters, satParameters, alloc);
-policyKpis.TerrestrialOnly = policySummary(capT, thrT, netT, numUsers, spectrumTerrMHz, ...
-    hoCount.TerrestrialOnly, dtSecHys);
+for pI = 2:numPolLocal
+    polName = policyNamesLocal{pI};
+    switch policyBaseLocal{pI}
+        case 'Actual',          specMHz = spectrumTerrMHz + spectrumSatMHz;
+        case 'TerrestrialOnly', specMHz = spectrumTerrMHz;
+        otherwise,              specMHz = spectrumSatMHz;
+    end
+    [capP, thrP, ~, ~, ~, netP] = allocateAndTally(polNodeMat(:,pI), polTypeMat(:,pI), ...
+        polSinrMat(:,pI), simParameters, satParameters, alloc);
+    policyKpis.(polName) = policySummary(capP, thrP, netP, numUsers, specMHz, ...
+        hoCount.(polName), dtSecHys);
+end
 
-[capS, thrS, ~, ~, ~, netS] = allocateAndTally(satNode, satType, satSnrPolicy, ...
-    simParameters, satParameters, alloc);
-policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers, spectrumSatMHz, ...
-    hoCount.SatelliteOnly, dtSecHys);
+% Αναφορά φόρτου για το επόμενο βήμα, ανά πολιτική με MLB.
+for pI = find(policyMlbLocal)
+    [ldNode, ldRho] = virtualLoad(polNodeMat(:,pI), polSinrMat(:,pI), ...
+        targetNormalizedSe, alloc.maxSe);
+    newDecision.(policyNamesLocal{pI}).LoadNode = ldNode;
+    newDecision.(policyNamesLocal{pI}).LoadRho  = ldRho;
+end
 
 %% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
 % Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
@@ -698,7 +755,8 @@ newChannelState.FiltSinrSat_dB  = filtSinrSatMat;
 end
 
 function [chosenIdx, pendNode, pendCount, forced] = applyHysteresis(candNode, candSinr, ...
-    candSinrMeas, keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt)
+    candSinrMeas, keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt, ...
+    candOffsetDb)
 % Απόφαση επιλογής κόμβου με υστέρηση και χρόνο επιβεβαίωσης, κατά τη μεταφορά
 % του Event A3 του TS 38.331 §5.5.4.4:
 %   είσοδος (A3-1):  M_n - Hys > M_p     έξοδος (A3-2):  M_n + Hys < M_p
@@ -716,6 +774,16 @@ function [chosenIdx, pendNode, pendCount, forced] = applyHysteresis(candNode, ca
 %                ικανοποιείται η συνθήκη A3. Αυτό βλέπει ένα πραγματικό
 %                τερματικό· δεν βλέπει ποτέ στιγμιαίο δείγμα.
 % Με l3Alpha = 1 τα δύο ταυτίζονται και η συμπεριφορά ανάγεται στην παλιά.
+%
+%   candOffsetDb η μετατόπιση κάθε υποψηφίου ως προς τον εξυπηρετούντα
+%                (Ocn - Ocp του A3, εδώ από το MLB). Προστίθεται στη μέτρηση
+%                του υποψηφίου ΜΟΝΟ στη σύγκριση με τον εξυπηρετούντα· η
+%                επιλογή χωρίς εξυπηρετούντα (πρώτη σύνδεση, απώλεια ζεύξης)
+%                δεν έχει ζεύγος κυψελών και γίνεται στη σκέτη μέτρηση.
+%                Μηδενικές τιμές = A3 χωρίς μετατοπίσεις.
+if nargin < 11 || isempty(candOffsetDb)
+    candOffsetDb = zeros(size(candSinrMeas));
+end
 usable = keepMask & (candSinr >= minUsableSinrDb);
 chosenIdx = 0; pendNode = ""; pendCount = 0;
 % forced: ο εξυπηρετών κόμβος υπήρχε αλλά δεν είναι πια αξιοποιήσιμος (κάτω από
@@ -748,12 +816,17 @@ if iPrev == 0
     return;
 end
 
+% Με εξυπηρετούντα, ο καλύτερος υποψήφιος κρίνεται στη μέτρηση συν τη
+% μετατόπισή του (η μετατόπιση του ίδιου του εξυπηρετούντος είναι 0).
+masked = masked + candOffsetDb;
+[~, iBest] = max(masked);
+
 if iBest == iPrev
     chosenIdx = iPrev;
     return;
 end
 
-if candSinrMeas(iBest) - hysDb > candSinrMeas(iPrev)
+if candSinrMeas(iBest) + candOffsetDb(iBest) - hysDb > candSinrMeas(iPrev)
     % Η συνθήκη εισόδου ισχύει: ο μετρητής επιβεβαίωσης προχωρά μόνο αν ο
     % υποψήφιος είναι ο ίδιος με το προηγούμενο βήμα.
     if prevPending == candNode(iBest)
@@ -829,9 +902,8 @@ for u = 1:numUsers
 
     % Χωρητικότητα Shannon, με clamp στη μέγιστη φασματική απόδοση του NR
     % (MCS 28 / 64QAM, TS 38.214 Πίν. 5.1.3.1-1) ώστε να μην υπερεκτιμάται σε υψηλό SINR.
-    maxSpectralEfficiency = 5.5547;   % bits/s/Hz (MCS 28, 64QAM)
     sinr_lin = 10^(sinrDbVec(u)/10);
-    spectralEfficiency = min(log2(1 + sinr_lin), maxSpectralEfficiency);
+    spectralEfficiency = min(log2(1 + sinr_lin), alloc.maxSe);
     capacity = B_user * spectralEfficiency;   % bits/s
 
     capacityMbpsVec(u)   = capacity * 1e-6;    % Mbps
@@ -890,7 +962,28 @@ networkEnergy.BitPerJouleRf   = totalRateBps / networkEnergy.TotalPowerRf_W;
 networkEnergy.ServedUsers     = sum(serviceStateVec == "Served");
 networkEnergy.BelowTargetUsers= sum(serviceStateVec == "BelowTarget");
 networkEnergy.OutageUsers     = sum(serviceStateVec == "Outage");
+networkEnergy.SatelliteUsers  = sum(typeVec == "Satellite");
 networkEnergy.TargetNormSe    = alloc.targetNormalizedSe;
+end
+
+function [nodes, rho] = virtualLoad(nodeVec, sinrDbVec, targetNormalizedSe, maxSe)
+% Εικονικός φόρτος κάθε κόμβου κατά Awada et al. (PIMRC 2010, εξ. 1-3): το
+% μερίδιο των πόρων του κόμβου που χρειάζεται ο χρήστης u για να ικανοποιηθεί,
+%     κ_u = D_u / (R(SINR_u) * N_tot),     ρ_c = Σ_{u στον c} κ_u,
+% που μπορεί να ξεπεράσει το 1 ("virtual" metric). Με μοντέλο πλήρους
+% απασχόλησης όλοι οι πόροι είναι πάντα κατειλημμένοι, οπότε η κατάληψη PRB
+% δεν ξεχωρίζει έναν γεμάτο κόμβο από έναν άδειο· ο εικονικός φόρτος ναι. Ως
+% απαίτηση D_u χρησιμοποιείται το ίδιο κριτήριο εξυπηρέτησης με την κατανομή
+% πόρων (targetNormalizedSe επί του εύρους του κόμβου), άρα κ_u = target/SE_u
+% και ρ_c <= 1 σημαίνει ότι ο κόμβος μπορεί να εξυπηρετήσει όλους τους χρήστες του.
+served = nodeVec ~= "None" & nodeVec ~= "" & isfinite(sinrDbVec);
+nodes  = unique(nodeVec(served));
+rho    = zeros(numel(nodes),1);
+se     = min(log2(1 + 10.^(sinrDbVec/10)), maxSe);
+for i = 1:numel(nodes)
+    onNode = served & nodeVec == nodes(i);
+    rho(i) = sum(targetNormalizedSe ./ se(onNode));
+end
 end
 
 function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, spectrumMHz, ho, dtS)
@@ -909,6 +1002,7 @@ s.TotalRate_Mbps   = sum(throughputMbpsVec);
 s.FracServed       = networkEnergy.ServedUsers / numUsers;
 s.FracBelowTarget  = networkEnergy.BelowTargetUsers / numUsers;
 s.FracOutage       = networkEnergy.OutageUsers / numUsers;
+s.FracSatellite    = networkEnergy.SatelliteUsers / numUsers;   % μερίδιο χρηστών στο δορυφορικό σκέλος
 s.TotalPower_W     = networkEnergy.TotalPower_W;
 s.TotalPowerRf_W   = networkEnergy.TotalPowerRf_W;
 s.BitPerJoule      = networkEnergy.BitPerJoule;
