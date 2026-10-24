@@ -143,7 +143,9 @@ nTtt = max(1, ceil(tttMs / (dtSecHys*1000)));
 % ping-pong: η γεμάτη κυψέλη σπρώχνει χρήστες και η άδεια καθυστερεί την
 % επιστροφή τους. Εδώ το προγραμματισμένο περιθώριο είναι η υστέρηση του A3,
 % οπότε μεταφέρεται μόνο ο όρος του φόρτου: μετατόπιση υπέρ του στόχου ίση με
-% MlbMaxOffsetDb * (χ_εξυπηρετούντος - χ_στόχου).
+% MlbMaxOffsetDb * (χ_εξυπηρετούντος - χ_στόχου). Η μετατόπιση είναι το Ocn
+% που ο εξυπηρετών κόμβος δίνει στον γείτονα, οπότε στρογγυλεύεται στις
+% τιμές που μπορεί να πάρει το πεδίο (Q-OffsetRange, TS 38.331).
 if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'MlbMaxOffsetDb')
     mlbMaxOffsetDb = simParameters.Mobility.MlbMaxOffsetDb;
 else
@@ -192,10 +194,14 @@ newDecision = struct();
 % τον αναφέρουν οι σταθμοί ο ένας στον άλλον (TS 38.300 §15.5.1, load
 % reporting). Η απόφαση του επόμενου βήματος βλέπει τον φόρτο αυτού, δηλαδή με
 % καθυστέρηση ενός βήματος, και όχι τον φόρτο που θα προκύψει από την ίδια.
+% Υπολογίζεται σε όλες τις πολιτικές, αλλά μόνο οι *MLB τον χρησιμοποιούν.
+% Forced/Offset: αν η επιλογή του βήματος ήταν αναγκαστική και ποια μετατόπιση
+% είχε ο επιλεγμένος κόμβος. Μόνο για την καταγραφή των handovers.
 for pol = policyNamesLocal
     newDecision.(pol{1}) = struct('Node', strings(numUsers,1), ...
         'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), ...
         'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1), ...
+        'Forced', false(numUsers,1), 'Offset', zeros(numUsers,1), ...
         'LoadNode', strings(0,1), 'LoadRho', zeros(0,1));
 end
 hasPrevDecision = ~isempty(prevDecision);
@@ -245,6 +251,7 @@ satElevationVec   = nan(numUsers,1);
 satPathLossVec    = nan(numUsers,1);
 satSinrDbVec       = nan(numUsers,1);
 satSinrDbMat      = -inf(numUsers,numSats);
+satElevMat        = nan(numUsers,numSats);
 
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
@@ -458,6 +465,7 @@ for u = 1:numUsers
             user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
         satElevRow(k)  = elevSat;
         satRangeRow(k) = slantRangeSat;
+        satElevMat(u,k) = elevSat;
 
         if elevSat < satParameters.MinElevationDeg
             continue;
@@ -609,7 +617,7 @@ for u = 1:numUsers
                     continue;
                 end
                 x = min(max(rhoServ - sum(ldRho(ldNode == candNode(i))), -1), 1);
-                candOffsetDb(i) = mlbMaxOffsetDb * x;
+                candOffsetDb(i) = quantizeQOffsetDb(mlbMaxOffsetDb * x);
             end
         end
 
@@ -624,6 +632,10 @@ for u = 1:numUsers
         newDecision.(polName).Node(u)    = selNode;
         newDecision.(polName).Pending(u) = pendN;
         newDecision.(polName).Count(u)   = pendC;
+        newDecision.(polName).Forced(u)  = isForced;
+        if ci > 0
+            newDecision.(polName).Offset(u) = candOffsetDb(ci);
+        end
 
         % Handover = αλλαγή από έναν εξυπηρετούντα κόμβο σε άλλον, με τον ίδιο
         % ορισμό που χρησιμοποιεί το runSimulation.m για το LinkState
@@ -734,8 +746,8 @@ for pI = 2:numPolLocal
         hoCount.(polName), dtSecHys);
 end
 
-% Αναφορά φόρτου για το επόμενο βήμα, ανά πολιτική με MLB.
-for pI = find(policyMlbLocal)
+% Αναφορά φόρτου για το επόμενο βήμα.
+for pI = 1:numPolLocal
     [ldNode, ldRho] = virtualLoad(polNodeMat(:,pI), polSinrMat(:,pI), ...
         targetNormalizedSe, alloc.maxSe);
     newDecision.(policyNamesLocal{pI}).LoadNode = ldNode;
@@ -751,6 +763,9 @@ newChannelState.SatShadowLatent = satShadowLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
 newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
 newChannelState.FiltSinrSat_dB  = filtSinrSatMat;
+% Γεωμετρία όλων των υποψηφίων, μόνο για την καταγραφή των handovers.
+newChannelState.SatElev_deg     = satElevMat;
+newChannelState.BsDist_m        = range3DMat;
 
 end
 
@@ -964,6 +979,19 @@ networkEnergy.BelowTargetUsers= sum(serviceStateVec == "BelowTarget");
 networkEnergy.OutageUsers     = sum(serviceStateVec == "Outage");
 networkEnergy.SatelliteUsers  = sum(typeVec == "Satellite");
 networkEnergy.TargetNormSe    = alloc.targetNormalizedSe;
+end
+
+function q = quantizeQOffsetDb(offsetDb)
+% Στρογγυλεύει μια μετατόπιση στην πλησιέστερη τιμή του Q-OffsetRange
+% (TS 38.331: "a cell, beam or measurement object specific offset to be
+% applied ... when evaluating triggering conditions for measurement reporting"):
+%     -24, -22, ..., -8, -6, -5, ..., 5, 6, 8, ..., 24 dB.
+% Η στρογγύλευση γίνεται στην απόλυτη τιμή και επανέρχεται το πρόσημο, ώστε
+% να διατηρείται η αντισυμμετρία του κανόνα (q(-x) = -q(x)) και στις ισοπαλίες,
+% όπου κρατείται η μικρότερη κατά μέτρο τιμή.
+levels = [0:6, 8:2:24];
+[~, k] = min(abs(levels - abs(offsetDb)));
+q = sign(offsetDb) * levels(k);
 end
 
 function [nodes, rho] = virtualLoad(nodeVec, sinrDbVec, targetNormalizedSe, maxSe)

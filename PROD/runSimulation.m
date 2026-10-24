@@ -85,6 +85,7 @@ def = struct( ...
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
+    'handoverEventsPath', fullfile(thisDir, '..', 'Dataset', 'handover_events.mat'), ...
     'outputDir',    fullfile(thisDir, '..', 'Results'), ...
     'label',        '');
 fn = fieldnames(def);
@@ -138,6 +139,7 @@ end
 
 if isempty(resumeState)
     if isfile(opts.datasetPath),  delete(opts.datasetPath);  end
+    if isfile(opts.handoverEventsPath), delete(opts.handoverEventsPath); end
     if isfile(resultsMat),        delete(resultsMat);        end
     if isfile(checkpointPath),    delete(checkpointPath);    end
 end
@@ -405,6 +407,12 @@ passIdx = 0;
 refPassTable = table();
 refSnapshot = struct();
 
+% Καταγραφή handovers σε πλήρη ανάλυση 1 s (βλ. logHandoverEvents): ένα κελί
+% ανά διέλευση, για τις πολιτικές που ενδιαφέρουν το ML.
+hoLogPolicies = {'Actual','ActualMLB'};
+hoHistW       = 11;          % βήματα ιστορικού μέτρησης: τρέχον + 10 s πίσω
+hoEventCells  = cell(opts.numPasses,1);
+
 if ~isempty(resumeState)
     passIdx     = resumeState.passIdx;
     passKpi(1:passIdx,:) = resumeState.passKpi;
@@ -417,6 +425,9 @@ if ~isempty(resumeState)
     refSnapshot = resumeState.refSnapshot;
     if isfield(resumeState, 'refPassTable')
         refPassTable = resumeState.refPassTable;
+    end
+    if isfield(resumeState, 'hoEventCells')
+        hoEventCells(1:passIdx) = resumeState.hoEventCells;
     end
 end
 
@@ -468,6 +479,18 @@ while passIdx < opts.numPasses
     stepBitPerJouleRf = nan(numSteps,1);
     policyStepBuf = nan(numSteps, numPolicy, numPolicyMetric);
 
+    % Ιστορικό μετρήσεων και ακολουθία εξυπηρετούντων ανά πολιτική, για την
+    % καταγραφή των handovers. Κυκλικός buffer hoHistW βημάτων.
+    hoHist = struct('Bs', nan(hoHistW, numUsers, numBs), ...
+        'Sat', nan(hoHistW, numUsers, opts.numSats), ...
+        'Elev', nan(hoHistW, numUsers, opts.numSats), 'Dist', nan(numUsers, numBs));
+    hoNodeSeq = struct();
+    for pL = hoLogPolicies
+        hoNodeSeq.(pL{1}) = strings(numSteps, numUsers);
+    end
+    hoPassNum = zeros(0, 27);
+    hoPassStr = strings(0, 5);
+
     for s = 1:numSteps
         t = tStart + (s-1)*opts.dtSeconds;
         sat_geo = zeros(opts.numSats,3);
@@ -480,6 +503,7 @@ while passIdx < opts.numPasses
         checksRun = checksRun + 1;
         validateUserState(user_geo, bs_geo, wgs84, ueHeightM, d2dMinM, d2dMaxM, passIdx, s);
 
+        prevDecisionState = decisionState;
         [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
             bestSinrDbVec, capacityMbpsVec, bestElevationDegVec, ...
             nodePowerWattsVec, energyPerBitUJVec, ...
@@ -488,7 +512,24 @@ while passIdx < opts.numPasses
             channelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
             bsReasonVec, satReasonVec, policyKpis, decisionState] = ...
             simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, ...
-                             satParameters, channelState, decisionState);
+                             satParameters, channelState, prevDecisionState);
+
+        % --- Καταγραφή handovers του βήματος ---
+        slot = mod(s-1, hoHistW) + 1;
+        hoHist.Bs(slot,:,:)   = channelState.FiltSinrBs_dB;
+        hoHist.Sat(slot,:,:)  = channelState.FiltSinrSat_dB;
+        hoHist.Elev(slot,:,:) = channelState.SatElev_deg;
+        hoHist.Dist           = channelState.BsDist_m;
+        for pL = hoLogPolicies
+            hoNodeSeq.(pL{1})(s,:) = decisionState.(pL{1}).Node';
+        end
+        if ~isempty(prevDecisionState)
+            [evNum, evStr] = logHandoverEvents(hoLogPolicies, prevDecisionState, ...
+                decisionState, hoHist, hoHistW, s, opts.dtSeconds, ...
+                passIdx, numUsers, hoPassNum, hoPassStr);
+            hoPassNum = [hoPassNum; evNum]; %#ok<AGROW>
+            hoPassStr = [hoPassStr; evStr]; %#ok<AGROW>
+        end
 
         % --- Δείκτες των τριών πολιτικών για το βήμα αυτό ---
         for pI = 1:numPolicy
@@ -582,6 +623,10 @@ while passIdx < opts.numPasses
     % ίδιας διέλευσης δεν είναι ανεξάρτητα μεταξύ τους.
     policyPassKpi(passIdx,:,:) = mean(policyStepBuf, 1, 'omitnan');
 
+    % -- Handovers της διέλευσης: τι ακολούθησε το καθένα --
+    hoEventCells{passIdx} = finishHandoverEvents(hoPassNum, hoPassStr, ...
+        hoNodeSeq, opts.dtSeconds);
+
     % -- Εγγραφή: κρατούνται τα βήματα 1, 1+stride, ... --
     keep = mod(numBuf(:,2) - 1, opts.datasetStride) == 0;
     passTable = buildPassTable(numBuf(keep,:), strBuf(keep,:));
@@ -632,7 +677,8 @@ while passIdx < opts.numPasses
         'policyPassKpi', policyPassKpi(1:passIdx,:,:), ...
         'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
         'checksRun', checksRun, 'refSnapshot', refSnapshot, ...
-        'refPassTable', refPassTable, 'opts', opts);
+        'refPassTable', refPassTable, 'hoEventCells', {hoEventCells(1:passIdx)}, ...
+        'opts', opts);
     save(checkpointPath, 'ckpt');
 end
 
@@ -667,7 +713,7 @@ pol(:,:,end+1) = ppFrac;
 policyMetrics{end+1} = 'PingPongFrac';
 numPolicyMetric = numel(policyMetrics);
 
-polPassID = repelem((1:numPasses)', numPolicy);
+polPassID = repelem((1:numPasses)', numPolicy, 1);
 polName   = repmat(string(policyNames(:)), numPasses, 1);
 polVals   = zeros(numPasses*numPolicy, numPolicyMetric);
 r = 0;
@@ -834,7 +880,8 @@ if ~isempty(fieldnames(refSnapshot))
         refSnapshot.capacityMbpsVec, refSnapshot.bestElevationDegVec, ...
         refSnapshot.nodePowerWattsVec, refSnapshot.energyPerBitUJVec);
     visual(bs_geo, refSnapshot.user_geo, refSnapshot.sat_geo, wgs84, numBs, ...
-        size(refSnapshot.user_geo,1), refSnapshot.bestNodeTypeVec, refSnapshot.bestNodeVec);
+        size(refSnapshot.user_geo,1), refSnapshot.bestNodeTypeVec, refSnapshot.bestNodeVec, ...
+        [userRMinM userRMaxM]);
     saveas(gcf, fullfile(opts.outputDir, 'network_3d.png'));
     close(gcf);
 end
@@ -907,6 +954,14 @@ runParams.numRows          = totalRows;
 runParams.datasetPath      = opts.datasetPath;
 runParams.datasetBytes     = dir(opts.datasetPath).bytes;
 runParams.datasetSha256    = fileSha256(opts.datasetPath);
+saveHandoverEvents(hoEventCells(1:numPasses), opts.handoverEventsPath, struct( ...
+    'dtSeconds', opts.dtSeconds, 'passWindowS', opts.passWindowS, ...
+    'pingPongMtsS', opts.pingPongMtsS, 'hysteresisDb', opts.hysteresisDb, ...
+    'timeToTriggerMs', opts.timeToTriggerMs, 'rngSeed', opts.rngSeed, ...
+    'policies', {hoLogPolicies}));
+runParams.handoverEventsPath   = opts.handoverEventsPath;
+runParams.handoverEvents       = sum(cellfun(@(e) numel(e.PassID), hoEventCells(1:numPasses)));
+runParams.handoverEventsSha256 = fileSha256(opts.handoverEventsPath);
 runParams.datasetStride    = opts.datasetStride;
 runParams.datasetSampling_s = opts.datasetStride*opts.dtSeconds;
 runParams.durationRule     = 'σταθερό πλήθος διελεύσεων (numPasses)· CI μόνο αναφορά';
@@ -1020,6 +1075,188 @@ end
 % Τοπικές συναρτήσεις
 % =====================================================================
 
+function [evNum, evStr] = logHandoverEvents(pols, prevDec, newDec, H, W, s, dtS, ...
+    passIdx, numUsers, pastNum, pastStr)
+% Ένα δείγμα ανά handover, με την κατάσταση τη στιγμή της απόφασης. Ο ορισμός
+% του handover είναι ο ίδιος με την καταμέτρηση της simulateScenario: αλλαγή
+% από έναν εξυπηρετούντα κόμβο σε άλλον (όχι πρώτη σύνδεση, όχι επανασύνδεση
+% μετά από outage). Καταγράφονται και τα αναγκαστικά, με σημαία, ώστε η ετικέτα
+% να ορίζεται χωρίς κενά στην ακολουθία.
+%
+% Όλα τα χαρακτηριστικά είναι διαθέσιμα ΤΗ ΣΤΙΓΜΗ της απόφασης: οι μετρήσεις
+% είναι οι φιλτραρισμένες (TS 38.331 §5.5.3.2) που βλέπει ο A3, του τρέχοντος
+% βήματος και των προηγούμενων· ο φόρτος είναι αυτός που αναφέρθηκε στο
+% προηγούμενο βήμα. Τίποτα από το μέλλον, που μπαίνει μόνο στις ετικέτες
+% (finishHandoverEvents).
+evNum = zeros(0, 27);
+evStr = strings(0, 5);
+tNow  = (s-1)*dtS;
+l3    = round(3/dtS);
+l10   = round(10/dtS);
+for pI = 1:numel(pols)
+    pol = pols{pI};
+    pN  = prevDec.(pol).Node;
+    sN  = newDec.(pol).Node;
+    isHo = pN ~= "" & pN ~= "None" & sN ~= "None" & sN ~= pN;
+    for u = find(isHo)'
+        f = pN(u);
+        g = sN(u);
+        fromSat = startsWith(f, "SAT");
+        toSat   = startsWith(g, "SAT");
+        if ~fromSat && ~toSat
+            hoType = "TerrTerr";
+        elseif fromSat && toSat
+            hoType = "SatSat";
+        else
+            hoType = "TerrSat";
+        end
+        prevNode = prevDec.(pol).Prev(u);
+        mF = histMeas(H, W, s, 0, u, f);
+        mT = histMeas(H, W, s, 0, u, g);
+        eF = histElev(H, W, s, 0, u, f);
+        eT = histElev(H, W, s, 0, u, g);
+        past = pastStr(:,1) == string(pol) & pastNum(:,4) == u & pastNum(:,3) > tNow - 60;
+        ldNode = prevDec.(pol).LoadNode;
+        ldRho  = prevDec.(pol).LoadRho;
+        row = [passIdx, s, tNow, u, numUsers, ...
+            newDec.(pol).Forced(u), g == prevNode, ...
+            (prevDec.(pol).Stay(u) + 1)*dtS, sum(past), ...
+            mF, mT, mT - mF, ...
+            mF - histMeas(H, W, s, l3, u, f),  mT - histMeas(H, W, s, l3, u, g), ...
+            mF - histMeas(H, W, s, l10, u, f), mT - histMeas(H, W, s, l10, u, g), ...
+            eF, eT, (eF - histElev(H, W, s, l3, u, f))/(l3*dtS), ...
+            (eT - histElev(H, W, s, l3, u, g))/(l3*dtS), ...
+            bsDist(H, u, f), bsDist(H, u, g), ...
+            sum(ldRho(ldNode == f)), sum(ldRho(ldNode == g)), ...
+            sum(pN == f), sum(sN == g), newDec.(pol).Offset(u)];
+        evNum(end+1,:) = row;                                     %#ok<AGROW>
+        evStr(end+1,:) = [string(pol), f, g, prevNode, hoType]; %#ok<AGROW>
+    end
+end
+end
+
+function ev = finishHandoverEvents(num, str, nodeSeq, dtS)
+% Συμπληρώνει τι ακολούθησε κάθε handover, από την ακολουθία εξυπηρετούντων
+% της διέλευσης σε πλήρη ανάλυση:
+%   StayTo_s   βήματα στον νέο κόμβο από τη στιγμή του handover ως την αποχώρηση,
+%              σε s (ίδια σύμβαση με την παραμονή του ορισμού ping-pong)
+%   NextNode   πού πήγε μετά ("None" = outage, "" = τέλος διέλευσης πρώτα)
+%   Censored   η διέλευση τελείωσε πριν φύγει από τον νέο κόμβο
+% Ping-pong με παράθυρο T: NextNode == FromNode && StayTo_s <= T. Με T = 1 s
+% ταυτίζεται με την καταμέτρηση της simulateScenario (MTS, TR 36.839).
+n = size(num,1);
+stayTo   = nan(n,1);
+toEnd    = nan(n,1);
+censored = false(n,1);
+nextNode = strings(n,1);
+for i = 1:n
+    seq = nodeSeq.(char(str(i,1)))(:, num(i,4));
+    s   = num(i,2);
+    nSteps = numel(seq);
+    toEnd(i) = (nSteps - s)*dtS;
+    j = find(seq(s+1:end) ~= str(i,3), 1);
+    if isempty(j)
+        stayTo(i)   = (nSteps - s + 1)*dtS;
+        censored(i) = true;
+    else
+        stayTo(i)   = j*dtS;
+        nextNode(i) = seq(s+j);
+    end
+end
+names = handoverEventNumNames();
+ev = struct();
+for c = 1:numel(names)
+    ev.(names{c}) = num(:,c);
+end
+ev.Forced       = logical(ev.Forced);
+ev.ReturnToPrev = logical(ev.ReturnToPrev);
+ev.Policy   = str(:,1);
+ev.FromNode = str(:,2);
+ev.ToNode   = str(:,3);
+ev.PrevNode = str(:,4);
+ev.HoType   = str(:,5);
+ev.TimeToPassEnd_s = toEnd;
+ev.StayTo_s = stayTo;
+ev.Censored = censored;
+ev.NextNode = nextNode;
+end
+
+function names = handoverEventNumNames()
+names = {'PassID','Step','Time_s','UserID','NumUsers','Forced','ReturnToPrev', ...
+    'StayFrom_s','HoLast60s','MeasFrom_dB','MeasTo_dB','Margin_dB', ...
+    'MeasFromDelta3s_dB','MeasToDelta3s_dB','MeasFromDelta10s_dB','MeasToDelta10s_dB', ...
+    'ElevFrom_deg','ElevTo_deg','ElevRateFrom_degps','ElevRateTo_degps', ...
+    'DistFrom_m','DistTo_m','LoadFrom','LoadTo','UsersOnFrom','UsersOnTo','MlbOffset_dB'};
+end
+
+function saveHandoverEvents(cells, path, meta)
+% Ένα αρχείο .mat (-v7) με μία μεταβλητή ανά στήλη, ώστε να διαβάζεται
+% απευθείας από την Python (scipy.io.loadmat). Τα κείμενα ως cellstr.
+cells = cells(~cellfun(@isempty, cells));
+out = struct();
+if isempty(cells)
+    return;
+end
+fn = fieldnames(cells{1});
+for k = 1:numel(fn)
+    col = cellfun(@(e) e.(fn{k}), cells, 'UniformOutput', false);
+    col = vertcat(col{:});
+    if isstring(col)
+        col = cellstr(col);
+    end
+    out.(fn{k}) = col;
+end
+mf = fieldnames(meta);
+for k = 1:numel(mf)
+    out.(['Meta_' mf{k}]) = meta.(mf{k});
+end
+save(path, '-struct', 'out', '-v7');
+end
+
+function v = histMeas(H, W, s, lag, u, node)
+% Φιλτραρισμένη μέτρηση του κόμβου lag βήματα πριν· NaN εκτός ιστορικού.
+v = NaN;
+if lag >= W || s - lag < 1
+    return;
+end
+slot = mod(s - lag - 1, W) + 1;
+[isSat, idx] = nodeIndex(node);
+if isSat
+    v = H.Sat(slot, u, idx);
+else
+    v = H.Bs(slot, u, idx);
+end
+end
+
+function v = histElev(H, W, s, lag, u, node)
+% Ανύψωση δορυφόρου lag βήματα πριν· NaN για σταθμό βάσης ή εκτός ιστορικού.
+v = NaN;
+[isSat, idx] = nodeIndex(node);
+if ~isSat || lag >= W || s - lag < 1
+    return;
+end
+v = H.Elev(mod(s - lag - 1, W) + 1, u, idx);
+end
+
+function v = bsDist(H, u, node)
+% Απόσταση 3D από σταθμό βάσης στο τρέχον βήμα· NaN για δορυφόρο.
+[isSat, idx] = nodeIndex(node);
+if isSat
+    v = NaN;
+else
+    v = H.Dist(u, idx);
+end
+end
+
+function [isSat, idx] = nodeIndex(node)
+isSat = startsWith(node, "SAT-");
+if isSat
+    idx = str2double(extractAfter(node, "SAT-"));
+else
+    idx = str2double(extractAfter(node, "BS"));
+end
+end
+
 function tf = checkpointMatches(a, b)
 % Το σημείο ελέγχου χρησιμοποιείται μόνο αν οι παράμετροι που καθορίζουν τι
 % παράγει η εκτέλεση είναι ίδιες. Οτιδήποτε άλλο (π.χ. label) δεν πειράζει.
@@ -1027,7 +1264,7 @@ keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'numPasses','geometryGrid','datasetPath', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
         'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse', ...
-        'mlbMaxOffsetDb'};
+        'mlbMaxOffsetDb','handoverEventsPath'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))

@@ -1,0 +1,24 @@
+Σύγκριση vs 20261018_131456_runSimulation
+
+  + bsIsd_m = 500
+  + bsRings = 1
+  ~ bs_geo : [37.9838 23.7275 25;37.9865 23.731 25]  ->  [37.9838 23.7275 25;37.987701 23.730346 25;37.9838 23.733191 25;37.979899 23.730346 25;37.979899 23.724654 25;37.9838 23.721809 25;37.987701 23.724654 25]
+  ~ ciHalfWidthFinal : [0.72507578 0.69927595 0.23236703 0.10561184 0.34251306]  ->  [0.18402361 0.51498358 0.16229303 0.15607197 0.412894]
+  ~ datasetBytes : 1525648  ->  4465317
+  ~ datasetSha256 : 5344859b4d5f3d338cd18f0ef0c52b01532391c32259bfdd9bde6c3a1dab57e2  ->  9c5642b6522616bacfbc25d620242bd7bbccdeebe1f7f540867b0ec79885c1c0
+  ~ numRows : 4525  ->  12489
+  + numSats = 3
+  ~ numUsersRange : [3 10]  ->  [10 30]
+  ~ policies : Actual, TerrestrialOnly, SatelliteOnly  ->  Actual, TerrestrialOnly, SatelliteOnly, ActualMLB, TerrestrialOnlyMLB
+  ~ policyMetrics : MeanCapacity_Mbps, TotalRate_Mbps, FracServed, FracBelowTarget, FracOutage, BitPerJouleRf, Spectrum_MHz, HoRate_perUserMin, HoRateTerrTerr_perUserMin, HoRateTerrSat_perUserMin, HoRateSatSat_perUserMin, PingPongRate_perUserMin, HoRateForced_perUserMin, HoRateTerrTerrForced_perUserMin, HoRateTerrSatForced_perUserMin, HoRateSatSatForced_perUserMin, SpectralEff_bpsHz, PingPongFrac  ->  MeanCapacity_Mbps, TotalRate_Mbps, FracServed, FracBelowTarget, FracOutage, BitPerJouleRf, Spectrum_MHz, HoRate_perUserMin, HoRateTerrTerr_perUserMin, HoRateTerrSat_perUserMin, HoRateSatSat_perUserMin, PingPongRate_perUserMin, HoRateForced_perUserMin, HoRateTerrTerrForced_perUserMin, HoRateTerrSatForced_perUserMin, HoRateSatSatForced_perUserMin, FracSatellite, SpectralEff_bpsHz, PingPongFrac
+  ~ raanBase_deg : -8.9221171  ->  -8.9219825
+  ~ raanSpan_deg : 18.755561  ->  18.754924
+  - refUserGeo  (ήταν: [37.9845 23.7288 1.5;37.987 23.7325 1.5;37.9825 23.7268 1.5;37.99 23.745 1.5;37.9997 23.7476 1.5;37.9484 23.7111 1.5])
+  + satFreqReuse = 1
+  + satSpacing_deg = 19.693052
+  + satSpacing_s = 317.34434
+  + satellite.FreqReuse = 1
+  + sources.bsLayout = TR 38.901 §7.8 Πίν. 7.8-1 (UMa: εξαγωνικό πλέγμα, ISD 500 m, h_BS 25 m)
+  + sources.satReuse = TR 38.821 §6.1.1.1 Πίν. 6.1.1.1-5 (FRF Option 1 = 1 / Option 2 = 3, εύρος ανά δέσμη προσαρμοσμένο στο FRF) + Σχ. 6.1.1.1-2 (ομοδιαυλικές δέσμες = παρεμβολή)
+  + sources.satSpacing = σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο (βλ. σχόλιο satSpacingS)
+  + zenithVisibility_s = 369.37735
