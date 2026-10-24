@@ -7,7 +7,9 @@ function [convTable, summary] = runSimulation(opts)
 %   * Στοιχειώδης μονάδα = μία διέλευση του δορυφόρου. Το TR 38.821
 %     Πίν. 4.2-3 NOTE 1 ορίζει ως φυσικό παράθυρο λειτουργίας τον χρόνο
 %     ορατότητας του δορυφόρου ("a period of time corresponding to the
-%     visibility time of the satellite").
+%     visibility time of the satellite"). Με numSats > 1 το παράθυρο
+%     κεντράρεται στη διέλευση του μεσαίου δορυφόρου και περιέχει τις
+%     διελεύσεις των διαδοχικών δορυφόρων του ίδιου τροχιακού επιπέδου.
 %
 %   * Βήμα Δt = 1 s. Δύο ανεξάρτητοι περιορισμοί δίνουν την ίδια τιμή:
 %       - ITU-R M.2412-0, Παράρτημα 1 §5.3.2: η μετατόπιση του χρήστη ανά
@@ -74,6 +76,11 @@ def = struct( ...
     'l3FilterK',     4, ...      % TS 38.331 §6.3.2 filterCoefficient (DEFAULT fc4)· 0 = χωρίς φίλτρο
     'measPeriodMs',  200, ...    % TS 38.133 Πίν. 9.2.5.2-1, FR1 χωρίς DRX
     'measAveraging', true, ...   % μέση τιμή μέτρησης μέσα στο βήμα· false = στιγμιαίο δείγμα
+    'numUsersRange', [10 30], ...% [min max] χρήστες ανά διέλευση, ομοιόμορφα
+    'bsRings',       1, ...      % δακτύλιοι εξαγωνικού πλέγματος: 1 -> 7 σταθμοί
+    'bsIsdM',        500, ...    % m, απόσταση σταθμών (TR 38.901 Πίν. 7.8-1, UMa)
+    'numSats',       3, ...      % διαδοχικοί δορυφόροι στο ίδιο τροχιακό επίπεδο
+    'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -138,21 +145,23 @@ wgs84 = wgs84Ellipsoid;
 cLight = physconst('LightSpeed');
 
 %% ------------------ Τοπολογία σταθμών βάσης (σταθερή: το σενάριο) ------------------
-% Ίδιο σημείο αναφοράς και ίδια διάταξη BS με το προηγούμενο σενάριο αναφοράς.
-bs_geo = [37.9838 23.7275 25;
-          37.9865 23.7310 25];
+% Εξαγωνικό πλέγμα σταθμών με απόσταση ISD, όπως η διάταξη βαθμονόμησης του
+% TR 38.901 §7.8 (Πίν. 7.8-1: UMa, ISD 500 m, ύψος BS 25 m). Με bsRings = 1:
+% ένας σταθμός στο κέντρο και 6 στον πρώτο δακτύλιο. Το κέντρο είναι το ίδιο
+% σημείο αναφοράς με το προηγούμενο σενάριο.
+bsCenterGeo = [37.9838 23.7275];
+bsHeightM   = 25;
+hexOffsets  = hexSiteOffsetsM(opts.bsRings, opts.bsIsdM);   % [ανατολικά βόρεια] m
+bs_geo = zeros(size(hexOffsets,1), 3);
+for b = 1:size(hexOffsets,1)
+    [bsLat, bsLon] = reckon(bsCenterGeo(1), bsCenterGeo(2), norm(hexOffsets(b,:)), ...
+        atan2d(hexOffsets(b,1), hexOffsets(b,2)), wgs84);
+    bs_geo(b,:) = [bsLat bsLon bsHeightM];
+end
 numBs = size(bs_geo,1);
+bsClusterRadiusM = opts.bsRings * opts.bsIsdM;   % απόσταση του πιο μακρινού σταθμού από το κέντρο
 
-% Χρήστες της διέλευσης αναφοράς (διέλευση 1): οι ίδιες θέσεις με το
-% προηγούμενο στατικό σενάριο, ώστε να παραμένουν συγκρίσιμα τα αποτελέσματα.
-refUserGeo = [37.9845 23.7288 1.5;
-              37.9870 23.7325 1.5;
-              37.9825 23.7268 1.5;
-              37.9900 23.7450 1.5;
-              37.9997 23.7476 1.5;
-              37.9484 23.7111 1.5];
-
-numUsersRange = [3 10];   % πλήθος χρηστών ανά διέλευση (πλην της αναφοράς)
+numUsersRange = opts.numUsersRange;   % πλήθος χρηστών ανά διέλευση
 ueHeightM     = 1.5;      % m, TR 38.901 §7.4.1 Πίν. 7.4.1-1 (υπαίθριος χρήστης)
 
 %% ------------------ Ραδιο-configuration ------------------
@@ -197,7 +206,11 @@ simParameters.Mobility.PingPongMtsS    = opts.pingPongMtsS;
 % Η πυκνότητα EIRP (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
 satAltitude = 600e3;
 satParameters.CarrierFrequency = 2.0e9;
-satParameters.Bandwidth = 30e6;
+% Το εύρος 30 MHz ορίζεται για το σύνολο των δεσμών και "must be adapted based
+% on frequency reuse factor" (TR 38.821 Πίν. 6.1.1.1-5): κάθε δέσμη παίρνει
+% 30/FRF MHz. Με σταθερή πυκνότητα EIRP η ισχύς ανά δέσμη ακολουθεί το εύρος.
+satParameters.FreqReuse = opts.satFreqReuse;
+satParameters.Bandwidth = 30e6 / satParameters.FreqReuse;
 satParameters.AntennaGain = 30;
 satParameters.EirpDensityDbwPerMHz = 34;
 satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters.Bandwidth/1e6) + 30;
@@ -213,7 +226,9 @@ d2dMinM = 10;
 d2dMaxM = 5000;
 
 % Μέγιστη μετατόπιση χρήστη μέσα σε μία διέλευση. Οι αρχικές θέσεις
-% δειγματοληπτούνται ώστε καμία τροχιά να μην μπορεί να βγει εκτός ορίων.
+% δειγματοληπτούνται ώστε η απόσταση από τον ΠΛΗΣΙΕΣΤΕΡΟ σταθμό να μένει μέσα
+% στα όρια σε όλη την τροχιά: ο χρήστης βρίσκεται στο όριο της επίγειας
+% κάλυψης, όχι μέσα σε κυψέλη, όπως και στο σενάριο με τους δύο σταθμούς.
 ueSpeedMps   = opts.ueSpeedKmh / 3.6;
 maxWalkM     = ueSpeedMps * opts.passWindowS;
 userRMinM    = d2dMinM + maxWalkM;
@@ -288,6 +303,27 @@ raanSpanRad = findMaxRaanOffset(raanBase, uPeakRad, meanMotion, inclDeg, a, ...
     omegaEarth, tPeakS, opts.passWindowS, centerLat, centerLon, wgs84, ...
     satParameters.MinElevationDeg);
 
+% Διαδοχικοί δορυφόροι στο ίδιο τροχιακό επίπεδο, σε ίσες αποστάσεις στο
+% όρισμα πλάτους. Ο μεσαίος περνά από τη μέγιστη προσέγγιση στο μέσο του
+% παραθύρου· ο SAT-1 προηγείται, άρα περνά πρώτος. Η απόσταση επιλέγεται ώστε
+% οι numSats δορυφόροι να είναι ΑΚΡΙΒΩΣ όσοι μπορούν να φανούν μέσα στο
+% παράθυρο: ο επόμενος του επιπέδου, που δεν προσομοιώνεται, ανατέλλει τη
+% στιγμή που κλείνει το παράθυρο ακόμη και σε ζενιθιακή διέλευση, όπου η
+% ορατότητα διαρκεί περισσότερο. Έτσι δεν λείπει από το σενάριο κανένας
+% δορυφόρος που θα ήταν ορατός:
+%     ((N+1)/2)*Δt - Tvis/2 = W/2   ->   Δt = (W/2 + Tvis/2) / ((N+1)/2)
+% Όσο Δt < Tvis, διαδοχικοί δορυφόροι επικαλύπτονται στις ψηλές διελεύσεις
+% (δορυφορικό handover χωρίς κενό), ενώ στις χαμηλές μένει κενό κάλυψης.
+halfVisS = zenithHalfVisibilityS(raanBase, uPeakRad, meanMotion, inclDeg, a, ...
+    omegaEarth, tPeakS, opts.passWindowS, centerLat, centerLon, wgs84, ...
+    satParameters.MinElevationDeg);
+if opts.numSats > 1
+    satSpacingS = (opts.passWindowS/2 + halfVisS) / ((opts.numSats+1)/2);
+else
+    satSpacingS = 0;
+end
+satUOffsetRad = ((opts.numSats+1)/2 - (1:opts.numSats)') * meanMotion*satSpacingS;
+
 % Στρωματοποίηση της μετατόπισης: το [-1, 1] χωρίζεται σε numPasses ίσα
 % διαστήματα και κάθε διέλευση παίρνει το μέσο ενός από αυτά. Η κατανομή-στόχος
 % είναι η ίδια ομοιόμορφη με το rand(), αλλά με σταθερό πλήθος είναι εγγυημένο
@@ -341,6 +377,12 @@ fprintf('  Δt = %g s | ταχύτητα χρήστη = %g km/h (%.3f m/s) | π�
 fprintf('  Μετατόπιση ανά βήμα = %.3f m (όριο M.2412 Παρ.1 §5.3.2: 1 m)\n', ueSpeedMps*opts.dtSeconds);
 fprintf('  Τροχιακή περίοδος = %.0f s | ταχύτητα ίχνους = %.0f m/s\n', orbitalPeriodS, groundSpeedMps);
 fprintf('  Εύρος εγκάρσιας μετατόπισης ίχνους = ±%.2f°\n', rad2deg(raanSpanRad));
+fprintf('  Σταθμοί βάσης: %d (εξαγωνικό πλέγμα, ISD %g m) | χρήστες ανά διέλευση: %d-%d, %.0f-%.0f m από τον πλησιέστερο\n', ...
+    numBs, opts.bsIsdM, numUsersRange(1), numUsersRange(2), userRMinM, userRMaxM);
+fprintf('  Δορυφόροι: %d στο ίδιο επίπεδο, ανά %.1f s (%.2f°, ισοδύναμο %.1f ανά επίπεδο) | ζενιθιακή ορατότητα %.0f s | FRF = %d (%.0f MHz ανά δέσμη)\n', ...
+    opts.numSats, satSpacingS, rad2deg(meanMotion*satSpacingS), ...
+    ternary(satSpacingS > 0, orbitalPeriodS/max(satSpacingS,eps), NaN), 2*halfVisS, ...
+    opts.satFreqReuse, satParameters.Bandwidth/1e6);
 fprintf('  Διελεύσεις: %d (σταθερό πλήθος) | γεωμετρία: %s\n', opts.numPasses, ...
     ternary(opts.geometryGrid, 'στρωματοποιημένη', 'τυχαία'));
 fprintf('  Στόχος ακρίβειας (ITU-R M.2412-0 §7.1, μόνο αναφορά): 95%% CI < %.0f%% σχετικό / %.0f ποσοστιαίες μονάδες\n', ...
@@ -381,17 +423,15 @@ while passIdx < opts.numPasses
     rng(opts.rngSeed + passIdx);
 
     % -- Θέσεις χρηστών στην αρχή της διέλευσης --
-    if passIdx == 1
-        user_geo = refUserGeo;
-        user_geo = clampUsersIntoRange(user_geo, bs_geo, wgs84, userRMinM, userRMaxM);
-    else
-        nU = randi(numUsersRange);
-        user_geo = zeros(nU,3);
-        for u = 1:nU
-            refB = randi(numBs);
-            [dLat, dLon] = randAnnulusOffsetDeg(bs_geo(refB,1), userRMinM, userRMaxM);
-            user_geo(u,:) = [bs_geo(refB,1)+dLat, bs_geo(refB,2)+dLon, ueHeightM];
-        end
+    % Ομοιόμορφα ως προς το εμβαδόν στην περιοχή όπου η απόσταση από τον
+    % πλησιέστερο σταθμό είναι μέσα στο [userRMinM, userRMaxM]. Ισχύει και για
+    % τη διέλευση αναφοράς, ώστε να μην αποτελεί ειδική περίπτωση στη στατιστική.
+    nU = randi(numUsersRange);
+    user_geo = zeros(nU,3);
+    for u = 1:nU
+        [uLat, uLon] = randPeripheryUser(bsCenterGeo, bs_geo, wgs84, ...
+            bsClusterRadiusM + userRMaxM, userRMinM, userRMaxM);
+        user_geo(u,:) = [uLat, uLon, ueHeightM];
     end
     numUsers = size(user_geo,1);
 
@@ -424,8 +464,11 @@ while passIdx < opts.numPasses
 
     for s = 1:numSteps
         t = tStart + (s-1)*opts.dtSeconds;
-        sat_geo = orbitPositionLla(uPeakRad + meanMotion*(t - tPeakS), inclDeg, ...
-            raanRad, a, omegaEarth, t);
+        sat_geo = zeros(opts.numSats,3);
+        for k = 1:opts.numSats
+            sat_geo(k,:) = orbitPositionLla(uPeakRad + meanMotion*(t - tPeakS) + ...
+                satUOffsetRad(k), inclDeg, raanRad, a, omegaEarth, t);
+        end
 
         % --- Έλεγχος κατάστασης χρηστών πριν τον υπολογισμό ζεύξης ---
         checksRun = checksRun + 1;
@@ -887,7 +930,13 @@ runParams.orbitalPeriod_s  = orbitalPeriodS;
 runParams.groundSpeed_mps  = groundSpeedMps;
 runParams.scenarioType     = simParameters.PathLoss.Scenario;
 runParams.bs_geo           = bs_geo;
-runParams.refUserGeo       = refUserGeo;
+runParams.bsRings          = opts.bsRings;
+runParams.bsIsd_m          = opts.bsIsdM;
+runParams.numSats          = opts.numSats;
+runParams.satSpacing_s     = satSpacingS;
+runParams.satSpacing_deg   = rad2deg(meanMotion*satSpacingS);
+runParams.zenithVisibility_s = 2*halfVisS;
+runParams.satFreqReuse     = opts.satFreqReuse;
 runParams.terrestrial      = struct('CarrierFrequency_Hz', simParameters.CarrierFrequency, ...
     'TxPower_dBm', simParameters.TxPower, 'AntennaGain_dBi', simParameters.AntennaGain, ...
     'NumAntennaElements', simParameters.NumAntennaElements, ...
@@ -907,7 +956,10 @@ runParams.sources          = struct( ...
     'pingPong',   '3GPP TR 36.839 (ping-pong: επιστροφή στην αρχική κυψέλη με χρόνο παραμονής < MTS = 1 s)', ...
     'measFilter', 'TS 38.331 §5.5.3.2 (Layer 3 filtering, F_n = (1-a)F_{n-1} + a M_n· NOTE 1 k=0· NOTE 2 λογαριθμικό)', ...
     'measPeriod', 'TS 38.133 Πίν. 9.2.5.2-1 (FR1 χωρίς DRX: >= 200 ms)', ...
-    'measAvg',    'Clarke 1968, αυτοσυσχέτιση ισχύος J0(2*pi*fD*tau)^2 -> ισοδύναμο πλήθος ανεξάρτητων δειγμάτων ανά βήμα');
+    'measAvg',    'Clarke 1968, αυτοσυσχέτιση ισχύος J0(2*pi*fD*tau)^2 -> ισοδύναμο πλήθος ανεξάρτητων δειγμάτων ανά βήμα', ...
+    'bsLayout',   'TR 38.901 §7.8 Πίν. 7.8-1 (UMa: εξαγωνικό πλέγμα, ISD 500 m, h_BS 25 m)', ...
+    'satReuse',   'TR 38.821 §6.1.1.1 Πίν. 6.1.1.1-5 (FRF Option 1 = 1 / Option 2 = 3, εύρος ανά δέσμη προσαρμοσμένο στο FRF) + Σχ. 6.1.1.1-2 (ομοδιαυλικές δέσμες = παρεμβολή)', ...
+    'satSpacing', 'σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο (βλ. σχόλιο satSpacingS)');
 
 saveRunVersion('runSimulation', runParams, outFiles, opts.label);
 
@@ -956,7 +1008,7 @@ function tf = checkpointMatches(a, b)
 keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'numPasses','geometryGrid','datasetPath', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
-        'pingPongMtsS'};
+        'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
@@ -1309,32 +1361,38 @@ if any(~isOut & ~isfinite(sinrVec))
 end
 end
 
-function user_geo = clampUsersIntoRange(user_geo, bs_geo, wgs84, rMinM, rMaxM)
-% Φέρνει τους χρήστες της διέλευσης αναφοράς μέσα στο επιτρεπτό δακτύλιο
-% γύρω από τον πλησιέστερο σταθμό βάσης, διατηρώντας τον αζιμούθιό τους, ώστε
-% καμία τροχιά να μη βγαίνει εκτός πεδίου ισχύος κατά τη διάρκεια της διέλευσης.
-for u = 1:size(user_geo,1)
-    d2d = distance(user_geo(u,1), user_geo(u,2), bs_geo(:,1), bs_geo(:,2), wgs84);
-    [dMin, b] = min(d2d);
-    if dMin >= rMinM && dMin <= rMaxM
-        continue;
+function [lat, lon] = randPeripheryUser(centerGeo, bs_geo, wgs84, rDiskM, rMinM, rMaxM)
+% Θέση χρήστη ομοιόμορφη ως προς το εμβαδόν, με απόσταση από τον πλησιέστερο
+% σταθμό μέσα στο [rMinM, rMaxM]. Δειγματοληψία με απόρριψη από δίσκο ακτίνας
+% rDiskM γύρω από το κέντρο του πλέγματος, που περιέχει όλη την επιτρεπτή
+% περιοχή: η ομοιόμορφη κατανομή στον δίσκο, περιορισμένη στην περιοχή,
+% είναι ομοιόμορφη στην περιοχή.
+while true
+    rM = rDiskM * sqrt(rand());
+    az = 360 * rand();
+    [lat, lon] = reckon(centerGeo(1), centerGeo(2), rM, az, wgs84);
+    dNear = min(distance(lat, lon, bs_geo(:,1), bs_geo(:,2), wgs84));
+    if dNear >= rMinM && dNear <= rMaxM
+        return;
     end
-    az = azimuth(bs_geo(b,1), bs_geo(b,2), user_geo(u,1), user_geo(u,2), wgs84);
-    rNew = min(max(dMin, rMinM), rMaxM);
-    [lat, lon] = reckon(bs_geo(b,1), bs_geo(b,2), rNew, az, wgs84);
-    user_geo(u,1) = lat;
-    user_geo(u,2) = lon;
 end
 end
 
-function [dLat, dLon] = randAnnulusOffsetDeg(refLat, rMinM, rMaxM)
-% Τυχαία μετατόπιση σε μοίρες, ομοιόμορφη ως προς το εμβαδόν δακτυλίου:
-% r = sqrt(rmin^2 + U*(rmax^2 - rmin^2)), theta = 2*pi*V.
-rM = sqrt(rMinM^2 + rand()*(rMaxM^2 - rMinM^2));
-th = 2*pi*rand();
-mPerDegLat = 111132.92;
-dLat = (rM*cos(th)) / mPerDegLat;
-dLon = (rM*sin(th)) / (mPerDegLat*cosd(refLat));
+function offsets = hexSiteOffsetsM(numRings, isdM)
+% Θέσεις σταθμών εξαγωνικού πλέγματος [ανατολικά βόρεια] σε m γύρω από το
+% κέντρο: 1 + 3*R*(R+1) σταθμοί για R δακτυλίους (R = 1 -> 7, R = 2 -> 19).
+% Αξονικές συντεταγμένες (q, r) με διανύσματα βάσης απόστασης ίσης με isdM.
+offsets = zeros(0,2);
+for q = -numRings:numRings
+    for r = max(-numRings, -q-numRings):min(numRings, -q+numRings)
+        offsets(end+1,:) = isdM * [q + r/2, r*sqrt(3)/2]; %#ok<AGROW>
+    end
+end
+% Ο κεντρικός σταθμός πρώτος (BS1), οι υπόλοιποι κατά απόσταση και αζιμούθιο.
+distRel = round(hypot(offsets(:,1), offsets(:,2)) / isdM * 1e6) / 1e6;
+azDeg   = mod(round(atan2d(offsets(:,1), offsets(:,2)) * 1e6) / 1e6, 360);
+[~, order] = sortrows([distRel azDeg]);
+offsets = offsets(order,:);
 end
 
 function spanRad = findMaxRaanOffset(raanBase, uPeakRad, meanMotion, inclDeg, aM, ...
@@ -1373,6 +1431,35 @@ for i = 1:numel(ts)
     [~, elev, ~] = geodetic2aer(lla(1), lla(2), lla(3), centerLat, centerLon, 0, wgs84);
     e = max(e, elev);
 end
+end
+
+function halfS = zenithHalfVisibilityS(raanRad, uPeakRad, meanMotion, inclDeg, aM, ...
+    omegaEarth, tPeakS, windowS, centerLat, centerLon, wgs84, minElevDeg)
+% Μισή διάρκεια ορατότητας (πάνω από τη μάσκα) για τη διέλευση που περνά από
+% το κέντρο της περιοχής, μετρημένη από τη μέγιστη προσέγγιση. Διχοτόμηση
+% προς κάθε κατεύθυνση· κρατείται η μεγαλύτερη από τις δύο, που διαφέρουν
+% ελάχιστα λόγω της περιστροφής της Γης.
+elevAt = @(dt) elevationFromCenter(raanRad, uPeakRad + meanMotion*dt, inclDeg, aM, ...
+    omegaEarth, tPeakS + dt, centerLat, centerLon, wgs84);
+halfS = 0;
+for sgn = [-1 1]
+    lo = 0; hi = windowS;
+    for it = 1:40
+        mid = 0.5*(lo+hi);
+        if elevAt(sgn*mid) >= minElevDeg
+            lo = mid;
+        else
+            hi = mid;
+        end
+    end
+    halfS = max(halfS, lo);
+end
+end
+
+function e = elevationFromCenter(raanRad, uRad, inclDeg, aM, omegaEarth, tS, ...
+    centerLat, centerLon, wgs84)
+lla = orbitPositionLla(uRad, inclDeg, raanRad, aM, omegaEarth, tS);
+[~, e, ~] = geodetic2aer(lla(1), lla(2), lla(3), centerLat, centerLon, 0, wgs84);
 end
 
 function lla = orbitPositionLla(uRad, inclDeg, raanRad, aM, omegaEarth, tS)

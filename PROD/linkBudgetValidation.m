@@ -359,6 +359,39 @@ for r = 1:40
 end
 C = addCheck(C, 'H5 πεπερασμενες ισοπαλιες σε δειγμα συγκρισεων', 'πληθος', 0, tieCount, 0);
 
+% --- D6-D8: παρεμβολή μεταξύ δορυφόρων ---
+% Δεύτερος δορυφόρος 200 km βόρεια, ορατός από όλους τους χρήστες. Με FRF = 1
+% οι δύο δέσμες είναι στην ίδια ζώνη, οπότε το SINR του καλύτερου πρέπει να
+% είναι ΑΥΣΤΗΡΑ κάτω από το SNR του. Με FRF = 3 είναι σε διαφορετικές ζώνες
+% και το SINR πρέπει να ισούται ακριβώς με το SNR, στο εύρος της δέσμης.
+% Ένας δορυφόρος κάτω από τη μάσκα δεν φωτίζει την περιοχή και δεν
+% παρεμβάλλει: η ταυτότητα SINR == SNR ισχύει ακριβώς.
+satPair  = [satOverhead; baseLat + 200e3/111320, baseLon, 600e3];
+satHidden = [satOverhead; baseLat + 3000e3/111320, baseLon, 600e3];
+rng(31);
+[~,~,~,~,~,~,~,~,~,~,~,~,~,~, satPlPair, satSinrPair] = ...
+    simulateScenario(bs1, uGeo, satPair, wgs84, simParameters, satParameters);
+C = addCheck(C, 'D6 δυο ορατοι δορυφοροι, FRF 1: SINR < SNR', 'λογικο', 1, ...
+             double(all(satSinrPair < (satParameters.EIRP - 30) - satPlPair - noiseSatDbw)), 0);
+
+sat3 = satParameters;
+sat3.FreqReuse = 3;
+sat3.Bandwidth = satParameters.Bandwidth / 3;
+sat3.EIRP      = sat3.EirpDensityDbwPerMHz + 10*log10(sat3.Bandwidth/1e6) + 30;
+sat3.TxPower   = sat3.EIRP - sat3.AntennaGain;
+noiseSat3Dbw   = 10*log10(kBoltz * teqK * sat3.Bandwidth);
+rng(31);
+[~,~,~,~,~,~,~,~,~,~,~,~,~,~, satPl3, satSinr3] = ...
+    simulateScenario(bs1, uGeo, satPair, wgs84, simParameters, sat3);
+C = addCheck(C, 'D7 δυο ορατοι δορυφοροι, FRF 3: SINR == SNR', 'dB', 0, ...
+             max(abs(satSinr3 - ((sat3.EIRP - 30) - satPl3 - noiseSat3Dbw))), 1e-9);
+
+rng(31);
+[~,~,~,~,~,~,~,~,~,~,~,~,~,~, satPlHid, satSinrHid] = ...
+    simulateScenario(bs1, uGeo, satHidden, wgs84, simParameters, satParameters);
+C = addCheck(C, 'D8 δορυφορος κατω απο τη μασκα: SINR == SNR', 'dB', 0, ...
+             max(abs(satSinrHid - ((satParameters.EIRP - 30) - satPlHid - noiseSatDbw))), 1e-9);
+
 %% ------------------ Πίνακας και εκτύπωση ------------------
 T = table(string({C.name}'), string({C.unit}'), [C.expected]', [C.actual]', ...
     abs([C.actual]' - [C.expected]'), [C.tol]', logical([C.pass]'), ...

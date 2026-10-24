@@ -9,8 +9,9 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
                      prevChannelState, prevDecision)
 % Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SINR και
 % υπολογίζει χωρητικότητα/ενέργεια μετά την κατανομή εύρους ζώνης.
-% Επιστρέφει και per-candidate διαγνωστικά (καλύτερο BS + δορυφόρος, ανεξάρτητα
-% από την τελική επιλογή) για την εκπαίδευση του ML μοντέλου του Part 2.
+% Επιστρέφει και per-candidate διαγνωστικά (καλύτερος BS + καλύτερος δορυφόρος,
+% ανεξάρτητα από την τελική επιλογή) για την εκπαίδευση του ML μοντέλου του Part 2.
+% Το sat_geo έχει μία γραμμή [lat lon alt] ανά δορυφόρο.
 %
 % 23η έξοδος policyKpis: η ίδια πραγματοποίηση καναλιού αποτιμάται και με τις
 % τρεις πολιτικές επιλογής κόμβου (η υπό εξέταση, αποκλειστικά επίγεια,
@@ -40,6 +41,19 @@ end
 
 numUsers = size(user_geo,1);
 numBs    = size(bs_geo,1);
+% Μία γραμμή του sat_geo ανά δορυφόρο, κόμβος "SAT-k".
+numSats  = size(sat_geo,1);
+
+% Επαναχρησιμοποίηση συχνότητας μεταξύ δεσμών (TR 38.821 Πίν. 6.1.1.1-5:
+% Option 1 = 1, Option 2 = 3). Κάθε δορυφόρος φωτίζει την περιοχή με μία
+% δέσμη· ο δορυφόρος k εκπέμπει στη ζώνη mod(k-1, FRF), και το εύρος ανά δέσμη
+% (satParameters.Bandwidth) έχει ήδη προσαρμοστεί στο FRF από τον καλούντα.
+if isfield(satParameters, 'FreqReuse') && ~isempty(satParameters.FreqReuse)
+    satFreqReuse = satParameters.FreqReuse;
+else
+    satFreqReuse = 1;
+end
+satSubBand = mod((0:numSats-1)', satFreqReuse);
 
 %% ------------------ Bandwidth ------------------
 BW_bs = simParameters.Carrier.NSizeGrid * 12 * ...
@@ -189,20 +203,23 @@ pLosMat           = nan(numUsers,numBs);
 losMat            = false(numUsers,numBs);
 losLatentMat      = zeros(numUsers,numBs);
 sfMat             = nan(numUsers,numBs);
+% Διαγνωστικά του καλύτερου δορυφόρου ανά χρήστη (ένας ανά γραμμή του
+% dataset, όπως και για τους BS), και το SINR κάθε δορυφόρου χωριστά.
 satSlantRangeVec  = nan(numUsers,1);
 satElevationVec   = nan(numUsers,1);
 satPathLossVec    = nan(numUsers,1);
 satSinrDbVec       = nan(numUsers,1);
+satSinrDbMat      = -inf(numUsers,numSats);
 
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
     isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
-% Κρυφή γκαουσιανή μεταβλητή της δορυφορικής σκίασης ανά χρήστη (βλ.
-% «Satellite candidate»). Ταξιδεύει μέσα στο prevChannelState και
+% Κρυφή γκαουσιανή μεταβλητή της δορυφορικής σκίασης ανά (χρήστη, δορυφόρο)
+% (βλ. «Satellite candidates»). Ταξιδεύει μέσα στο prevChannelState και
 % μηδενίζεται στην αρχή κάθε διέλευσης μαζί με το υπόλοιπο κανάλι.
 hasPrevSatShadow = hasPrevState && isfield(prevChannelState, 'SatShadowLatent') && ...
-    numel(prevChannelState.SatShadowLatent) == numUsers;
-satShadowLatentVec = zeros(numUsers,1);
+    isequal(size(prevChannelState.SatShadowLatent), [numUsers, numSats]);
+satShadowLatentMat = zeros(numUsers,numSats);
 
 % Κατάσταση του φίλτρου L3 ανά υποψήφιο. NaN σημαίνει "δεν υπάρχει
 % προηγούμενη μέτρηση", οπότε F_0 = M_1 όπως ορίζει η §5.5.3.2. Ταξιδεύει
@@ -211,16 +228,20 @@ satShadowLatentVec = zeros(numUsers,1);
 % εξαρτάται από το ποιος κόμβος εξυπηρετεί, άρα η σύγκριση κατά ζεύγη μένει
 % έγκυρη.
 hasPrevFilt = hasPrevState && isfield(prevChannelState, 'FiltSinrBs_dB') && ...
-    isequal(size(prevChannelState.FiltSinrBs_dB), [numUsers, numBs]);
+    isequal(size(prevChannelState.FiltSinrBs_dB), [numUsers, numBs]) && ...
+    isequal(size(prevChannelState.FiltSinrSat_dB), [numUsers, numSats]);
 if hasPrevFilt
     prevFiltBs  = prevChannelState.FiltSinrBs_dB;
     prevFiltSat = prevChannelState.FiltSinrSat_dB;
 else
     prevFiltBs  = nan(numUsers, numBs);
-    prevFiltSat = nan(numUsers, 1);
+    prevFiltSat = nan(numUsers, numSats);
 end
 filtSinrBsMat  = nan(numUsers, numBs);
-filtSinrSatVec = nan(numUsers, 1);
+filtSinrSatMat = nan(numUsers, numSats);
+
+lambdaSat    = physconst('LightSpeed') / satParameters.CarrierFrequency;
+noiseSatLinW = 10^(noisePowerSAT_dBW/10);
 
 %% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SINR) ------------------
 for u = 1:numUsers
@@ -375,27 +396,37 @@ for u = 1:numUsers
     bestBsDistanceVec(u) = userBestDistance;
     bestBsPathLossVec(u) = userBestPathLoss;
 
-    %% ===== Satellite candidate =====
-    % Σκίαση με χρονική συσχέτιση: η μεταβλητή εξελίσσεται σε ΚΑΘΕ βήμα, ακόμη
-    % και όταν ο δορυφόρος είναι κάτω από τη μάσκα, ώστε όταν ξαναφανεί να
-    % συνεχίζει από τη σωστή κατάσταση και όχι από νέα κλήρωση.
-    if hasPrevSatShadow
-        rhoSat = exp(-userMoveDistance / satShadowDcorrM);
-        satShadowLatentVec(u) = rhoSat*prevChannelState.SatShadowLatent(u) + ...
-            sqrt(1 - rhoSat^2)*randn();
-    else
-        satShadowLatentVec(u) = randn();
-    end
+    %% ===== Satellite candidates =====
+    % Κάθε δορυφόρος είναι χωριστός υποψήφιος. Πρώτα υπολογίζονται οι απώλειες
+    % όλων, επειδή το SINR του καθενός εξαρτάται από την ισχύ των υπολοίπων.
+    satPlRow    = inf(1,numSats);
+    satElevRow  = nan(1,numSats);
+    satRangeRow = nan(1,numSats);
+    for k = 1:numSats
+        % Σκίαση με χρονική συσχέτιση: η μεταβλητή εξελίσσεται σε ΚΑΘΕ βήμα,
+        % ακόμη και όταν ο δορυφόρος είναι κάτω από τη μάσκα, ώστε όταν
+        % ξαναφανεί να συνεχίζει από τη σωστή κατάσταση και όχι από νέα
+        % κλήρωση. Μία μεταβλητή ανά δορυφόρο: κάθε δορυφόρος φαίνεται από
+        % άλλη κατεύθυνση, άρα τα εμπόδια γύρω από τον χρήστη που τον σκιάζουν
+        % είναι άλλα. Το TR 38.811 δεν δίνει συσχέτιση μεταξύ δορυφόρων, οπότε
+        % οι μεταβλητές είναι ανεξάρτητες μεταξύ τους.
+        if hasPrevSatShadow
+            rhoSat = exp(-userMoveDistance / satShadowDcorrM);
+            satShadowLatentMat(u,k) = rhoSat*prevChannelState.SatShadowLatent(u,k) + ...
+                sqrt(1 - rhoSat^2)*randn();
+        else
+            satShadowLatentMat(u,k) = randn();
+        end
 
-    [~, elevSat, slantRangeSat] = geodetic2aer( ...
-        sat_geo(1), sat_geo(2), sat_geo(3), ...
-        user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
+        [~, elevSat, slantRangeSat] = geodetic2aer( ...
+            sat_geo(k,1), sat_geo(k,2), sat_geo(k,3), ...
+            user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
+        satElevRow(k)  = elevSat;
+        satRangeRow(k) = slantRangeSat;
 
-    satSlantRangeVec(u) = slantRangeSat;
-    satElevationVec(u)  = elevSat;
-
-    if elevSat >= satParameters.MinElevationDeg
-        lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency;
+        if elevSat < satParameters.MinElevationDeg
+            continue;
+        end
         satPathLoss = fspl(slantRangeSat, lambdaSat);
 
         % Ατμοσφαιρική απόσβεση αερίων (οξυγόνο + υδρατμοί), TR 38.811 §6.6.4.
@@ -424,47 +455,64 @@ for u = 1:numUsers
             elevClamped = min(max(elevSat, satFadeElevRangeDeg(1)), satFadeElevRangeDeg(2));
             [b0, mNak, omega] = shadowedRicianElevParams(elevClamped);
         end
-        uShadow = 0.5*erfc(-satShadowLatentVec(u)/sqrt(2));   % γκαουσιανή -> ομοιόμορφη
-        satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega, measNAvgSat, uShadow);
+        uShadow = 0.5*erfc(-satShadowLatentMat(u,k)/sqrt(2));   % γκαουσιανή -> ομοιόμορφη
+        satPlRow(k) = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega, measNAvgSat, uShadow);
+    end
 
-        % Ο όρος παρεμβολής είναι μηδενικός στο δορυφορικό σκέλος: 2.0 GHz
-        % έναντι 3.5 GHz του επίγειου (TR 38.821 Πίν. 6.1.3.2-1 και TR 38.901),
-        % άρα καμία ομοδιαυλική επικάλυψη, και ένας μόνο δορυφόρος, άρα καμία
-        % παρεμβολή μεταξύ δεσμών. Το SINR ταυτίζεται εδώ με το SNR.
-        satSinrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
+    % SINR ανά δορυφόρο. Καμία ομοδιαυλική επικάλυψη με το επίγειο σκέλος
+    % (2.0 GHz έναντι 3.5 GHz, TR 38.821 Πίν. 6.1.3.2-1 και TR 38.901). Μεταξύ
+    % δορυφόρων ισχύει ο κανόνας του TR 38.821 §6.1.1.1 (Σχ. 6.1.1.1-2): κάθε
+    % άλλη δέσμη στην ίδια ζώνη είναι παρεμβολή, σε μοντέλο πλήρους
+    % απασχόλησης όπως και στους BS. Παρεμβάλλουν μόνο οι δορυφόροι πάνω από τη
+    % μάσκα, δηλαδή όσοι φωτίζουν την περιοχή· η ισχύς των πλευρικών λοβών
+    % δεσμών που στοχεύουν αλλού δεν μοντελοποιείται, οπότε η παρεμβολή είναι
+    % κάτω φράγμα. Με έναν ορατό δορυφόρο ανά ζώνη το SINR ταυτίζεται με το SNR.
+    satRxLinW = 10.^(((satParameters.EIRP - 30) - satPlRow)/10);   % PL = Inf -> 0
+    for k = 1:numSats
+        if ~isfinite(satPlRow(k))
+            continue;
+        end
+        coChannel = (satSubBand == satSubBand(k))';
+        coChannel(k) = false;
+        satSinrDbMat(u,k) = 10*log10(satRxLinW(k) / (noiseSatLinW + sum(satRxLinW(coChannel))));
+        filtSinrSatMat(u,k) = l3Filter(satSinrDbMat(u,k), prevFiltSat(u,k), l3Alpha);
+    end
+
+    % Διαγνωστικά του καλύτερου δορυφόρου: ο ορατός με το μεγαλύτερο SINR, ή,
+    % αν κανείς δεν είναι ορατός, αυτός με τη μεγαλύτερη ανύψωση.
+    if any(isfinite(satPlRow))
+        [~, kBest] = max(satSinrDbMat(u,:));
     else
-        satPathLoss = inf;
-        satSinrDb = -Inf;
+        [~, kBest] = max(satElevRow);
         satUnavailReasonVec(u) = "NotVisible";
     end
-    if satUnavailReasonVec(u) == "" && satSinrDb < minUsableSinrDb
+    satSlantRangeVec(u) = satRangeRow(kBest);
+    satElevationVec(u)  = satElevRow(kBest);
+    satPathLossVec(u)   = satPlRow(kBest);
+    satSinrDbVec(u)     = satSinrDbMat(u,kBest);
+    if satUnavailReasonVec(u) == "" && satSinrDbVec(u) < minUsableSinrDb
         satUnavailReasonVec(u) = "BelowSinrFloor";
     end
 
-    satPathLossVec(u) = satPathLoss;
-    satSinrDbVec(u)    = satSinrDb;
-    if isfinite(satSinrDb)
-        filtSinrSatVec(u) = l3Filter(satSinrDb, prevFiltSat(u), l3Alpha);
-    end
-
-    if satSinrDb > userBestSinr
-        userBestSinr       = satSinrDb;
-        userBestNode      = "SAT-1";
+    if satSinrDbVec(u) > userBestSinr
+        userBestSinr       = satSinrDbVec(u);
+        userBestNode      = "SAT-" + string(kBest);
         userBestType      = "Satellite";
-        userBestDistance  = slantRangeSat;
-        userBestPathLoss  = satPathLoss;
-        userBestElevation = elevSat;
+        userBestDistance  = satRangeRow(kBest);
+        userBestPathLoss  = satPlRow(kBest);
+        userBestElevation = satElevRow(kBest);
     end
 
     %% ===== Απόφαση με υστέρηση και χρόνο επιβεβαίωσης =====
-    % Κατάλογος υποψηφίων: όλοι οι σταθμοί εντός πεδίου ισχύος συν ο δορυφόρος.
-    % Η υστέρηση εφαρμόζεται σε ΟΛΟΥΣ, ώστε να καλύπτει και την εναλλαγή μεταξύ
-    % επίγειων σταθμών, που αποτελεί το μεγαλύτερο μέρος του φαινομένου.
+    % Κατάλογος υποψηφίων: όλοι οι σταθμοί εντός πεδίου ισχύος συν οι ορατοί
+    % δορυφόροι. Η υστέρηση εφαρμόζεται σε ΟΛΟΥΣ, ώστε να καλύπτει και την
+    % εναλλαγή μεταξύ επίγειων σταθμών και μεταξύ δορυφόρων.
     nCand = 0;
-    candNode = strings(numBs+1,1); candType = strings(numBs+1,1);
-    candSinr = -inf(numBs+1,1);    candDist = nan(numBs+1,1);
-    candSinrMeas = -inf(numBs+1,1);
-    candPl   = nan(numBs+1,1);     candElev = nan(numBs+1,1);
+    nMax = numBs + numSats;
+    candNode = strings(nMax,1); candType = strings(nMax,1);
+    candSinr = -inf(nMax,1);    candDist = nan(nMax,1);
+    candSinrMeas = -inf(nMax,1);
+    candPl   = nan(nMax,1);     candElev = nan(nMax,1);
     for b = 1:numBs
         if isfinite(sinrDbMat(u,b))
             nCand = nCand + 1;
@@ -476,15 +524,17 @@ for u = 1:numUsers
             candPl(nCand)   = pathLossMat(u,b);
         end
     end
-    if isfinite(satSinrDb)
-        nCand = nCand + 1;
-        candNode(nCand) = "SAT-1";
-        candType(nCand) = "Satellite";
-        candSinr(nCand) = satSinrDb;
-        candSinrMeas(nCand) = filtSinrSatVec(u);
-        candDist(nCand) = slantRangeSat;
-        candPl(nCand)   = satPathLoss;
-        candElev(nCand) = elevSat;
+    for k = 1:numSats
+        if isfinite(satSinrDbMat(u,k))
+            nCand = nCand + 1;
+            candNode(nCand) = "SAT-" + string(k);
+            candType(nCand) = "Satellite";
+            candSinr(nCand) = satSinrDbMat(u,k);
+            candSinrMeas(nCand) = filtSinrSatMat(u,k);
+            candDist(nCand) = satRangeRow(k);
+            candPl(nCand)   = satPlRow(k);
+            candElev(nCand) = satElevRow(k);
+        end
     end
     candNode = candNode(1:nCand); candType = candType(1:nCand);
     candSinr = candSinr(1:nCand); candDist = candDist(1:nCand);
@@ -614,13 +664,12 @@ satNode = polNodeMat(:,3);
 satType = polTypeMat(:,3);
 satSnrPolicy = polSinrMat(:,3);
 
-% Διαθέσιμο φάσμα ανά σκέλος σε αυτό το βήμα (MHz).
+% Διαθέσιμο φάσμα ανά σκέλος σε αυτό το βήμα (MHz). Στο δορυφορικό σκέλος
+% μετράει κάθε διακριτή ζώνη που έχει τουλάχιστον έναν ορατό δορυφόρο: με
+% FRF = 1 όλοι οι δορυφόροι μοιράζονται την ίδια ζώνη, όπως οι BS τη δική τους.
 spectrumTerrMHz = BW_bs/1e6;
-if any(isfinite(satSinrDbVec))
-    spectrumSatMHz = satParameters.Bandwidth/1e6;
-else
-    spectrumSatMHz = 0;
-end
+satVisible = any(isfinite(satSinrDbMat), 1)';
+spectrumSatMHz = numel(unique(satSubBand(satVisible))) * satParameters.Bandwidth/1e6;
 
 policyKpis = struct();
 policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, ...
@@ -641,10 +690,10 @@ policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers, spectrumSat
 newChannelState.UserGeo         = user_geo;
 newChannelState.IsLOS           = losMat;
 newChannelState.LosLatent       = losLatentMat;
-newChannelState.SatShadowLatent = satShadowLatentVec;
+newChannelState.SatShadowLatent = satShadowLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
 newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
-newChannelState.FiltSinrSat_dB  = filtSinrSatVec;
+newChannelState.FiltSinrSat_dB  = filtSinrSatMat;
 
 end
 
@@ -823,10 +872,12 @@ for b = 1:numBs
     end
 end
 idleBs    = numBs - activeBs;
-satActive = any(typeVec == "Satellite");
+% Πλήθος δορυφόρων που εξυπηρετούν τουλάχιστον έναν χρήστη.
+satActive = numel(unique(nodeVec(typeVec == "Satellite")));
 
 % Πλήρης εμβέλεια: ενεργοί BS κατά EARTH, αδρανείς σε Psleep. Ο δορυφόρος δεν
-% έχει αντίστοιχο μέγεθος αδράνειας, οπότε προσμετράται μόνο όταν εξυπηρετεί.
+% έχει αντίστοιχο μέγεθος αδράνειας, οπότε προσμετράται μόνο όταν εξυπηρετεί,
+% ένας όρος ανά ενεργό δορυφόρο.
 networkEnergy.TotalPower_W    = activeBs*bsFullW + idleBs*bsSleepW + satActive*satFullW;
 % Συμμετρική εμβέλεια: μόνο το τμήμα που εξαρτάται από τον ενισχυτή, και στα δύο σκέλη.
 networkEnergy.TotalPowerRf_W  = activeBs*bsRfW + satActive*satRfW;
@@ -864,8 +915,9 @@ s.BitPerJoule      = networkEnergy.BitPerJoule;
 s.BitPerJouleRf    = networkEnergy.BitPerJouleRf;
 % Φάσμα που έχει στη διάθεσή της η πολιτική σε αυτό το βήμα. Ορίζεται από τη
 % ΔΙΑΘΕΣΙΜΟΤΗΤΑ και όχι από τις επιλογές της, ώστε να μένει συγκρίσιμο: οι
-% σταθμοί βάσης εκπέμπουν πάντα (και οι δύο στο ίδιο φάσμα, επαναχρησιμοποίηση
-% 1), ενώ ο δορυφόρος μετράει μόνο όταν είναι πάνω από τη γωνία αποκοπής.
+% σταθμοί βάσης εκπέμπουν πάντα (όλοι στο ίδιο φάσμα, επαναχρησιμοποίηση 1),
+% ενώ μια δορυφορική ζώνη μετράει μόνο όταν κάποιος δορυφόρος της είναι πάνω
+% από τη γωνία αποκοπής.
 % Χρησιμεύει για να χωριστεί το πλεονέκτημα της μεικτής πολιτικής σε μέρος που
 % οφείλεται στην απόφαση και σε μέρος που οφείλεται στο διαθέσιμο φάσμα.
 s.Spectrum_MHz     = spectrumMHz;

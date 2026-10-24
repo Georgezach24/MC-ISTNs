@@ -30,9 +30,11 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
         text(xUE(u), yUE(u), zUE(u)*1.5, " U" + u, 'FontSize', 9, 'FontWeight', 'bold', 'Color', 'b');
     end
     
-    % Σχεδίαση Δορυφόρου (Κίτρινο αστέρι)
-    scatter3(xSat, ySat, zSat, 300, 'p', 'MarkerFaceColor', '#EDB120', 'MarkerEdgeColor', 'k', 'DisplayName', 'Satellite (Real Scale)');
-    text(xSat(1), ySat(1), zSat(1)*1.2, " LEO Sat", 'FontSize', 11, 'FontWeight', 'bold');
+    % Σχεδίαση Δορυφόρων (Κίτρινα αστέρια), ένα ανά γραμμή του sat_geo
+    scatter3(xSat, ySat, zSat, 300, 'p', 'MarkerFaceColor', '#EDB120', 'MarkerEdgeColor', 'k', 'DisplayName', 'Satellites (Real Scale)');
+    for k = 1:numel(xSat)
+        text(xSat(k), ySat(k), zSat(k)*1.2, " SAT-" + k, 'FontSize', 11, 'FontWeight', 'bold');
+    end
     
     % Σχεδίαση Γραμμών Σύνδεσης (Με Interpolation για να έχουμε λογαριθμική κλίμακα και να χωράνε όλα στο γράφιμα)
     for u = 1:numUsers
@@ -47,12 +49,13 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
             plot3(xq, yq, zq, 'g-', 'LineWidth', 1.5, 'HandleVisibility', 'off');
             
         elseif bestNodeTypeVec(u) == "Satellite"
+            sat_idx = str2double(extractAfter(bestNodeVec(u), "SAT-"));
             num_pts = 100;
-            xq = linspace(xUE(u), xSat, num_pts);
-            yq = linspace(yUE(u), ySat, num_pts);
+            xq = linspace(xUE(u), xSat(sat_idx), num_pts);
+            yq = linspace(yUE(u), ySat(sat_idx), num_pts);
             
             % Logarithmic interpolation για τον άξονα Z
-            zq = logspace(log10(zUE(u)), log10(zSat(1)), num_pts);
+            zq = logspace(log10(zUE(u)), log10(zSat(sat_idx)), num_pts);
             
             plot3(xq, yq, zq, 'm-', 'LineWidth', 1.5, 'HandleVisibility', 'off');
 
