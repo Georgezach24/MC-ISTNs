@@ -77,11 +77,12 @@ def = struct( ...
     'measPeriodMs',  200, ...    % TS 38.133 Πίν. 9.2.5.2-1, FR1 χωρίς DRX
     'measAveraging', true, ...   % μέση τιμή μέτρησης μέσα στο βήμα· false = στιγμιαίο δείγμα
     'numUsersRange', [10 30], ...% [min max] χρήστες ανά διέλευση, ομοιόμορφα
-    'bsRings',       1, ...      % δακτύλιοι εξαγωνικού πλέγματος: 1 -> 7 σταθμοί
+    'bsRings',       2, ...      % δακτύλιοι εξαγωνικού πλέγματος: 2 -> 19 σταθμοί (TR 38.901 Πίν. 7.2-1)
     'bsIsdM',        500, ...    % m, απόσταση σταθμών (TR 38.901 Πίν. 7.8-1, UMa)
     'numSats',       3, ...      % διαδοχικοί δορυφόροι στο ίδιο τροχιακό επίπεδο
     'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
     'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
+    'wrapAround',    true, ...   % wrap-around του πλέγματος (6 αντίγραφα), όπως στη βαθμονόμηση TR 38.901
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -149,9 +150,11 @@ cLight = physconst('LightSpeed');
 
 %% ------------------ Τοπολογία σταθμών βάσης (σταθερή: το σενάριο) ------------------
 % Εξαγωνικό πλέγμα σταθμών με απόσταση ISD, όπως η διάταξη βαθμονόμησης του
-% TR 38.901 §7.8 (Πίν. 7.8-1: UMa, ISD 500 m, ύψος BS 25 m). Με bsRings = 1:
-% ένας σταθμός στο κέντρο και 6 στον πρώτο δακτύλιο. Το κέντρο είναι το ίδιο
-% σημείο αναφοράς με το προηγούμενο σενάριο.
+% TR 38.901 (Πίν. 7.2-1 και 7.8-1: UMa, 19 sites, ISD 500 m, ύψος BS 25 m).
+% Με bsRings = 2: ένας σταθμός στο κέντρο, 6 στον πρώτο και 12 στον δεύτερο
+% δακτύλιο. Το κέντρο είναι το ίδιο σημείο αναφοράς με το προηγούμενο σενάριο.
+% Χωρίς wrap-around: οι κυψέλες του εξωτερικού δακτυλίου δέχονται λιγότερη
+% παρεμβολή από τις εσωτερικές.
 bsCenterGeo = [37.9838 23.7275];
 bsHeightM   = 25;
 hexOffsets  = hexSiteOffsetsM(opts.bsRings, opts.bsIsdM);   % [ανατολικά βόρεια] m
@@ -163,6 +166,69 @@ for b = 1:size(hexOffsets,1)
 end
 numBs = size(bs_geo,1);
 bsClusterRadiusM = opts.bsRings * opts.bsIsdM;   % απόσταση του πιο μακρινού σταθμού από το κέντρο
+
+% Θέσεις του επόμενου δακτυλίου (χωρίς σταθμό): ορίζουν το εξωτερικό όριο των
+% κυψελών. Ένα σημείο ανήκει στο δίκτυο όταν ο πλησιέστερος κόμβος του άπειρου
+% πλέγματος είναι ένας από τους numBs σταθμούς, δηλαδή όταν είναι μέσα σε ένα
+% από τα εξάγωνα (κυψέλες Voronoi) των σταθμών.
+ringOffsets = hexSiteOffsetsM(opts.bsRings + 1, opts.bsIsdM);
+ringOffsets = ringOffsets(numBs+1:end,:);
+ghost_geo = zeros(size(ringOffsets,1), 2);
+for b = 1:size(ringOffsets,1)
+    [ghost_geo(b,1), ghost_geo(b,2)] = reckon(bsCenterGeo(1), bsCenterGeo(2), ...
+        norm(ringOffsets(b,:)), atan2d(ringOffsets(b,1), ringOffsets(b,2)), wgs84);
+end
+cellRadiusM = opts.bsIsdM / sqrt(3);   % ακτίνα εξαγώνου (κορυφή)
+
+% Wrap-around: το πλέγμα των numBs σταθμών (εξάγωνο R δακτυλίων) επαναλαμβάνεται
+% γύρω από τον εαυτό του με τις 6 μετατοπίσεις που πλακοστρώνουν το επίπεδο.
+% Σε αξονικές συντεταγμένες (q, r) είναι ±(2R+1, -R), ±(R, R+1), ±(-R-1, 2R+1),
+% μήκους ISD*sqrt(3R^2+3R+1) (= ISD*sqrt(19) για R = 2). Κάθε ζεύξη μετριέται
+% από το πλησιέστερο αντίγραφο του σταθμού, οπότε κάθε κυψέλη, και του
+% εξωτερικού δακτυλίου, βλέπει τον ίδιο περίγυρο παρεμβολέων.
+R = opts.bsRings;
+wrapQR = [0 0; 2*R+1 -R; R R+1; -R-1 2*R+1; -(2*R+1) R; -R -(R+1); R+1 -(2*R+1)];
+wrapShiftM = opts.bsIsdM * [wrapQR(:,1) + wrapQR(:,2)/2, wrapQR(:,2)*sqrt(3)/2];
+if ~opts.wrapAround
+    wrapShiftM = wrapShiftM(1,:);
+end
+numImg = size(wrapShiftM,1);
+bsImageGeo = zeros(numBs, numImg, 2);
+for b = 1:numBs
+    for k = 1:numImg
+        o = hexOffsets(b,:) + wrapShiftM(k,:);
+        [bsImageGeo(b,k,1), bsImageGeo(b,k,2)] = reckon(bsCenterGeo(1), bsCenterGeo(2), ...
+            norm(o), atan2d(o(1), o(2)), wgs84);
+    end
+end
+% Έλεγχος της πλακόστρωσης: κάθε θέση του επόμενου δακτυλίου πρέπει να είναι
+% ακριβώς αντίγραφο ενός σταθμού, και τα αντίγραφα να μην επικαλύπτονται.
+if opts.wrapAround
+    allImg = reshape(reshape(hexOffsets, numBs, 1, 2) + reshape(wrapShiftM, 1, numImg, 2), [], 2);
+    for g = 1:size(ringOffsets,1)
+        if min(hypot(allImg(:,1) - ringOffsets(g,1), allImg(:,2) - ringOffsets(g,2))) > 1e-6
+            error('runSimulation:WrapAround', 'Η θέση %d του επόμενου δακτυλίου δεν είναι αντίγραφο σταθμού.', g);
+        end
+    end
+    dPair = hypot(allImg(:,1) - allImg(:,1)', allImg(:,2) - allImg(:,2)');
+    dPair(1:size(dPair,1)+1:end) = Inf;
+    if min(dPair(:)) < opts.bsIsdM - 1e-6
+        error('runSimulation:WrapAround', 'Επικαλυπτόμενα αντίγραφα σταθμών.');
+    end
+    % Η ιδιότητα που ζητείται: ένα σημείο στην ίδια θέση ως προς οποιονδήποτε
+    % σταθμό βλέπει το ίδιο σύνολο αποστάσεων από όλους (επίπεδη γεωμετρία).
+    p0 = [123.4 56.7];
+    dRef = [];
+    for b = 1:numBs
+        q = hexOffsets(b,:) + p0;
+        dW = min(reshape(hypot(q(1) - allImg(:,1), q(2) - allImg(:,2)), numBs, numImg), [], 2);
+        if isempty(dRef)
+            dRef = sort(dW);
+        elseif max(abs(sort(dW) - dRef)) > 1e-6
+            error('runSimulation:WrapAround', 'Ο περίγυρος του σταθμού %d διαφέρει από του κεντρικού.', b);
+        end
+    end
+end
 
 numUsersRange = opts.numUsersRange;   % πλήθος χρηστών ανά διέλευση
 ueHeightM     = 1.5;      % m, TR 38.901 §7.4.1 Πίν. 7.4.1-1 (υπαίθριος χρήστης)
@@ -183,6 +249,10 @@ simParameters.RxAntTemperature = 290;
 simParameters.PathLossModel = '5G-NR';
 simParameters.PathLoss = nrPathLossConfig;
 simParameters.PathLoss.Scenario = 'UMa';
+simParameters.BsImageGeo = [];
+if opts.wrapAround
+    simParameters.BsImageGeo = bsImageGeo;
+end
 simParameters.PathLoss.EnvironmentHeight = 1;
 simParameters.TxPower = 49;                 % dBm, conducted (TR 38.901 Πίν. 7.8-1, UMa)
 simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain + ...
@@ -232,19 +302,23 @@ satParameters.Power.EtaPA = 0.4;
 d2dMinM = 10;
 d2dMaxM = 5000;
 
-% Μέγιστη μετατόπιση χρήστη μέσα σε μία διέλευση. Οι αρχικές θέσεις
-% δειγματοληπτούνται ώστε η απόσταση από τον ΠΛΗΣΙΕΣΤΕΡΟ σταθμό να μένει μέσα
-% στα όρια σε όλη την τροχιά: ο χρήστης βρίσκεται στο όριο της επίγειας
-% κάλυψης, όχι μέσα σε κυψέλη, όπως και στο σενάριο με τους δύο σταθμούς.
+% Μέγιστη μετατόπιση χρήστη μέσα σε μία διέλευση. Οι χρήστες ξεκινούν
+% ομοιόμορφα μέσα στις κυψέλες των σταθμών (TR 38.901 Πίν. 7.2-1: "UT
+% distribution: Uniform"). Η ελάχιστη απόσταση 35 m από σταθμό (ίδιος
+% πίνακας, UMa) επιβάλλεται σε όλη την ευθεία διαδρομή: απορρίπτεται κάθε
+% θέση/κατεύθυνση που θα περνούσε πιο κοντά. Ένας χρήστης κοντά στο όριο
+% μπορεί να βγει έως maxWalkM έξω από το δίκτυο· η πιο μακρινή απόσταση
+% από σταθμό μένει έτσι κάτω από d2dMax και κάθε ζεύξη μέσα στο πεδίο ισχύος.
 ueSpeedMps   = opts.ueSpeedKmh / 3.6;
 maxWalkM     = ueSpeedMps * opts.passWindowS;
-userRMinM    = d2dMinM + maxWalkM;
-userRMaxM    = d2dMaxM - maxWalkM;
-if userRMinM >= userRMaxM
+userRMinM    = 35;
+userRMaxM    = cellRadiusM + maxWalkM;   % μέγιστη απόσταση από τον πλησιέστερο, σε όλη τη διαδρομή
+if userRMinM >= userRMaxM || 2*bsClusterRadiusM + cellRadiusM + maxWalkM > d2dMaxM
     error('runSimulation:WindowTooLong', ...
         ['Με ταχύτητα %.2f m/s και παράθυρο %.0f s ο χρήστης διανύει %.0f m, ' ...
-         'που δεν χωράει στο πεδίο ισχύος [%d, %d] m. Μείωσε το passWindowS.'], ...
-        ueSpeedMps, opts.passWindowS, maxWalkM, d2dMinM, d2dMaxM);
+         'οπότε σε πλέγμα %d δακτυλίων με ISD %g m κάποια ζεύξη θα έβγαινε από ' ...
+         'το πεδίο ισχύος [%d, %d] m. Μείωσε το passWindowS ή το bsRings.'], ...
+        ueSpeedMps, opts.passWindowS, maxWalkM, opts.bsRings, opts.bsIsdM, d2dMinM, d2dMaxM);
 end
 
 %% ------------------ Μέτρηση πριν την απόφαση ------------------
@@ -385,8 +459,8 @@ fprintf('  Δt = %g s | ταχύτητα χρήστη = %g km/h (%.3f m/s) | π�
 fprintf('  Μετατόπιση ανά βήμα = %.3f m (όριο M.2412 Παρ.1 §5.3.2: 1 m)\n', ueSpeedMps*opts.dtSeconds);
 fprintf('  Τροχιακή περίοδος = %.0f s | ταχύτητα ίχνους = %.0f m/s\n', orbitalPeriodS, groundSpeedMps);
 fprintf('  Εύρος εγκάρσιας μετατόπισης ίχνους = ±%.2f°\n', rad2deg(raanSpanRad));
-fprintf('  Σταθμοί βάσης: %d (εξαγωνικό πλέγμα, ISD %g m) | χρήστες ανά διέλευση: %d-%d, %.0f-%.0f m από τον πλησιέστερο\n', ...
-    numBs, opts.bsIsdM, numUsersRange(1), numUsersRange(2), userRMinM, userRMaxM);
+fprintf('  Σταθμοί βάσης: %d (εξαγωνικό πλέγμα, ISD %g m) | χρήστες ανά διέλευση: %d-%d, ομοιόμορφα στις κυψέλες, διαδρομή >= %.0f m από κάθε σταθμό\n', ...
+    numBs, opts.bsIsdM, numUsersRange(1), numUsersRange(2), userRMinM);
 fprintf('  Δορυφόροι: %d στο ίδιο επίπεδο, ανά %.1f s (%.2f°, ισοδύναμο %.1f ανά επίπεδο) | ζενιθιακή ορατότητα %.0f s | FRF = %d (%.0f MHz ανά δέσμη)\n', ...
     opts.numSats, satSpacingS, rad2deg(meanMotion*satSpacingS), ...
     ternary(satSpacingS > 0, orbitalPeriodS/max(satSpacingS,eps), NaN), 2*halfVisS, ...
@@ -439,22 +513,21 @@ while passIdx < opts.numPasses
     % χωρική συσχέτιση από επαναρχικοποίηση της γεννήτριας ανά βήμα.
     rng(opts.rngSeed + passIdx);
 
-    % -- Θέσεις χρηστών στην αρχή της διέλευσης --
-    % Ομοιόμορφα ως προς το εμβαδόν στην περιοχή όπου η απόσταση από τον
-    % πλησιέστερο σταθμό είναι μέσα στο [userRMinM, userRMaxM]. Ισχύει και για
-    % τη διέλευση αναφοράς, ώστε να μην αποτελεί ειδική περίπτωση στη στατιστική.
+    % -- Θέσεις και κατευθύνσεις χρηστών στην αρχή της διέλευσης --
+    % Θέση ομοιόμορφη ως προς το εμβαδόν μέσα στις κυψέλες· σταθερή ταχύτητα,
+    % τυχαία ομοιόμορφη κατεύθυνση (ITU-R M.2412-0 §8.4, ΠΙΝΑΚΑΣ 5 b)/c)).
+    % Δειγματοληπτούνται μαζί, ώστε η διαδρομή να μην περνά ποτέ σε λιγότερο
+    % από userRMinM από σταθμό. Ισχύει και για τη διέλευση αναφοράς, ώστε να
+    % μην αποτελεί ειδική περίπτωση.
     nU = randi(numUsersRange);
     user_geo = zeros(nU,3);
+    walkAzimuthDeg = zeros(nU,1);
     for u = 1:nU
-        [uLat, uLon] = randPeripheryUser(bsCenterGeo, bs_geo, wgs84, ...
-            bsClusterRadiusM + userRMaxM, userRMinM, userRMaxM);
+        [uLat, uLon, walkAzimuthDeg(u)] = randUserAndHeading(bsCenterGeo, bs_geo, ghost_geo, ...
+            reshape(bsImageGeo, [], 2), wgs84, bsClusterRadiusM + cellRadiusM, userRMinM, maxWalkM);
         user_geo(u,:) = [uLat, uLon, ueHeightM];
     end
     numUsers = size(user_geo,1);
-
-    % -- Κατεύθυνση κίνησης: σταθερή ταχύτητα, τυχαία ομοιόμορφη κατεύθυνση --
-    % ITU-R M.2412-0 §8.4, ΠΙΝΑΚΑΣ 5 b)/c).
-    walkAzimuthDeg = 360*rand(numUsers,1);
 
     % -- Γεωμετρία της συγκεκριμένης διέλευσης --
     if opts.geometryGrid
@@ -501,7 +574,8 @@ while passIdx < opts.numPasses
 
         % --- Έλεγχος κατάστασης χρηστών πριν τον υπολογισμό ζεύξης ---
         checksRun = checksRun + 1;
-        validateUserState(user_geo, bs_geo, wgs84, ueHeightM, d2dMinM, d2dMaxM, passIdx, s);
+        validateUserState(user_geo, bsImageGeo, wgs84, ueHeightM, d2dMinM, d2dMaxM, ...
+            userRMinM, passIdx, s);
 
         prevDecisionState = decisionState;
         [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
@@ -881,7 +955,7 @@ if ~isempty(fieldnames(refSnapshot))
         refSnapshot.nodePowerWattsVec, refSnapshot.energyPerBitUJVec);
     visual(bs_geo, refSnapshot.user_geo, refSnapshot.sat_geo, wgs84, numBs, ...
         size(refSnapshot.user_geo,1), refSnapshot.bestNodeTypeVec, refSnapshot.bestNodeVec, ...
-        [userRMinM userRMaxM]);
+        opts.bsIsdM);
     saveas(gcf, fullfile(opts.outputDir, 'network_3d.png'));
     close(gcf);
 end
@@ -988,7 +1062,9 @@ runParams.policyMetrics    = strjoin(policyMetrics, ', ');
 runParams.rngSeed          = opts.rngSeed;
 runParams.rngScheme        = 'rng(rngSeed+passIdx) στην αρχή κάθε διέλευσης';
 runParams.checksRun        = checksRun;
-runParams.userRadiusRange_m = [userRMinM userRMaxM];
+runParams.userArea         = 'ομοιόμορφα στις κυψέλες των σταθμών (TR 38.901 Πίν. 7.2-1)';
+runParams.userMinDistBs_m  = userRMinM;
+runParams.userMaxDistNearestBs_m = userRMaxM;
 runParams.maxWalkPerPass_m = maxWalkM;
 runParams.d2dRange_m       = [d2dMinM d2dMaxM];
 runParams.numUsersRange    = numUsersRange;
@@ -1264,7 +1340,7 @@ keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'numPasses','geometryGrid','datasetPath', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
         'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse', ...
-        'mlbMaxOffsetDb','handoverEventsPath'};
+        'mlbMaxOffsetDb','handoverEventsPath','wrapAround'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
@@ -1610,7 +1686,7 @@ T = table(numBuf(:,1), numBuf(:,2), numBuf(:,3), numBuf(:,4), numBuf(:,5), ...
     'CandSat_SINR_dB','CandSat_Elevation_deg','CandSat_SlantRange_m','CandSat_PathLoss_dB'});
 end
 
-function validateUserState(user_geo, bs_geo, wgs84, ueHeightM, d2dMin, d2dMax, passIdx, stepIdx)
+function validateUserState(user_geo, bsImageGeo, wgs84, ueHeightM, d2dMin, d2dMax, minDistBs, passIdx, stepIdx)
 % Ελέγχει ότι σε κάθε βήμα οι μεταβλητές των χρηστών είναι οι αναμενόμενες:
 % ύψος κεραίας αμετάβλητο, πεπερασμένες συντεταγμένες, και τουλάχιστον μία
 % επίγεια ζεύξη εντός του πεδίου ισχύος των UMa/UMi (TR 38.901 Πίν. 7.4.1-1).
@@ -1630,7 +1706,15 @@ end
 
 numUsers = size(user_geo,1);
 for u = 1:numUsers
-    d2d = distance(user_geo(u,1), user_geo(u,2), bs_geo(:,1), bs_geo(:,2), wgs84);
+    % Απόσταση από το πλησιέστερο αντίγραφο κάθε σταθμού, όπως στο κανάλι.
+    dImg = distance(user_geo(u,1), user_geo(u,2), ...
+        reshape(bsImageGeo(:,:,1), [], 1), reshape(bsImageGeo(:,:,2), [], 1), wgs84);
+    d2d = min(reshape(dImg, size(bsImageGeo,1), []), [], 2);
+    if min(d2d) < minDistBs - 1e-6
+        error('runSimulation:TooCloseToBs', ...
+            'Διέλευση %d, βήμα %d, χρήστης %d: %.2f m από σταθμό (< %g m).', ...
+            passIdx, stepIdx, u, min(d2d), minDistBs);
+    end
     if ~any(d2d >= d2dMin & d2d <= d2dMax)
         error('runSimulation:NoValidLink', ...
             ['Διέλευση %d, βήμα %d, χρήστης %d: καμία επίγεια ζεύξη εντός ' ...
@@ -1666,18 +1750,31 @@ if any(~isOut & ~isfinite(sinrVec))
 end
 end
 
-function [lat, lon] = randPeripheryUser(centerGeo, bs_geo, wgs84, rDiskM, rMinM, rMaxM)
-% Θέση χρήστη ομοιόμορφη ως προς το εμβαδόν, με απόσταση από τον πλησιέστερο
-% σταθμό μέσα στο [rMinM, rMaxM]. Δειγματοληψία με απόρριψη από δίσκο ακτίνας
-% rDiskM γύρω από το κέντρο του πλέγματος, που περιέχει όλη την επιτρεπτή
-% περιοχή: η ομοιόμορφη κατανομή στον δίσκο, περιορισμένη στην περιοχή,
-% είναι ομοιόμορφη στην περιοχή.
+function [lat, lon, walkAz] = randUserAndHeading(centerGeo, bs_geo, ghost_geo, img_geo, wgs84, rDiskM, dMinM, walkM)
+% Θέση χρήστη ομοιόμορφη ως προς το εμβαδόν μέσα στις κυψέλες των σταθμών, και
+% κατεύθυνση ομοιόμορφη. Δειγματοληψία με απόρριψη από δίσκο ακτίνας rDiskM
+% γύρω από το κέντρο του πλέγματος, που περιέχει όλες τις κυψέλες: το σημείο
+% γίνεται δεκτό αν ο πλησιέστερος σταθμός είναι πιο κοντά από τον πλησιέστερο
+% κόμβο του επόμενου (κενού) δακτυλίου ghost_geo. Απορρίπτεται επίσης κάθε
+% ζεύγος θέσης/κατεύθυνσης του οποίου η ευθεία διαδρομή μήκους walkM περνά σε
+% λιγότερο από dMinM από κάποιον σταθμό ή αντίγραφό του (img_geo, wrap-around). Ο έλεγχος γίνεται στο εφαπτόμενο
+% επίπεδο της αρχικής θέσης· για 750 m το σφάλμα από την καμπυλότητα είναι
+% κάτω από χιλιοστό.
 while true
     rM = rDiskM * sqrt(rand());
     az = 360 * rand();
     [lat, lon] = reckon(centerGeo(1), centerGeo(2), rM, az, wgs84);
-    dNear = min(distance(lat, lon, bs_geo(:,1), bs_geo(:,2), wgs84));
-    if dNear >= rMinM && dNear <= rMaxM
+    if min(distance(lat, lon, bs_geo(:,1), bs_geo(:,2), wgs84)) >= ...
+            min(distance(lat, lon, ghost_geo(:,1), ghost_geo(:,2), wgs84))
+        continue;
+    end
+    [dBs, azBs] = distance(lat, lon, img_geo(:,1), img_geo(:,2), wgs84);
+    walkAz = 360 * rand();
+    dir = [sind(walkAz) cosd(walkAz)];
+    bsXY = dBs .* [sind(azBs) cosd(azBs)];
+    along = min(max(bsXY * dir', 0), walkM);
+    dPath = hypot(bsXY(:,1) - along*dir(1), bsXY(:,2) - along*dir(2));
+    if min(dPath) >= dMinM
         return;
     end
 end

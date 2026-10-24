@@ -4,8 +4,8 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     % κλίμακα, όπου όμως το επίγειο δίκτυο (~1 km) χάνεται μέσα σε άξονες
     % χιλιάδων km· δεξιά η κάτοψη του εδάφους σε km, όπου φαίνονται οι θέσεις
     % των σταθμών, των χρηστών και οι επίγειες ζεύξεις.
-    % userRingM = [rMin rMax]: όρια απόστασης χρήστη από τον πλησιέστερο
-    % σταθμό, σχεδιάζονται στην κάτοψη (προαιρετικό).
+    % userRingM: απόσταση σταθμών (ISD)· με αυτήν σχεδιάζονται οι κυψέλες
+    % στην κάτοψη (προαιρετικό).
     if nargin < 9
         userRingM = [];
     end
@@ -89,7 +89,7 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     ylabel('North (meters)');
     zlabel('Altitude (meters) - Log Scale');
     title({'3D: real altitudes, logarithmic z-axis', ...
-        'the ground network (~1 km) collapses to a point at this scale'});
+        'the ground network (a few km) collapses to a point at this scale'});
 
     % Εφαρμογή Λογαριθμικής Κλίμακας MONO στον άξονα Z
     set(gca, 'ZScale', 'log');
@@ -110,20 +110,18 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     hold on; grid on; axis equal;
     km = 1e-3;
 
-    % Όρια τοποθέτησης χρηστών: ισοϋψείς της απόστασης από τον πλησιέστερο
-    % σταθμό (επίπεδη προσέγγιση, μόνο για την εικόνα)
-    if numel(userRingM) == 2
-        ext = userRingM(2) + 500;
-        [gx, gy] = meshgrid(linspace(-ext, ext, 400));
-        dNear = inf(size(gx));
+    % Κυψέλες των σταθμών: εξάγωνα ακτίνας ISD/sqrt(3) (κυψέλες Voronoi του
+    % πλέγματος), η περιοχή όπου ξεκινούν οι χρήστες. Οι γείτονες είναι σε
+    % ανατολή/δύση, άρα οι πλευρές είναι κάθετες και οι κορυφές σε 30°+60°k.
+    if isscalar(userRingM)
+        rHex = userRingM / sqrt(3) * km;
+        angHex = 30 + (0:6)' * 60;
         for b = 1:numBs
-            dNear = min(dNear, hypot(gx - xBS(b), gy - yBS(b)));
+            plot(xBS(b)*km + rHex*cosd(angHex), yBS(b)*km + rHex*sind(angHex), ...
+                '-', 'Color', [0.6 0.6 0.6], 'LineWidth', 0.8, 'HandleVisibility', 'off');
         end
-        contour(gx*km, gy*km, dNear, userRingM, 'k--', 'LineWidth', 1, ...
-            'HandleVisibility', 'off');
-        plot(nan, nan, 'k--', 'LineWidth', 1, ...
-            'DisplayName', sprintf('user area: %.0f m – %.2f km from nearest BS', ...
-            userRingM(1), userRingM(2)*km));
+        plot(nan, nan, '-', 'Color', [0.6 0.6 0.6], 'LineWidth', 0.8, ...
+            'DisplayName', sprintf('cells (ISD %.0f m), where users start', userRingM));
     end
 
     for u = 1:numUsers

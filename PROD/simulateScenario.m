@@ -286,6 +286,10 @@ lambdaSat    = physconst('LightSpeed') / satParameters.CarrierFrequency;
 noiseSatLinW = 10^(noisePowerSAT_dBW/10);
 
 %% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SINR) ------------------
+useWrapAround = isfield(simParameters, 'BsImageGeo') && ~isempty(simParameters.BsImageGeo);
+if useWrapAround
+    bsImageGeo = simParameters.BsImageGeo;
+end
 for u = 1:numUsers
     % Αρχικοποιήσεις
     userBestSinr      = -Inf;
@@ -305,12 +309,25 @@ for u = 1:numUsers
     end
 
     %% ===== Terrestrial BS candidates =====
+    % Wrap-around: με simParameters.BsImageGeo (numBs x K x 2, [lat lon] του
+    % σταθμού και των K-1 μετατοπισμένων αντιγράφων του) η απόσταση κάθε
+    % ζεύξης μετριέται από το πλησιέστερο αντίγραφο. Όλο το κανάλι (απώλειες,
+    % LOS, σκίαση, παρεμβολή) εξαρτάται από τον σταθμό μόνο μέσω αυτής.
+    if useWrapAround
+        dImg = distance(user_geo(u,1), user_geo(u,2), ...
+            reshape(bsImageGeo(:,:,1), [], 1), reshape(bsImageGeo(:,:,2), [], 1), wgs84);
+        wrappedDist = min(reshape(dImg, numBs, []), [], 2);
+    end
     for b = 1:numBs
         % Οριζόντια απόσταση (γεωδαιτική) και φυσικά ύψη κεραιών. Η γεωμετρία
         % για τη nrPathLoss κατασκευάζεται απευθείας από αυτά: η κατακόρυφη
         % συντεταγμένη ENU αποκλίνει από το ύψος κεραίας λόγω καμπυλότητας.
-        groundDistance = distance(bs_geo(b,1), bs_geo(b,2), ...
-                                  user_geo(u,1), user_geo(u,2), wgs84);
+        if useWrapAround
+            groundDistance = wrappedDist(b);
+        else
+            groundDistance = distance(bs_geo(b,1), bs_geo(b,2), ...
+                                      user_geo(u,1), user_geo(u,2), wgs84);
+        end
         hBs = bs_geo(b,3);
         hUt = user_geo(u,3);
         d3d = hypot(groundDistance, hBs - hUt);
