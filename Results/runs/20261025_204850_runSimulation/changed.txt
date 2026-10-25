@@ -1,0 +1,13 @@
+Σύγκριση vs 20261024_161658_runSimulation
+
+  ~ checksRun : 1802  ->  270300
+  ~ ciHalfWidthFinal : [0.33736193 0.061981113 0.40769885 0.036719283 0.071373851]  ->  [0.015019165 0.013129981 0.019622882 0.018449977 0.017740986]
+  ~ ciTargetFromPass : NaN  ->  293
+  ~ ciTargetMet : false  ->  true
+  ~ datasetBytes : 2470216  ->  3.7367388e+08
+  ~ datasetSha256 : d09670a3d2c6a702844985405f4b247a78646a42fc93c01934f9a10333e57f0c  ->  f5cf49941dae242e6af126da62a44ff0cbe2665f150bb01862742e6273b39843
+  ~ handoverEvents : 3093  ->  556886
+  ~ handoverEventsSha256 : 4104b49d780bc114690106f4b9471cbd9f9869f39245615a6a83361622eb35ad  ->  78232ca2522c077099c6b7aa330a96792d41b9f1f99e827a14852583c16aef32
+  ~ numPasses : 2  ->  300
+  ~ numRows : 7059  ->  1070977
+  ~ simulatedTime_s : 1800  ->  270000
