@@ -57,7 +57,7 @@ runSimulation(struct('hysteresisDb', 0, ...       % reproduce the no-hysteresis 
 runSimulation(struct('label', 'v2'))              % tag the versioned run folder
 ```
 
-A full run (300 passes) takes roughly 5–6 hours with the 19-BS / 3-satellite / 10–30-user scenario (about 66 s per pass, measured on a 2-pass test; the per-user distance to all station copies is computed in one vectorised call). A checkpoint is written after every pass, so an interrupted run resumes from where it stopped rather than from the start.
+**Run time.** Passes run in parallel (Parallel Computing Toolbox, option `numWorkers`, default 6; `0` runs them one after another). Each pass seeds its own generator (`rng(rngSeed + passIdx, 'twister')`) and resets channel and decision state, so it depends only on its index. Passes are computed in groups of `numWorkers`, then written to the dataset, the convergence curve and the checkpoint in pass order, so the output files are byte-identical to a serial run (checked on 2 and 12 passes: dataset, handover events and `simulation_results.mat`). Inside a pass, everything deterministic — distances to all station copies, path loss, LOS probability, sector gains, satellite geometry, SINR and L3 filtering — is computed for all users at once; only the random draws stay in the per-link loop, in the original order (user → site → satellite), which is what keeps results bit-identical. Measured on a 6-core laptop (i7-10750H): with 10–30 users a full run of 300 passes takes about half an hour; with 570 users (10 per TRxP) about 11 hours. A checkpoint is written after every pass, so an interrupted run resumes from where it stopped rather than from the start.
 
 ### How the simulated time is structured
 

@@ -83,7 +83,8 @@ def = struct( ...
     'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
     'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
     'wrapAround',    true, ...   % wrap-around του πλέγματος (6 αντίγραφα), όπως στη βαθμονόμηση TR 38.901
-    'bsSectors',     3, ...      % τομείς ανά site: 3 (TR 38.901 Πίν. 7.8-1, ITU-R M.2412-0 §8.3) ή 1 (ομοκατευθυντικό, σταθερό κέρδος)
+    'bsSectors',     3, ...
+    'numWorkers',    6, ...      % διελεύσεις παράλληλα (Parallel Computing Toolbox)· 0 = σειριακά      % τομείς ανά site: 3 (TR 38.901 Πίν. 7.8-1, ITU-R M.2412-0 §8.3) ή 1 (ομοκατευθυντικό, σταθερό κέρδος)
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -532,254 +533,141 @@ if ~isempty(resumeState)
     end
 end
 
+%% ------------------ Παράλληλη εκτέλεση διελεύσεων ------------------
+% Οι διελεύσεις είναι ανεξάρτητες (δικός τους σπόρος, κανάλι και απόφαση
+% μηδενίζονται στην αρχή καθεμιάς), οπότε τρέχουν σε ομάδες των numWorkers
+% με parfor. Η εγγραφή στο αρχείο, η καμπύλη σύγκλισης και το σημείο ελέγχου
+% γίνονται μετά, με τη σειρά των διελεύσεων: τα αρχεία βγαίνουν ίδια με τη
+% σειριακή εκτέλεση. numWorkers = 0 -> σειριακά.
+if ~opts.geometryGrid
+    raanOffsetFrac = [];
+end
+passCtx = struct();
+passCtx.a                = a;
+passCtx.bsCenterGeo      = bsCenterGeo;
+passCtx.bsClusterRadiusM = bsClusterRadiusM;
+passCtx.bsImageGeo       = bsImageGeo;
+passCtx.bs_geo           = bs_geo;
+passCtx.cLight           = cLight;
+passCtx.cellRadiusM      = cellRadiusM;
+passCtx.cell_geo         = cell_geo;
+passCtx.d2dMaxM          = d2dMaxM;
+passCtx.d2dMinM          = d2dMinM;
+passCtx.ghost_geo        = ghost_geo;
+passCtx.hoHistW          = hoHistW;
+passCtx.hoLogPolicies    = hoLogPolicies;
+passCtx.inclDeg          = inclDeg;
+passCtx.maxWalkM         = maxWalkM;
+passCtx.meanMotion       = meanMotion;
+passCtx.numCells         = numCells;
+passCtx.numKpi           = numKpi;
+passCtx.numPolicy        = numPolicy;
+passCtx.numPolicyMetric  = numPolicyMetric;
+passCtx.numUsersRange    = numUsersRange;
+passCtx.omegaEarth       = omegaEarth;
+passCtx.opts             = opts;
+passCtx.policyMetrics    = policyMetrics;
+passCtx.policyNames      = policyNames;
+passCtx.raanBase         = raanBase;
+passCtx.raanOffsetFrac   = raanOffsetFrac;
+passCtx.raanSpanRad      = raanSpanRad;
+passCtx.satParameters    = satParameters;
+passCtx.satUOffsetRad    = satUOffsetRad;
+passCtx.simParameters    = simParameters;
+passCtx.tPeakS           = tPeakS;
+passCtx.uPeakRad         = uPeakRad;
+passCtx.ueHeightM        = ueHeightM;
+passCtx.ueSpeedMps       = ueSpeedMps;
+passCtx.userRMinM        = userRMinM;
+passCtx.wgs84            = wgs84;
+numWorkers = 0;
+if opts.numWorkers > 0 && ~isempty(ver('parallel')) && license('test', 'Distrib_Computing_Toolbox')
+    pool = gcp('nocreate');
+    if isempty(pool)
+        pool = parpool('local', opts.numWorkers);
+    end
+    numWorkers = pool.NumWorkers;
+end
+fprintf('  Εκτέλεση διελεύσεων: %s\n\n', ternary(numWorkers > 0, ...
+    sprintf('παράλληλα, %d workers', numWorkers), 'σειριακά'));
+
 while passIdx < opts.numPasses
-    passIdx = passIdx + 1;
-
-    % Ένας σπόρος ανά διέλευση: η τυχαιότητα μέσα στη διέλευση (τοπολογία,
-    % κατευθύνσεις, κανάλι) εξελίσσεται συνεχόμενα, ώστε να μη σπάει η
-    % χωρική συσχέτιση από επαναρχικοποίηση της γεννήτριας ανά βήμα.
-    rng(opts.rngSeed + passIdx);
-
-    % -- Θέσεις και κατευθύνσεις χρηστών στην αρχή της διέλευσης --
-    % Θέση ομοιόμορφη ως προς το εμβαδόν μέσα στις κυψέλες· σταθερή ταχύτητα,
-    % τυχαία ομοιόμορφη κατεύθυνση (ITU-R M.2412-0 §8.4, ΠΙΝΑΚΑΣ 5 b)/c)).
-    % Δειγματοληπτούνται μαζί, ώστε η διαδρομή να μην περνά ποτέ σε λιγότερο
-    % από userRMinM από σταθμό. Ισχύει και για τη διέλευση αναφοράς, ώστε να
-    % μην αποτελεί ειδική περίπτωση.
-    nU = randi(numUsersRange);
-    user_geo = zeros(nU,3);
-    walkAzimuthDeg = zeros(nU,1);
-    for u = 1:nU
-        [uLat, uLon, walkAzimuthDeg(u)] = randUserAndHeading(bsCenterGeo, bs_geo, ghost_geo, ...
-            reshape(bsImageGeo, [], 2), wgs84, bsClusterRadiusM + cellRadiusM, userRMinM, maxWalkM);
-        user_geo(u,:) = [uLat, uLon, ueHeightM];
-    end
-    numUsers = size(user_geo,1);
-
-    % -- Γεωμετρία της συγκεκριμένης διέλευσης --
-    if opts.geometryGrid
-        raanRad = raanBase + raanOffsetFrac(passIdx)*raanSpanRad;
+    batch = passIdx+1 : min(passIdx + max(numWorkers,1), opts.numPasses);
+    res = cell(numel(batch), 1);
+    if numWorkers > 0
+        parfor jB = 1:numel(batch)
+            res{jB} = runOnePass(batch(jB), passCtx);
+        end
     else
-        raanRad = raanBase + (2*rand()-1)*raanSpanRad;
-    end
-    tStart  = tPeakS - opts.passWindowS/2;
-    numSteps = floor(opts.passWindowS/opts.dtSeconds) + 1;
-
-    % Προδέσμευση σε απλούς πίνακες αντί για συσσώρευση αντικειμένων table:
-    % ένα table ανά βήμα σήμαινε ~900 αντικείμενα ανά διέλευση και εξαντλούσε
-    % τη μνήμη σε μεγάλες εκτελέσεις. Ο πίνακας φτιάχνεται μία φορά, στο τέλος.
-    nRowsPass = numSteps * numUsers;
-    numBuf = zeros(nRowsPass, 25);
-    strBuf = strings(nRowsPass, 6);
-    rowPtr = 0;
-
-    prevServingNode = strings(numUsers,1);
-    channelState = [];   % πρώτο βήμα της διέλευσης: ανεξάρτητο δείγμα
-    decisionState = [];  % καμία προϊστορία απόφασης στην αρχή της διέλευσης
-    stepBitPerJouleRf = nan(numSteps,1);
-    policyStepBuf = nan(numSteps, numPolicy, numPolicyMetric);
-
-    % Ιστορικό μετρήσεων και ακολουθία εξυπηρετούντων ανά πολιτική, για την
-    % καταγραφή των handovers. Κυκλικός buffer hoHistW βημάτων.
-    hoHist = struct('Bs', nan(hoHistW, numUsers, numCells), ...
-        'Sat', nan(hoHistW, numUsers, opts.numSats), ...
-        'Elev', nan(hoHistW, numUsers, opts.numSats), 'Dist', nan(numUsers, numCells));
-    hoNodeSeq = struct();
-    for pL = hoLogPolicies
-        hoNodeSeq.(pL{1}) = strings(numSteps, numUsers);
-    end
-    hoPassNum = zeros(0, numel(handoverEventNumNames()));
-    hoPassStr = strings(0, 5);
-
-    for s = 1:numSteps
-        t = tStart + (s-1)*opts.dtSeconds;
-        sat_geo = zeros(opts.numSats,3);
-        for k = 1:opts.numSats
-            sat_geo(k,:) = orbitPositionLla(uPeakRad + meanMotion*(t - tPeakS) + ...
-                satUOffsetRad(k), inclDeg, raanRad, a, omegaEarth, t);
-        end
-
-        % --- Έλεγχος κατάστασης χρηστών πριν τον υπολογισμό ζεύξης ---
-        checksRun = checksRun + 1;
-        validateUserState(user_geo, bsImageGeo, wgs84, ueHeightM, d2dMinM, d2dMaxM, ...
-            userRMinM, passIdx, s);
-
-        prevDecisionState = decisionState;
-        [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
-            bestSinrDbVec, capacityMbpsVec, bestElevationDegVec, ...
-            nodePowerWattsVec, energyPerBitUJVec, ...
-            bestBsSinrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
-            satSlantRangeVec, satElevationVec, satPathLossVec, satSinrDbVec, ...
-            channelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
-            bsReasonVec, satReasonVec, policyKpis, decisionState] = ...
-            simulateScenario(cell_geo, user_geo, sat_geo, wgs84, simParameters, ...
-                             satParameters, channelState, prevDecisionState);
-
-        % --- Καταγραφή handovers του βήματος ---
-        slot = mod(s-1, hoHistW) + 1;
-        hoHist.Bs(slot,:,:)   = channelState.FiltSinrBs_dB;
-        hoHist.Sat(slot,:,:)  = channelState.FiltSinrSat_dB;
-        hoHist.Elev(slot,:,:) = channelState.SatElev_deg;
-        hoHist.Dist           = channelState.BsDist_m;
-        for pL = hoLogPolicies
-            hoNodeSeq.(pL{1})(s,:) = decisionState.(pL{1}).Node';
-        end
-        if ~isempty(prevDecisionState)
-            [evNum, evStr] = logHandoverEvents(hoLogPolicies, prevDecisionState, ...
-                decisionState, hoHist, hoHistW, s, opts.dtSeconds, passIdx, numUsers);
-            hoPassNum = [hoPassNum; evNum]; %#ok<AGROW>
-            hoPassStr = [hoPassStr; evStr]; %#ok<AGROW>
-        end
-
-        % --- Δείκτες των τριών πολιτικών για το βήμα αυτό ---
-        for pI = 1:numPolicy
-            ps = policyKpis.(policyNames{pI});
-            for mI = 1:numPolicyMetric
-                policyStepBuf(s, pI, mI) = ps.(policyMetrics{mI});
-            end
-        end
-
-        % --- Φορτίο κόμβου ---
-        nodeLoadVec = zeros(numUsers,1);
-        for u = 1:numUsers
-            if bestNodeTypeVec(u) == "Outage"
-                nodeLoadVec(u) = 0;
-            else
-                nodeLoadVec(u) = sum(bestNodeVec == bestNodeVec(u));
-            end
-        end
-
-        % --- Έλεγχος συνέπειας εξόδων ---
-        validateOutputs(bestNodeTypeVec, capacityMbpsVec, throughputMbpsVec, ...
-            nodeLoadVec, bestSinrDbVec, passIdx, s);
-
-        % --- Κατάσταση ζεύξης και κόστος διακοπής (TR 38.821 §7.3.2.1.1) ---
-        linkStateVec      = repmat("Stable", numUsers, 1);
-        interruptionMsVec = zeros(numUsers,1);
-        for u = 1:numUsers
-            curr = bestNodeVec(u);
-            prev = prevServingNode(u);
-            if curr == "None"
-                linkStateVec(u) = "Outage";
-            elseif prev ~= "" && prev ~= "None" && curr ~= prev
-                linkStateVec(u) = "InTransition";
-                interruptionMsVec(u) = 2 * (2*bestDistanceVec(u)/cLight) * 1e3;
-            end
-        end
-        prevServingNode = bestNodeVec;
-
-        lostFraction = min(interruptionMsVec/1e3/opts.dtSeconds, 1);
-        deliveredMbpsVec = throughputMbpsVec .* (1 - lostFraction);
-
-        stepBitPerJouleRf(s) = networkEnergy.BitPerJouleRf;
-
-        idx = rowPtr + (1:numUsers);
-        numBuf(idx,:) = [ ...
-            repmat(passIdx,numUsers,1), repmat(s,numUsers,1), repmat(t-tStart,numUsers,1), ...
-            (1:numUsers)', repmat(numUsers,numUsers,1), ...
-            user_geo(:,1), user_geo(:,2), walkAzimuthDeg, ...
-            bestDistanceVec, bestPathLossVec, bestSinrDbVec, capacityMbpsVec, ...
-            bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec, nodeLoadVec, ...
-            deliveredMbpsVec, interruptionMsVec, ...
-            bestBsSinrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
-            satSinrDbVec, satElevationVec, satSlantRangeVec, satPathLossVec];
-        strBuf(idx,:) = [bestNodeVec, bestNodeTypeVec, serviceStateVec, ...
-            bsReasonVec, satReasonVec, linkStateVec];
-        rowPtr = rowPtr + numUsers;
-
-        % --- Στιγμιότυπο μέγιστης προσέγγισης της διέλευσης αναφοράς ---
-        if passIdx == 1 && abs(t - tPeakS) <= opts.dtSeconds/2
-            refSnapshot = struct('user_geo',user_geo,'sat_geo',sat_geo, ...
-                'bestNodeVec',bestNodeVec,'bestNodeTypeVec',bestNodeTypeVec, ...
-                'bestDistanceVec',bestDistanceVec,'bestPathLossVec',bestPathLossVec, ...
-                'bestSinrDbVec',bestSinrDbVec,'capacityMbpsVec',capacityMbpsVec, ...
-                'bestElevationDegVec',bestElevationDegVec, ...
-                'nodePowerWattsVec',nodePowerWattsVec,'energyPerBitUJVec',energyPerBitUJVec);
-        end
-
-        % --- Κίνηση χρηστών προς το επόμενο βήμα ---
-        if s < numSteps
-            stepM = ueSpeedMps * opts.dtSeconds;
-            [newLat, newLon] = reckon(user_geo(:,1), user_geo(:,2), ...
-                repmat(stepM,numUsers,1), walkAzimuthDeg, wgs84);
-            user_geo(:,1) = newLat;
-            user_geo(:,2) = newLon;
-            % Το ύψος δεν μεταβάλλεται ποτέ: παραμένει το φυσικό ύψος κεραίας.
-            user_geo(:,3) = ueHeightM;
+        for jB = 1:numel(batch)
+            res{jB} = runOnePass(batch(jB), passCtx);
         end
     end
 
-    % -- Δείκτες της διέλευσης: υπολογίζονται σε ΠΛΗΡΗ ανάλυση 1 s --
-    % (η υποδειγματοληψία αφορά μόνο το τι γράφεται στο αρχείο)
-    servedFull = strBuf(:,2) ~= "Outage";
-    passKpi(passIdx,1) = mean(numBuf(servedFull,12), 'omitnan');   % Capacity_Mbps
-    passKpi(passIdx,2) = mean(numBuf(servedFull,11), 'omitnan');   % SINR_dB
-    passKpi(passIdx,3) = mean(strBuf(:,3) == "Served");
-    passKpi(passIdx,4) = mean(strBuf(:,2) == "Satellite");
-    passKpi(passIdx,5) = mean(stepBitPerJouleRf, 'omitnan');
-
-    % Οι δείκτες κάθε πολιτικής συναθροίζονται πρώτα μέσα στη διέλευση και
-    % μετά η διέλευση μπαίνει ως ΜΙΑ παρατήρηση στη στατιστική: τα βήματα της
-    % ίδιας διέλευσης δεν είναι ανεξάρτητα μεταξύ τους.
-    policyPassKpi(passIdx,:,:) = mean(policyStepBuf, 1, 'omitnan');
-
-    % -- Handovers της διέλευσης: τι ακολούθησε το καθένα --
-    hoEventCells{passIdx} = finishHandoverEvents(hoPassNum, hoPassStr, ...
-        hoNodeSeq, opts.dtSeconds);
-
-    % -- Εγγραφή: κρατούνται τα βήματα 1, 1+stride, ... --
-    keep = mod(numBuf(:,2) - 1, opts.datasetStride) == 0;
-    passTable = buildPassTable(numBuf(keep,:), strBuf(keep,:));
-    if passIdx == 1
-        writetable(passTable, opts.datasetPath);
-        % Η διέλευση αναφοράς κρατείται και σε πλήρη ανάλυση, για τις
-        % χρονοσειρές: εκεί χρειάζεται κάθε βήμα, όχι δείγμα. Ταξιδεύει μέσα
-        % στο σημείο ελέγχου, ώστε να επιβιώνει μιας διακοπής.
-        refPassTable = buildPassTable(numBuf, strBuf);
-    else
-        writetable(passTable, opts.datasetPath, 'WriteMode', 'append');
-    end
-    totalRows = totalRows + height(passTable);
-    clear numBuf strBuf passTable;
-
-    % -- Ακρίβεια: 95% CI του μέσου όρου πάνω στις διελεύσεις ως τώρα --
-    % Καταγράφεται σε κάθε διέλευση για την καμπύλη σύγκλισης· δεν σταματά
-    % την εκτέλεση.
-    relHw = nan(1,numKpi);
-    for k = 1:numKpi
-        x = passKpi(1:passIdx,k);
-        x = x(isfinite(x));
-        if numel(x) < 2
-            relHw(k) = Inf;
-            continue;
+    for jB = 1:numel(batch)
+        passIdx = batch(jB);
+        R = res{jB};
+        res{jB} = [];
+        passKpi(passIdx,:)          = R.passKpi;
+        policyPassKpi(passIdx,:,:)  = R.policyPassKpi;
+        hoEventCells{passIdx}       = R.hoEvents;
+        checksRun                   = checksRun + R.checks;
+        if passIdx == 1
+            refSnapshot = R.refSnapshot;
         end
-        hw = 1.96 * std(x) / sqrt(numel(x));
-        if kpiIsFraction(k)
-            relHw(k) = hw;                       % απόλυτο ημιεύρος για ποσοστά
+
+        % -- Εγγραφή --
+        passTable = R.passTable;
+        if passIdx == 1
+            writetable(passTable, opts.datasetPath);
+            % Η διέλευση αναφοράς σε πλήρη ανάλυση ταξιδεύει μέσα στο σημείο
+            % ελέγχου, ώστε να επιβιώνει μιας διακοπής.
+            refPassTable = R.refPassTable;
         else
-            relHw(k) = hw / max(abs(mean(x)), eps);
+            writetable(passTable, opts.datasetPath, 'WriteMode', 'append');
         end
+        totalRows = totalRows + height(passTable);
+        clear passTable R;
+
+        % -- Ακρίβεια: 95% CI του μέσου όρου πάνω στις διελεύσεις ως τώρα --
+        % Καταγράφεται σε κάθε διέλευση για την καμπύλη σύγκλισης· δεν σταματά
+        % την εκτέλεση.
+        relHw = nan(1,numKpi);
+        for k = 1:numKpi
+            x = passKpi(1:passIdx,k);
+            x = x(isfinite(x));
+            if numel(x) < 2
+                relHw(k) = Inf;
+                continue;
+            end
+            hw = 1.96 * std(x) / sqrt(numel(x));
+            if kpiIsFraction(k)
+                relHw(k) = hw;                       % απόλυτο ημιεύρος για ποσοστά
+            else
+                relHw(k) = hw / max(abs(mean(x)), eps);
+            end
+        end
+
+        convRows{passIdx} = [passIdx, totalRows, mean(passKpi(1:passIdx,:),1,'omitnan'), relHw];
+
+        if mod(passIdx,10) == 0 || passIdx <= 3 || passIdx == opts.numPasses
+            fprintf('  Διέλευση %3d/%d | γραμμές %8d | χωρητ. %6.2f Mbps | served %5.1f%% | sat %5.1f%% | max rel.CI %.4f | μνήμη %5.2f GB\n', ...
+                passIdx, opts.numPasses, totalRows, mean(passKpi(1:passIdx,1),'omitnan'), ...
+                100*mean(passKpi(1:passIdx,3),'omitnan'), ...
+                100*mean(passKpi(1:passIdx,4),'omitnan'), max(relHw(kpiHasTarget)), ...
+                matlabMemoryGb());
+        end
+
+        % Σημείο ελέγχου μετά από κάθε διέλευση: λίγα KB, ώστε μια διακοπή να
+        % κοστίζει το πολύ μία διέλευση αντί για ολόκληρη την εκτέλεση.
+        ckpt = struct('passIdx', passIdx, 'passKpi', passKpi(1:passIdx,:), ...
+            'policyPassKpi', policyPassKpi(1:passIdx,:,:), ...
+            'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
+            'checksRun', checksRun, 'refSnapshot', refSnapshot, ...
+            'refPassTable', refPassTable, 'hoEventCells', {hoEventCells(1:passIdx)}, ...
+            'opts', opts);
+        save(checkpointPath, 'ckpt');
     end
-
-    convRows{passIdx} = [passIdx, totalRows, mean(passKpi(1:passIdx,:),1,'omitnan'), relHw];
-
-    if mod(passIdx,10) == 0 || passIdx <= 3 || passIdx == opts.numPasses
-        fprintf('  Διέλευση %3d/%d | γραμμές %8d | χωρητ. %6.2f Mbps | served %5.1f%% | sat %5.1f%% | max rel.CI %.4f | μνήμη %5.2f GB\n', ...
-            passIdx, opts.numPasses, totalRows, mean(passKpi(1:passIdx,1),'omitnan'), ...
-            100*mean(passKpi(1:passIdx,3),'omitnan'), ...
-            100*mean(passKpi(1:passIdx,4),'omitnan'), max(relHw(kpiHasTarget)), ...
-            matlabMemoryGb());
-    end
-
-    % Σημείο ελέγχου μετά από κάθε διέλευση: λίγα KB, ώστε μια διακοπή να
-    % κοστίζει το πολύ μία διέλευση αντί για ολόκληρη την εκτέλεση.
-    ckpt = struct('passIdx', passIdx, 'passKpi', passKpi(1:passIdx,:), ...
-        'policyPassKpi', policyPassKpi(1:passIdx,:,:), ...
-        'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
-        'checksRun', checksRun, 'refSnapshot', refSnapshot, ...
-        'refPassTable', refPassTable, 'hoEventCells', {hoEventCells(1:passIdx)}, ...
-        'opts', opts);
-    save(checkpointPath, 'ckpt');
 end
 
 numPasses = passIdx;
@@ -1086,7 +974,8 @@ runParams.measPeriod_ms    = opts.measPeriodMs;
 runParams.policies         = strjoin(policyNames, ', ');
 runParams.policyMetrics    = strjoin(policyMetrics, ', ');
 runParams.rngSeed          = opts.rngSeed;
-runParams.rngScheme        = 'rng(rngSeed+passIdx) στην αρχή κάθε διέλευσης';
+runParams.rngScheme        = 'rng(rngSeed+passIdx, twister) στην αρχή κάθε διέλευσης· διελεύσεις παράλληλα σε ομάδες, εγγραφή με τη σειρά';
+runParams.numWorkers       = numWorkers;
 runParams.checksRun        = checksRun;
 runParams.userArea         = 'ομοιόμορφα στις κυψέλες των σταθμών (TR 38.901 Πίν. 7.2-1)';
 runParams.userMinDistBs_m  = userRMinM;
@@ -1705,6 +1594,256 @@ grid on;
 legend(seriesLabels, 'Location', 'southoutside', 'Orientation', 'horizontal');
 end
 
+function R = runOnePass(passIdx, C)
+% Μία διέλευση, από την αρχικοποίηση της γεννήτριας ως τα handovers και τις
+% γραμμές του αρχείου. Εξαρτάται μόνο από το passIdx και το σταθερό πλαίσιο C
+% (rng(rngSeed + passIdx) στην αρχή), οπότε δίνει τα ίδια ακριβώς αποτελέσματα
+% είτε τρέχει σειριακά είτε σε worker, και με οποιαδήποτε σειρά.
+a                = C.a;
+bsCenterGeo      = C.bsCenterGeo;
+bsClusterRadiusM = C.bsClusterRadiusM;
+bsImageGeo       = C.bsImageGeo;
+bs_geo           = C.bs_geo;
+cLight           = C.cLight;
+cellRadiusM      = C.cellRadiusM;
+cell_geo         = C.cell_geo;
+d2dMaxM          = C.d2dMaxM;
+d2dMinM          = C.d2dMinM;
+ghost_geo        = C.ghost_geo;
+hoHistW          = C.hoHistW;
+hoLogPolicies    = C.hoLogPolicies;
+inclDeg          = C.inclDeg;
+maxWalkM         = C.maxWalkM;
+meanMotion       = C.meanMotion;
+numCells         = C.numCells;
+numKpi           = C.numKpi;
+numPolicy        = C.numPolicy;
+numPolicyMetric  = C.numPolicyMetric;
+numUsersRange    = C.numUsersRange;
+omegaEarth       = C.omegaEarth;
+opts             = C.opts;
+policyMetrics    = C.policyMetrics;
+policyNames      = C.policyNames;
+raanBase         = C.raanBase;
+raanOffsetFrac   = C.raanOffsetFrac;
+raanSpanRad      = C.raanSpanRad;
+satParameters    = C.satParameters;
+satUOffsetRad    = C.satUOffsetRad;
+simParameters    = C.simParameters;
+tPeakS           = C.tPeakS;
+uPeakRad         = C.uPeakRad;
+ueHeightM        = C.ueHeightM;
+ueSpeedMps       = C.ueSpeedMps;
+userRMinM        = C.userRMinM;
+wgs84            = C.wgs84;
+checksRun   = 0;
+refSnapshot = struct();
+passKpi     = nan(1, numKpi);
+
+% Ένας σπόρος ανά διέλευση: η τυχαιότητα μέσα στη διέλευση (τοπολογία,
+% κατευθύνσεις, κανάλι) εξελίσσεται συνεχόμενα, ώστε να μη σπάει η
+% χωρική συσχέτιση από επαναρχικοποίηση της γεννήτριας ανά βήμα.
+rng(opts.rngSeed + passIdx, 'twister');   % ρητά: οι workers έχουν άλλη προεπιλογή
+
+% -- Θέσεις και κατευθύνσεις χρηστών στην αρχή της διέλευσης --
+% Θέση ομοιόμορφη ως προς το εμβαδόν μέσα στις κυψέλες· σταθερή ταχύτητα,
+% τυχαία ομοιόμορφη κατεύθυνση (ITU-R M.2412-0 §8.4, ΠΙΝΑΚΑΣ 5 b)/c)).
+% Δειγματοληπτούνται μαζί, ώστε η διαδρομή να μην περνά ποτέ σε λιγότερο
+% από userRMinM από σταθμό. Ισχύει και για τη διέλευση αναφοράς, ώστε να
+% μην αποτελεί ειδική περίπτωση.
+nU = randi(numUsersRange);
+user_geo = zeros(nU,3);
+walkAzimuthDeg = zeros(nU,1);
+for u = 1:nU
+    [uLat, uLon, walkAzimuthDeg(u)] = randUserAndHeading(bsCenterGeo, bs_geo, ghost_geo, ...
+        reshape(bsImageGeo, [], 2), wgs84, bsClusterRadiusM + cellRadiusM, userRMinM, maxWalkM);
+    user_geo(u,:) = [uLat, uLon, ueHeightM];
+end
+numUsers = size(user_geo,1);
+
+% -- Γεωμετρία της συγκεκριμένης διέλευσης --
+if opts.geometryGrid
+    raanRad = raanBase + raanOffsetFrac(passIdx)*raanSpanRad;
+else
+    raanRad = raanBase + (2*rand()-1)*raanSpanRad;
+end
+tStart  = tPeakS - opts.passWindowS/2;
+numSteps = floor(opts.passWindowS/opts.dtSeconds) + 1;
+
+% Προδέσμευση σε απλούς πίνακες αντί για συσσώρευση αντικειμένων table:
+% ένα table ανά βήμα σήμαινε ~900 αντικείμενα ανά διέλευση και εξαντλούσε
+% τη μνήμη σε μεγάλες εκτελέσεις. Ο πίνακας φτιάχνεται μία φορά, στο τέλος.
+nRowsPass = numSteps * numUsers;
+numBuf = zeros(nRowsPass, 25);
+strBuf = strings(nRowsPass, 6);
+rowPtr = 0;
+
+prevServingNode = strings(numUsers,1);
+channelState = [];   % πρώτο βήμα της διέλευσης: ανεξάρτητο δείγμα
+decisionState = [];  % καμία προϊστορία απόφασης στην αρχή της διέλευσης
+stepBitPerJouleRf = nan(numSteps,1);
+policyStepBuf = nan(numSteps, numPolicy, numPolicyMetric);
+
+% Ιστορικό μετρήσεων και ακολουθία εξυπηρετούντων ανά πολιτική, για την
+% καταγραφή των handovers. Κυκλικός buffer hoHistW βημάτων.
+hoHist = struct('Bs', nan(hoHistW, numUsers, numCells), ...
+    'Sat', nan(hoHistW, numUsers, opts.numSats), ...
+    'Elev', nan(hoHistW, numUsers, opts.numSats), 'Dist', nan(numUsers, numCells));
+hoNodeSeq = struct();
+for pL = hoLogPolicies
+    hoNodeSeq.(pL{1}) = strings(numSteps, numUsers);
+end
+hoPassNum = zeros(0, numel(handoverEventNumNames()));
+hoPassStr = strings(0, 5);
+
+for s = 1:numSteps
+    t = tStart + (s-1)*opts.dtSeconds;
+    sat_geo = zeros(opts.numSats,3);
+    for k = 1:opts.numSats
+        sat_geo(k,:) = orbitPositionLla(uPeakRad + meanMotion*(t - tPeakS) + ...
+            satUOffsetRad(k), inclDeg, raanRad, a, omegaEarth, t);
+    end
+
+    % --- Έλεγχος κατάστασης χρηστών πριν τον υπολογισμό ζεύξης ---
+    checksRun = checksRun + 1;
+    validateUserState(user_geo, bsImageGeo, wgs84, ueHeightM, d2dMinM, d2dMaxM, ...
+        userRMinM, passIdx, s);
+
+    prevDecisionState = decisionState;
+    [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
+        bestSinrDbVec, capacityMbpsVec, bestElevationDegVec, ...
+        nodePowerWattsVec, energyPerBitUJVec, ...
+        bestBsSinrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
+        satSlantRangeVec, satElevationVec, satPathLossVec, satSinrDbVec, ...
+        channelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
+        bsReasonVec, satReasonVec, policyKpis, decisionState] = ...
+        simulateScenario(cell_geo, user_geo, sat_geo, wgs84, simParameters, ...
+                         satParameters, channelState, prevDecisionState);
+
+    % --- Καταγραφή handovers του βήματος ---
+    slot = mod(s-1, hoHistW) + 1;
+    hoHist.Bs(slot,:,:)   = channelState.FiltSinrBs_dB;
+    hoHist.Sat(slot,:,:)  = channelState.FiltSinrSat_dB;
+    hoHist.Elev(slot,:,:) = channelState.SatElev_deg;
+    hoHist.Dist           = channelState.BsDist_m;
+    for pL = hoLogPolicies
+        hoNodeSeq.(pL{1})(s,:) = decisionState.(pL{1}).Node';
+    end
+    if ~isempty(prevDecisionState)
+        [evNum, evStr] = logHandoverEvents(hoLogPolicies, prevDecisionState, ...
+            decisionState, hoHist, hoHistW, s, opts.dtSeconds, passIdx, numUsers);
+        hoPassNum = [hoPassNum; evNum]; %#ok<AGROW>
+        hoPassStr = [hoPassStr; evStr]; %#ok<AGROW>
+    end
+
+    % --- Δείκτες των τριών πολιτικών για το βήμα αυτό ---
+    for pI = 1:numPolicy
+        ps = policyKpis.(policyNames{pI});
+        for mI = 1:numPolicyMetric
+            policyStepBuf(s, pI, mI) = ps.(policyMetrics{mI});
+        end
+    end
+
+    % --- Φορτίο κόμβου ---
+    [~, ~, nodeGrp] = unique(bestNodeVec);
+    nodeCount   = accumarray(nodeGrp(:), 1);
+    nodeLoadVec = nodeCount(nodeGrp(:));
+    nodeLoadVec(bestNodeTypeVec == "Outage") = 0;
+
+    % --- Έλεγχος συνέπειας εξόδων ---
+    validateOutputs(bestNodeTypeVec, capacityMbpsVec, throughputMbpsVec, ...
+        nodeLoadVec, bestSinrDbVec, passIdx, s);
+
+    % --- Κατάσταση ζεύξης και κόστος διακοπής (TR 38.821 §7.3.2.1.1) ---
+    linkStateVec      = repmat("Stable", numUsers, 1);
+    interruptionMsVec = zeros(numUsers,1);
+    for u = 1:numUsers
+        curr = bestNodeVec(u);
+        prev = prevServingNode(u);
+        if curr == "None"
+            linkStateVec(u) = "Outage";
+        elseif prev ~= "" && prev ~= "None" && curr ~= prev
+            linkStateVec(u) = "InTransition";
+            interruptionMsVec(u) = 2 * (2*bestDistanceVec(u)/cLight) * 1e3;
+        end
+    end
+    prevServingNode = bestNodeVec;
+
+    lostFraction = min(interruptionMsVec/1e3/opts.dtSeconds, 1);
+    deliveredMbpsVec = throughputMbpsVec .* (1 - lostFraction);
+
+    stepBitPerJouleRf(s) = networkEnergy.BitPerJouleRf;
+
+    idx = rowPtr + (1:numUsers);
+    numBuf(idx,:) = [ ...
+        repmat(passIdx,numUsers,1), repmat(s,numUsers,1), repmat(t-tStart,numUsers,1), ...
+        (1:numUsers)', repmat(numUsers,numUsers,1), ...
+        user_geo(:,1), user_geo(:,2), walkAzimuthDeg, ...
+        bestDistanceVec, bestPathLossVec, bestSinrDbVec, capacityMbpsVec, ...
+        bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec, nodeLoadVec, ...
+        deliveredMbpsVec, interruptionMsVec, ...
+        bestBsSinrDbVec, bestBsDistanceVec, bestBsPathLossVec, ...
+        satSinrDbVec, satElevationVec, satSlantRangeVec, satPathLossVec];
+    strBuf(idx,:) = [bestNodeVec, bestNodeTypeVec, serviceStateVec, ...
+        bsReasonVec, satReasonVec, linkStateVec];
+    rowPtr = rowPtr + numUsers;
+
+    % --- Στιγμιότυπο μέγιστης προσέγγισης της διέλευσης αναφοράς ---
+    if passIdx == 1 && abs(t - tPeakS) <= opts.dtSeconds/2
+        refSnapshot = struct('user_geo',user_geo,'sat_geo',sat_geo, ...
+            'bestNodeVec',bestNodeVec,'bestNodeTypeVec',bestNodeTypeVec, ...
+            'bestDistanceVec',bestDistanceVec,'bestPathLossVec',bestPathLossVec, ...
+            'bestSinrDbVec',bestSinrDbVec,'capacityMbpsVec',capacityMbpsVec, ...
+            'bestElevationDegVec',bestElevationDegVec, ...
+            'nodePowerWattsVec',nodePowerWattsVec,'energyPerBitUJVec',energyPerBitUJVec);
+    end
+
+    % --- Κίνηση χρηστών προς το επόμενο βήμα ---
+    if s < numSteps
+        stepM = ueSpeedMps * opts.dtSeconds;
+        [newLat, newLon] = reckon(user_geo(:,1), user_geo(:,2), ...
+            repmat(stepM,numUsers,1), walkAzimuthDeg, wgs84);
+        user_geo(:,1) = newLat;
+        user_geo(:,2) = newLon;
+        % Το ύψος δεν μεταβάλλεται ποτέ: παραμένει το φυσικό ύψος κεραίας.
+        user_geo(:,3) = ueHeightM;
+    end
+end
+
+% -- Δείκτες της διέλευσης: υπολογίζονται σε ΠΛΗΡΗ ανάλυση 1 s --
+% (η υποδειγματοληψία αφορά μόνο το τι γράφεται στο αρχείο)
+servedFull = strBuf(:,2) ~= "Outage";
+passKpi(1,1) = mean(numBuf(servedFull,12), 'omitnan');   % Capacity_Mbps
+passKpi(1,2) = mean(numBuf(servedFull,11), 'omitnan');   % SINR_dB
+passKpi(1,3) = mean(strBuf(:,3) == "Served");
+passKpi(1,4) = mean(strBuf(:,2) == "Satellite");
+passKpi(1,5) = mean(stepBitPerJouleRf, 'omitnan');
+
+% Οι δείκτες κάθε πολιτικής συναθροίζονται πρώτα μέσα στη διέλευση και
+% μετά η διέλευση μπαίνει ως ΜΙΑ παρατήρηση στη στατιστική: τα βήματα της
+% ίδιας διέλευσης δεν είναι ανεξάρτητα μεταξύ τους.
+policyPassRow = mean(policyStepBuf, 1, 'omitnan');
+
+% -- Handovers της διέλευσης: τι ακολούθησε το καθένα --
+hoEvents = finishHandoverEvents(hoPassNum, hoPassStr, ...
+    hoNodeSeq, opts.dtSeconds);
+
+% -- Γραμμές του αρχείου: κρατούνται τα βήματα 1, 1+stride, ... --
+% Η διέλευση αναφοράς (1) κρατείται και σε πλήρη ανάλυση, για τις χρονοσειρές.
+keep = mod(numBuf(:,2) - 1, opts.datasetStride) == 0;
+R = struct();
+R.passTable    = buildPassTable(numBuf(keep,:), strBuf(keep,:));
+R.refPassTable = table();
+if passIdx == 1
+    R.refPassTable = buildPassTable(numBuf, strBuf);
+end
+R.passKpi       = passKpi;
+R.policyPassKpi = policyPassRow;
+R.hoEvents      = hoEvents;
+R.checks        = checksRun;
+R.refSnapshot   = refSnapshot;
+end
+
 function T = buildPassTable(numBuf, strBuf)
 % Φτιάχνει τον πίνακα μιας διέλευσης από τους δύο προδεσμευμένους πίνακες.
 % Οι στήλες του numBuf είναι, με τη σειρά: PassID, Step, Time_s, UserID,
@@ -1754,11 +1893,16 @@ if any(abs(user_geo(:,1)) > 90) || any(abs(user_geo(:,2)) > 180)
 end
 
 numUsers = size(user_geo,1);
+% Απόσταση από το πλησιέστερο αντίγραφο κάθε σταθμού, όπως στο κανάλι, για
+% όλους τους χρήστες με μία κλήση.
+imgLatRow = reshape(bsImageGeo(:,:,1), 1, []);
+imgLonRow = reshape(bsImageGeo(:,:,2), 1, []);
+nPts = numel(imgLatRow);
+dAll = distance(repmat(user_geo(:,1), 1, nPts), repmat(user_geo(:,2), 1, nPts), ...
+    repmat(imgLatRow, numUsers, 1), repmat(imgLonRow, numUsers, 1), wgs84);
+d2dAll = min(reshape(dAll, numUsers, size(bsImageGeo,1), []), [], 3);
 for u = 1:numUsers
-    % Απόσταση από το πλησιέστερο αντίγραφο κάθε σταθμού, όπως στο κανάλι.
-    dImg = distance(user_geo(u,1), user_geo(u,2), ...
-        reshape(bsImageGeo(:,:,1), [], 1), reshape(bsImageGeo(:,:,2), [], 1), wgs84);
-    d2d = min(reshape(dImg, size(bsImageGeo,1), []), [], 2);
+    d2d = d2dAll(u,:)';
     if min(d2d) < minDistBs - 1e-6
         error('runSimulation:TooCloseToBs', ...
             'Διέλευση %d, βήμα %d, χρήστης %d: %.2f m από σταθμό (< %g m).', ...

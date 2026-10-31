@@ -255,8 +255,6 @@ polSinrMat = nan(numUsers,numPolLocal);
 % Διαγνωστικοί πίνακες. Η διάδοση (απόσταση, LOS, σκίαση, απώλειες) ορίζεται
 % ανά site, επειδή εξαρτάται μόνο από τις θέσεις και τα κελιά ενός site είναι
 % στο ίδιο σημείο· ανά κελί διαφέρει μόνο το κέρδος της κεραίας.
-groundDistanceMat = nan(numUsers,numSites);
-range3DMat        = nan(numUsers,numSites);
 pathLossMat       = nan(numUsers,numSites);
 pLosMat           = nan(numUsers,numSites);
 losMat            = false(numUsers,numSites);
@@ -312,6 +310,108 @@ useWrapAround = isfield(simParameters, 'BsImageGeo') && ~isempty(simParameters.B
 if useWrapAround
     bsImageGeo = simParameters.BsImageGeo;
 end
+
+% Γεωμετρία και απώλειες διάδοσης όλων των ζεύξεων, πριν τον βρόχο των
+% χρηστών. Είναι ντετερμινιστικές, οπότε υπολογίζονται με μία διανυσματική
+% κλήση αντί για μία ανά ζεύξη· οι συναρτήσεις (distance, nrPathLoss,
+% geodetic2aer) είναι στοιχείο-προς-στοιχείο και δίνουν τα ίδια ακριβώς bits.
+% Μέσα στον βρόχο μένουν μόνο οι κληρώσεις, με την ίδια σειρά όπως πριν.
+uLat  = user_geo(:,1);
+uLon  = user_geo(:,2);
+hUtV  = user_geo(:,3);
+% Wrap-around: με simParameters.BsImageGeo (numSites x K x 2, [lat lon] του
+% site και των K-1 μετατοπισμένων αντιγράφων του) η απόσταση κάθε ζεύξης
+% μετριέται από το πλησιέστερο αντίγραφο. Όλο το κανάλι (απώλειες, LOS,
+% σκίαση, παρεμβολή) εξαρτάται από το site μόνο μέσω αυτής.
+if useWrapAround
+    imgLatRow = reshape(bsImageGeo(:,:,1), 1, []);
+    imgLonRow = reshape(bsImageGeo(:,:,2), 1, []);
+    nImgPts   = numel(imgLatRow);
+    dImgAll = distance(repmat(uLat, 1, nImgPts), repmat(uLon, 1, nImgPts), ...
+        repmat(imgLatRow, numUsers, 1), repmat(imgLonRow, numUsers, 1), wgs84);
+    [gdAll, nearImgAll] = min(reshape(dImgAll, numUsers, numSites, []), [], 3);
+else
+    gdAll = distance(repmat(siteGeo(:,1)', numUsers, 1), repmat(siteGeo(:,2)', numUsers, 1), ...
+        repmat(uLat, 1, numSites), repmat(uLon, 1, numSites), wgs84);
+end
+% Οριζόντια απόσταση (γεωδαιτική) και φυσικά ύψη κεραιών. Η γεωμετρία για τη
+% nrPathLoss κατασκευάζεται απευθείας από αυτά: η κατακόρυφη συντεταγμένη ENU
+% αποκλίνει από το ύψος κεραίας λόγω καμπυλότητας.
+groundDistanceMat = gdAll;
+range3DMat        = hypot(gdAll, siteGeo(:,3)' - hUtV);
+% Πεδίο ισχύος UMa/UMi (TR 38.901 Πίν. 7.4.1-1). Εκτός ορίων η ζεύξη δεν
+% υπολογίζεται: το SINR μένει NaN, ώστε να ξεχωρίζει από ζεύξη που
+% υπολογίστηκε και βρέθηκε ανεπαρκής.
+validLinkMat = isValidTerrestrialLink(gdAll, repmat(hUtV, 1, numSites), simParameters.CarrierFrequency);
+% Πιθανότητα LOS κάθε ζεύξης (TR 38.901 §7.4.2).
+pLosAll = losProbability38901(gdAll, repmat(hUtV, 1, numSites), simParameters.PathLoss.Scenario);
+% Απώλειες LOS και NLOS κάθε έγκυρης ζεύξης· η κατάσταση LOS κληρώνεται στον
+% βρόχο και διαλέγει μία από τις δύο.
+plLosMat  = nan(numUsers, numSites);  sfSigmaLosMat  = nan(numUsers, numSites);
+plNlosMat = nan(numUsers, numSites);  sfSigmaNlosMat = nan(numUsers, numSites);
+for b = 1:numSites
+    iv = find(validLinkMat(:,b));
+    if isempty(iv)
+        continue;
+    end
+    txPosition = [0; 0; siteGeo(b,3)];
+    rxPosition = [gdAll(iv,b)'; zeros(1, numel(iv)); hUtV(iv)'];
+    [pl, sg] = nrPathLoss(simParameters.PathLoss, simParameters.CarrierFrequency, ...
+        true(1, numel(iv)), txPosition, rxPosition);
+    plLosMat(iv,b) = pl';  sfSigmaLosMat(iv,b) = sg';
+    [pl, sg] = nrPathLoss(simParameters.PathLoss, simParameters.CarrierFrequency, ...
+        false(1, numel(iv)), txPosition, rxPosition);
+    plNlosMat(iv,b) = pl'; sfSigmaNlosMat(iv,b) = sg';
+end
+% Αζιμούθιο από το site (ή το πλησιέστερο αντίγραφό του) προς τον χρήστη, από
+% βορρά δεξιόστροφα, για την κεραία τομέα.
+if sectorized
+    if useWrapAround
+        siteIdxM = repmat(1:numSites, numUsers, 1);
+        imgLatM = bsImageGeo(sub2ind(size(bsImageGeo), siteIdxM, nearImgAll, ones(numUsers, numSites)));
+        imgLonM = bsImageGeo(sub2ind(size(bsImageGeo), siteIdxM, nearImgAll, 2*ones(numUsers, numSites)));
+    else
+        imgLatM = repmat(siteGeo(:,1)', numUsers, 1);
+        imgLonM = repmat(siteGeo(:,2)', numUsers, 1);
+    end
+    [~, azNorthAll] = distance(imgLatM, imgLonM, repmat(uLat, 1, numSites), ...
+        repmat(uLon, 1, numSites), wgs84);
+end
+% Απόσταση μετακίνησης κάθε χρήστη από την προηγούμενη κλήση· καθορίζει πόσο
+% συσχετίζεται η σκίαση με την προηγούμενη τιμή.
+if hasPrevState
+    userMoveAll = distance(prevChannelState.UserGeo(:,1), prevChannelState.UserGeo(:,2), ...
+        uLat, uLon, wgs84);
+else
+    userMoveAll = inf(numUsers, 1);   % καμία προηγούμενη κατάσταση -> ανεξάρτητο δείγμα
+end
+% Ανύψωση και απόσταση κάθε δορυφόρου από κάθε χρήστη.
+satElevAll  = nan(numUsers, numSats);
+satRangeAll = nan(numUsers, numSats);
+for k = 1:numSats
+    [~, satElevAll(:,k), satRangeAll(:,k)] = geodetic2aer( ...
+        repmat(sat_geo(k,1), numUsers, 1), repmat(sat_geo(k,2), numUsers, 1), ...
+        repmat(sat_geo(k,3), numUsers, 1), uLat, uLon, hUtV, wgs84);
+end
+cellNames = "BS" + string((1:numBs)');
+satNames  = "SAT-" + string((1:numSats)');
+% MLB: φόρτος κάθε κόμβου (κελιά, μετά δορυφόροι) από την αναφορά του
+% προηγούμενου βήματος, και ο δείκτης του εξυπηρετούντος κάθε χρήστη. Κόμβος
+% που δεν εμφανίζεται στην αναφορά δεν εξυπηρετούσε κανέναν: φόρτος 0.
+nodeLoadAll = struct();
+prevNodeIdx = struct();
+if hasPrevDecision
+    allNodeNames = [cellNames; satNames];
+    for pI = find(policyMlbLocal)
+        polName = policyNamesLocal{pI};
+        ldAll = zeros(numBs + numSats, 1);
+        [tf, loc] = ismember(prevDecision.(polName).LoadNode, allNodeNames);
+        ldAll(loc(tf)) = prevDecision.(polName).LoadRho(tf);
+        nodeLoadAll.(polName) = ldAll;
+        [~, prevNodeIdx.(polName)] = ismember(prevDecision.(polName).Node, allNodeNames);
+    end
+end
+
 for u = 1:numUsers
     % Αρχικοποιήσεις
     userBestSinr      = -Inf;
@@ -321,56 +421,19 @@ for u = 1:numUsers
     userBestPathLoss  = NaN;
     userBestElevation = NaN;
 
-    % Απόσταση μετακίνησης του χρήστη από την προηγούμενη κλήση· καθορίζει
-    % πόσο συσχετίζεται το shadow fading με την προηγούμενη τιμή (βλ. correlatedLosState).
-    if hasPrevState
-        userMoveDistance = distance(prevChannelState.UserGeo(u,1), prevChannelState.UserGeo(u,2), ...
-                                     user_geo(u,1), user_geo(u,2), wgs84);
-    else
-        userMoveDistance = Inf; % καμία προηγούμενη κατάσταση -> ανεξάρτητο δείγμα, όπως πριν
-    end
+    userMoveDistance = userMoveAll(u);
 
     %% ===== Terrestrial BS candidates =====
-    % Wrap-around: με simParameters.BsImageGeo (numBs x K x 2, [lat lon] του
-    % σταθμού και των K-1 μετατοπισμένων αντιγράφων του) η απόσταση κάθε
-    % ζεύξης μετριέται από το πλησιέστερο αντίγραφο. Όλο το κανάλι (απώλειες,
-    % LOS, σκίαση, παρεμβολή) εξαρτάται από τον σταθμό μόνο μέσω αυτής.
-    % Τα αντίγραφα και οι αποστάσεις είναι ανά site.
-    if useWrapAround
-        dImg = distance(user_geo(u,1), user_geo(u,2), ...
-            reshape(bsImageGeo(:,:,1), [], 1), reshape(bsImageGeo(:,:,2), [], 1), wgs84);
-        [wrappedDist, nearImg] = min(reshape(dImg, numSites, []), [], 2);
-    end
+    % Κληρώσεις ανά ζεύξη (LOS, σκίαση, γρήγορες διαλείψεις) με τη σειρά
+    % χρήστης -> site, όπως πάντα.
     for b = 1:numSites
-        % Οριζόντια απόσταση (γεωδαιτική) και φυσικά ύψη κεραιών. Η γεωμετρία
-        % για τη nrPathLoss κατασκευάζεται απευθείας από αυτά: η κατακόρυφη
-        % συντεταγμένη ENU αποκλίνει από το ύψος κεραίας λόγω καμπυλότητας.
-        if useWrapAround
-            groundDistance = wrappedDist(b);
-        else
-            groundDistance = distance(siteGeo(b,1), siteGeo(b,2), ...
-                                      user_geo(u,1), user_geo(u,2), wgs84);
-        end
-        hBs = siteGeo(b,3);
-        hUt = user_geo(u,3);
-        d3d = hypot(groundDistance, hBs - hUt);
-
-        txPosition = [0; 0; hBs];
-        rxPosition = [groundDistance; 0; hUt];
-
-        groundDistanceMat(u,b) = groundDistance;
-        range3DMat(u,b)        = d3d;
-
-        % Πεδίο ισχύος UMa/UMi (TR 38.901 Πίν. 7.4.1-1). Εκτός ορίων η ζεύξη
-        % δεν υπολογίζεται: το SINR μένει NaN, ώστε να ξεχωρίζει από ζεύξη που
-        % υπολογίστηκε και βρέθηκε ανεπαρκής.
-        if ~isValidTerrestrialLink(groundDistance, hUt, simParameters.CarrierFrequency)
+        if ~validLinkMat(u,b)
             sfMat(u,b) = 0;
             continue;
         end
 
         % LOS ανά ζεύξη βάσει πιθανότητας απόστασης (TR 38.901 §7.4.2).
-        pLos = losProbability38901(groundDistance, user_geo(u,3), simParameters.PathLoss.Scenario);
+        pLos = pLosAll(u,b);
         if hasPrevState
             prevIsLos  = prevChannelState.IsLOS(u,b);
             prevSF     = prevChannelState.ShadowFading_dB(u,b);
@@ -389,10 +452,11 @@ for u = 1:numUsers
         losMat(u,b)      = isLos;
         losLatentMat(u,b) = losLatent;
 
-        [pathLoss, sigmaSF] = nrPathLoss(simParameters.PathLoss, ...
-                              simParameters.CarrierFrequency, ...
-                              isLos, ...
-                              txPosition, rxPosition);
+        if isLos
+            pathLoss = plLosMat(u,b);  sigmaSF = sfSigmaLosMat(u,b);
+        else
+            pathLoss = plNlosMat(u,b); sigmaSF = sfSigmaNlosMat(u,b);
+        end
 
         % Shadow fading: log-normal δείγμα με τυπική απόκλιση sigmaSF (TR 38.901 §7.4.1),
         % AR(1)-συσχετισμένο με το προηγούμενο όταν useCorrelatedSF, αλλιώς ανεξάρτητο.
@@ -425,17 +489,9 @@ for u = 1:numUsers
     cellPathLossMat(u,:) = pathLossMat(u, cellSite);
     cellRange3DMat(u,:)  = range3DMat(u, cellSite);
     if sectorized
-        if useWrapAround
-            imgLat = bsImageGeo(sub2ind(size(bsImageGeo), (1:numSites)', nearImg, ones(numSites,1)));
-            imgLon = bsImageGeo(sub2ind(size(bsImageGeo), (1:numSites)', nearImg, 2*ones(numSites,1)));
-        else
-            imgLat = siteGeo(:,1);
-            imgLon = siteGeo(:,2);
-        end
-        % Αζιμούθιο από το site προς τον χρήστη (από βορρά, δεξιόστροφα) ->
-        % αζιμούθιο GCS φ (από ανατολή, αριστερόστροφα).
-        [~, azNorth] = distance(imgLat, imgLon, user_geo(u,1), user_geo(u,2), wgs84);
-        phiSiteDeg   = 90 - azNorth;
+        % Αζιμούθιο από βορρά, δεξιόστροφα -> αζιμούθιο GCS φ (από ανατολή,
+        % αριστερόστροφα).
+        phiSiteDeg   = 90 - azNorthAll(u,:)';
         % Ζενιθιακή γωνία στο site (90° = οριζόντια, > 90° προς τα κάτω).
         thetaSiteDeg = 90 + atand((siteGeo(:,3) - user_geo(u,3)) ./ groundDistanceMat(u,:)');
         phiCell = mod(phiSiteDeg(cellSite) - cellBoresightDeg + 180, 360) - 180;
@@ -472,21 +528,27 @@ for u = 1:numUsers
     rxPowLinW(~isfinite(rxPowLinW)) = 0;
     totalRxLinW = sum(rxPowLinW);
 
-    for b = 1:numBs
-        if ~isfinite(cellPathLossMat(u,b))
-            continue;
-        end
-        interfLinW     = totalRxLinW - rxPowLinW(b);
-        sinr_db        = 10*log10(rxPowLinW(b) / (noiseLinW + interfLinW));
-        sinrDbMat(u,b) = sinr_db;
-        filtSinrBsMat(u,b) = l3Filter(sinr_db, prevFiltBs(u,b), l3Alpha);
+    vb = isfinite(cellPathLossMat(u,:));
+    sinrRow = 10*log10(rxPowLinW(vb) ./ (noiseLinW + (totalRxLinW - rxPowLinW(vb))));
+    sinrDbMat(u,vb) = sinrRow;
+    % Φίλτρο L3 (βλ. l3Filter), στοιχείο προς στοιχείο.
+    fPrev = prevFiltBs(u,vb);
+    fNew  = sinrRow;
+    hasF  = isfinite(fPrev);
+    fNew(hasF) = (1 - l3Alpha)*fPrev(hasF) + l3Alpha*sinrRow(hasF);
+    filtSinrBsMat(u,vb) = fNew;
 
-        % Η επιλογή είναι μονότονη ως προς τη λαμβανόμενη ισχύ: με κοινό
-        % άθροισμα ισχύων, το SINR αυξάνει με το C, οπότε ο καλύτερος σταθμός
-        % είναι ο ίδιος με ή χωρίς παρεμβολή. Αλλάζει η τιμή, όχι η επιλογή.
-        if sinr_db > userBestSinr
-            userBestSinr      = sinr_db;
-            userBestNode      = "BS" + string(b);
+    % Η επιλογή είναι μονότονη ως προς τη λαμβανόμενη ισχύ: με κοινό
+    % άθροισμα ισχύων, το SINR αυξάνει με το C, οπότε ο καλύτερος σταθμός
+    % είναι ο ίδιος με ή χωρίς παρεμβολή. Αλλάζει η τιμή, όχι η επιλογή.
+    % Ο πρώτος με το μέγιστο SINR, όπως η σειριακή σύγκριση με «>».
+    if any(vb)
+        vbIdx = find(vb);
+        [mxSinr, iMx] = max(sinrRow);
+        if mxSinr > userBestSinr
+            b = vbIdx(iMx);
+            userBestSinr      = mxSinr;
+            userBestNode      = cellNames(b);
             userBestType      = "Terrestrial";
             userBestDistance  = cellRange3DMat(u,b);
             userBestPathLoss  = cellPathLossMat(u,b);
@@ -531,9 +593,8 @@ for u = 1:numUsers
             satShadowLatentMat(u,k) = randn();
         end
 
-        [~, elevSat, slantRangeSat] = geodetic2aer( ...
-            sat_geo(k,1), sat_geo(k,2), sat_geo(k,3), ...
-            user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
+        elevSat       = satElevAll(u,k);
+        slantRangeSat = satRangeAll(u,k);
         satElevRow(k)  = elevSat;
         satRangeRow(k) = slantRangeSat;
         satElevMat(u,k) = elevSat;
@@ -610,7 +671,7 @@ for u = 1:numUsers
 
     if satSinrDbVec(u) > userBestSinr
         userBestSinr       = satSinrDbVec(u);
-        userBestNode      = "SAT-" + string(kBest);
+        userBestNode      = satNames(kBest);
         userBestType      = "Satellite";
         userBestDistance  = satRangeRow(kBest);
         userBestPathLoss  = satPlRow(kBest);
@@ -630,7 +691,7 @@ for u = 1:numUsers
     for b = 1:numBs
         if isfinite(sinrDbMat(u,b))
             nCand = nCand + 1;
-            candNode(nCand) = "BS" + string(b);
+            candNode(nCand) = cellNames(b);
             candType(nCand) = "Terrestrial";
             candSinr(nCand) = sinrDbMat(u,b);
             candSinrMeas(nCand) = filtSinrBsMat(u,b);
@@ -641,7 +702,7 @@ for u = 1:numUsers
     for k = 1:numSats
         if isfinite(satSinrDbMat(u,k))
             nCand = nCand + 1;
-            candNode(nCand) = "SAT-" + string(k);
+            candNode(nCand) = satNames(k);
             candType(nCand) = "Satellite";
             candSinr(nCand) = satSinrDbMat(u,k);
             candSinrMeas(nCand) = filtSinrSatMat(u,k);
@@ -650,6 +711,7 @@ for u = 1:numUsers
             candElev(nCand) = satElevRow(k);
         end
     end
+    candIdx  = [find(isfinite(sinrDbMat(u,:)))'; numBs + find(isfinite(satSinrDbMat(u,:)))'];
     candNode = candNode(1:nCand); candType = candType(1:nCand);
     candSinr = candSinr(1:nCand); candDist = candDist(1:nCand);
     candSinrMeas = candSinrMeas(1:nCand);
@@ -680,16 +742,14 @@ for u = 1:numUsers
         % στην αναφορά φόρτου δεν εξυπηρετούσε κανέναν: φόρτος 0.
         candOffsetDb = zeros(nCand,1);
         if policyMlbLocal(pI) && hasPrevDecision && pN ~= "" && pN ~= "None"
-            ldNode = prevDecision.(polName).LoadNode;
-            ldRho  = prevDecision.(polName).LoadRho;
-            rhoServ = sum(ldRho(ldNode == pN));
-            for i = 1:nCand
-                if candNode(i) == pN
-                    continue;
-                end
-                x = min(max(rhoServ - sum(ldRho(ldNode == candNode(i))), -1), 1);
-                candOffsetDb(i) = quantizeQOffsetDb(mlbMaxOffsetDb * x);
-            end
+            % Φόρτος ανά κόμβο από την αναφορά (nodeLoadAll, βλ. πριν τον
+            % βρόχο)· υποψήφιοι: τα έγκυρα κελιά με τη σειρά τους, μετά οι
+            % ορατοί δορυφόροι.
+            ldAll   = nodeLoadAll.(polName);
+            rhoServ = ldAll(prevNodeIdx.(polName)(u));
+            x = min(max(rhoServ - ldAll(candIdx), -1), 1);
+            candOffsetDb = quantizeQOffsetDb(mlbMaxOffsetDb * x);
+            candOffsetDb(candNode == pN) = 0;
         end
 
         [ci, pendN, pendC, isForced] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
@@ -949,6 +1009,9 @@ throughputMbpsVec = zeros(numUsers,1);
 serviceStateVec   = strings(numUsers,1);
 nodePowerWattsVec = nan(numUsers,1);
 energyPerBitUJVec = inf(numUsers,1);
+% Πλήθος χρηστών ανά κόμβο, μία φορά για όλους.
+[~, ~, nodeGrp] = unique(nodeVec);
+nodeCount = accumarray(nodeGrp(:), 1);
 
 for u = 1:numUsers
     % Outage: μηδενική χωρητικότητα/ισχύς, ενέργεια/bit = Inf. Παραλείπονται
@@ -966,10 +1029,8 @@ for u = 1:numUsers
         continue;
     end
 
-    servingNode = nodeVec(u);
-
     % Πόσοι χρήστες συνολικά εξυπηρετούνται από τον ΙΔΙΟ κόμβο
-    usersOnThisNode = sum(nodeVec == servingNode);
+    usersOnThisNode = nodeCount(nodeGrp(u));
 
     % Συνολικό bandwidth και κατανάλωση ισχύος του κόμβου: μοντέλο EARTH
     % (Auer et al. 2011) για BS, γραμμικό μοντέλο ενισχυτή ισχύος για δορυφόρο.
@@ -1023,12 +1084,7 @@ bsSleepW          = simParameters.Power.NumTrx * simParameters.Power.Psleep;
 satFullW          = satParameters.Power.Pfix + pOutSatW/satParameters.Power.EtaPA;
 satRfW            = pOutSatW / satParameters.Power.EtaPA;
 
-activeBs  = 0;
-for b = 1:numBs
-    if any(nodeVec == "BS" + string(b))
-        activeBs = activeBs + 1;
-    end
-end
+activeBs  = sum(ismember("BS" + string((1:numBs)'), nodeVec));
 idleBs    = numBs - activeBs;
 % Πλήθος δορυφόρων που εξυπηρετούν τουλάχιστον έναν χρήστη.
 satActive = numel(unique(nodeVec(typeVec == "Satellite")));
@@ -1060,9 +1116,10 @@ function q = quantizeQOffsetDb(offsetDb)
 % Η στρογγύλευση γίνεται στην απόλυτη τιμή και επανέρχεται το πρόσημο, ώστε
 % να διατηρείται η αντισυμμετρία του κανόνα (q(-x) = -q(x)) και στις ισοπαλίες,
 % όπου κρατείται η μικρότερη κατά μέτρο τιμή.
+% Δέχεται και διάνυσμα στήλη (στοιχείο προς στοιχείο).
 levels = [0:6, 8:2:24];
-[~, k] = min(abs(levels - abs(offsetDb)));
-q = sign(offsetDb) * levels(k);
+[~, k] = min(abs(levels - abs(offsetDb(:))), [], 2);
+q = reshape(sign(offsetDb(:)) .* levels(k)', size(offsetDb));
 end
 
 function [nodes, rho] = virtualLoad(nodeVec, sinrDbVec, targetNormalizedSe, maxSe)
@@ -1201,9 +1258,10 @@ function isValid = isValidTerrestrialLink(d2D, hUT, fcHz)
 % Πεδίο ισχύος των μοντέλων UMa/UMi (TR 38.901 Πίν. 7.4.1-1, στήλη
 % "Applicability range"): 10m <= d2D <= 5km, 1.5m <= hUT <= 22.5m.
 % Η συχνότητα ελέγχεται ως προς το εύρος του ίδιου του μοντέλου (§7.4.1).
-isValid = d2D  >= 10   && d2D  <= 5000 && ...
-          hUT  >= 1.5  && hUT  <= 22.5 && ...
-          fcHz >= 0.5e9 && fcHz <= 100e9;
+% Δέχεται και πίνακες (στοιχείο προς στοιχείο).
+isValid = d2D  >= 10   & d2D  <= 5000 & ...
+          hUT  >= 1.5  & hUT  <= 22.5 & ...
+          fcHz >= 0.5e9 & fcHz <= 100e9;
 end
 
 function [b0, m, omega] = shadowedRicianElevParams(elevDeg)
@@ -1305,26 +1363,21 @@ end
 end
 
 function pLos = losProbability38901(d2D, hUT, scenario)
-% Πιθανότητα LOS ζεύξης BS-χρήστη (TR 38.901 Πίν. 7.4.2-1). d2D, hUT σε μέτρα.
+% Πιθανότητα LOS ζεύξης BS-χρήστη (TR 38.901 Πίν. 7.4.2-1). d2D, hUT σε μέτρα,
+% βαθμωτά ή πίνακες ίδιου μεγέθους (στοιχείο προς στοιχείο).
+pLos = ones(size(d2D));
+far  = d2D > 18;
+d    = d2D(far);
 switch scenario
     case 'UMi'
-        if d2D <= 18
-            pLos = 1;
-        else
-            pLos = 18/d2D + exp(-d2D/36) * (1 - 18/d2D);
-        end
+        pLos(far) = 18./d + exp(-d/36) .* (1 - 18./d);
     case 'UMa'
-        if d2D <= 18
-            pLos = 1;
-        else
-            if hUT <= 13
-                Cprime = 0;
-            else
-                g = 1.25e-6 * d2D^3 * exp(-d2D/150);
-                Cprime = ((hUT - 13)/10)^1.5 * g;
-            end
-            pLos = (18/d2D + exp(-d2D/63) * (1 - 18/d2D)) * (1 + Cprime);
-        end
+        h = hUT(far);
+        Cprime = zeros(size(d));
+        hi = h > 13;
+        g = 1.25e-6 * d(hi).^3 .* exp(-d(hi)/150);
+        Cprime(hi) = ((h(hi) - 13)/10).^1.5 .* g;
+        pLos(far) = (18./d + exp(-d/63) .* (1 - 18./d)) .* (1 + Cprime);
     otherwise
         error('losProbability38901:UnsupportedScenario', ...
             'Άγνωστο PathLoss.Scenario "%s" - η πιθανότητα LOS (TR 38.901 §7.4.2) είναι ορισμένη μόνο για "UMa" και "UMi".', ...
@@ -1338,6 +1391,13 @@ function pla_dB = gasAttenuationSlantP676(freqHz, elevDeg)
 % A_zenith = γ_o·h_o + γ_w·h_w· ισοδύναμα ύψη κατά ITU-R P.676-12 Annex 2·
 % ειδικές αποσβέσεις γ_o/γ_w από gaspl (ITU-R P.676-13 Annex 1)·
 % reference atmosphere κατά ITU-R P.835.
+% Το A_zenith δεν εξαρτάται από την ανύψωση: υπολογίζεται μία φορά ανά
+% συχνότητα και κρατείται, και ανά ζεύξη μένει μόνο η διαίρεση με sin(ε).
+persistent cacheFreqHz cacheAzenith
+if ~isempty(cacheFreqHz) && cacheFreqHz == freqHz
+    pla_dB = cacheAzenith / sind(elevDeg);
+    return;
+end
 TcRef    = 15;        % °C (= 288.15 K)
 TKRef    = 288.15;    % K
 pPaRef   = 101325;    % Pa
@@ -1353,6 +1413,8 @@ gammaWet = gammaTot - gammaDry;
 [ho, hw] = equivalentHeightsP676(freqGHz, TKRef, pHpaRef, rhoRef);
 
 Azenith = gammaDry*ho + gammaWet*hw;   % dB
+cacheFreqHz  = freqHz;
+cacheAzenith = Azenith;
 pla_dB  = Azenith / sind(elevDeg);     % dB
 end
 
