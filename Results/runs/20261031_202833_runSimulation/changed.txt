@@ -1,0 +1,21 @@
+Σύγκριση vs 20261025_204850_runSimulation
+
+  + bsAntenna.AmDb = 30
+  + bsAntenna.ElecTiltDeg = 102
+  + bsAntenna.ElementGainDbi = 8
+  + bsAntenna.NumVertElements = 10
+  + bsAntenna.Phi3dBDeg = 65
+  + bsAntenna.SlaVDb = 30
+  + bsAntenna.Theta3dBDeg = 65
+  + bsAntenna.VertSpacingLambda = 0.5
+  + bsSectors = 3
+  + cellBoresight_deg = [30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270;30;150;270]
+  + cellSite = [1;1;1;2;2;2;3;3;3;4;4;4;5;5;5;6;6;6;7;7;7;8;8;8;9;9;9;10;10;10;11;11;11;12;12;12;13;13;13;14;14;14;15;15;15;16;16;16;17;17;17;18;18;18;19;19;19]
+  ~ ciHalfWidthFinal : [0.015019165 0.013129981 0.019622882 0.018449977 0.017740986]  ->  [0.013580279 0.013419074 0.01916101 0.018337537 0.017546963]
+  ~ ciTargetFromPass : 293  ->  278
+  ~ datasetBytes : 3.7367388e+08  ->  3.7290431e+08
+  ~ datasetSha256 : f5cf49941dae242e6af126da62a44ff0cbe2665f150bb01862742e6273b39843  ->  71338cfb3dc7da2e32c481b39a79966bd2247014565d61a0ef9bae730246f53f
+  ~ handoverEvents : 556886  ->  320071
+  ~ handoverEventsSha256 : 78232ca2522c077099c6b7aa330a96792d41b9f1f99e827a14852583c16aef32  ->  70e2060877e1e2010136cab1f539e9c7ad46ff5f7b3fda8ce079cf3b0199861a
+  + numWorkers = 6
+  ~ rngScheme : rng(rngSeed+passIdx) στην αρχή κάθε διέλευσης  ->  rng(rngSeed+passIdx, twister) στην αρχή κάθε διέλευσης· διελεύσεις παράλληλα σε ομάδες, εγγραφή με τη σειρά
