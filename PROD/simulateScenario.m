@@ -41,7 +41,25 @@ if nargin < 8
 end
 
 numUsers = size(user_geo,1);
-numBs    = size(bs_geo,1);
+numBs    = size(bs_geo,1);   % κελιά (TRxP): κόμβοι "BS1".."BSnumBs"
+% Τομείς: με simParameters.CellSite (site κάθε κελιού) και
+% simParameters.CellBoresightDeg (κατεύθυνση τομέα, αζιμούθιο GCS από τον
+% άξονα x = ανατολή, αριστερόστροφα) κάθε site έχει πολλά κελιά στην ίδια θέση,
+% με κατευθυντική κεραία (TR 38.901 Πίν. 7.8-1: 3 τομείς ανά site, 30°, 150°,
+% 270°). Χωρίς αυτά, ένα κελί ανά σταθμό με σταθερό κέρδος (simParameters.EIRP).
+if isfield(simParameters, 'CellSite') && ~isempty(simParameters.CellSite)
+    cellSite         = simParameters.CellSite(:);
+    cellBoresightDeg = simParameters.CellBoresightDeg(:);
+else
+    cellSite         = (1:numBs)';
+    cellBoresightDeg = [];
+end
+sectorized = ~isempty(cellBoresightDeg);
+numSites   = max(cellSite);
+siteGeo    = zeros(numSites, 3);
+for k = 1:numSites
+    siteGeo(k,:) = bs_geo(find(cellSite == k, 1), :);
+end
 % Μία γραμμή του sat_geo ανά δορυφόρο, κόμβος "SAT-k".
 numSats  = size(sat_geo,1);
 
@@ -234,16 +252,20 @@ polNodeMat = strings(numUsers,numPolLocal);
 polTypeMat = strings(numUsers,numPolLocal);
 polSinrMat = nan(numUsers,numPolLocal);
 
-% Διαγνωστικοί πίνακες
-groundDistanceMat = nan(numUsers,numBs);
-range3DMat        = nan(numUsers,numBs);
-pathLossMat       = nan(numUsers,numBs);
+% Διαγνωστικοί πίνακες. Η διάδοση (απόσταση, LOS, σκίαση, απώλειες) ορίζεται
+% ανά site, επειδή εξαρτάται μόνο από τις θέσεις και τα κελιά ενός site είναι
+% στο ίδιο σημείο· ανά κελί διαφέρει μόνο το κέρδος της κεραίας.
+groundDistanceMat = nan(numUsers,numSites);
+range3DMat        = nan(numUsers,numSites);
+pathLossMat       = nan(numUsers,numSites);
+pLosMat           = nan(numUsers,numSites);
+losMat            = false(numUsers,numSites);
+losLatentMat      = zeros(numUsers,numSites);
+sfMat             = nan(numUsers,numSites);
 snrDbMat          = nan(numUsers,numBs);   % χωρίς παρεμβολή, διαγνωστικό
 sinrDbMat         = nan(numUsers,numBs);
-pLosMat           = nan(numUsers,numBs);
-losMat            = false(numUsers,numBs);
-losLatentMat      = zeros(numUsers,numBs);
-sfMat             = nan(numUsers,numBs);
+cellPathLossMat   = nan(numUsers,numBs);   % = απώλειες του site του κελιού
+cellRange3DMat    = nan(numUsers,numBs);
 % Διαγνωστικά του καλύτερου δορυφόρου ανά χρήστη (ένας ανά γραμμή του
 % dataset, όπως και για τους BS), και το SINR κάθε δορυφόρου χωριστά.
 satSlantRangeVec  = nan(numUsers,1);
@@ -255,7 +277,7 @@ satElevMat        = nan(numUsers,numSats);
 
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
-    isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
+    isequal(size(prevChannelState.IsLOS), [numUsers, numSites]);
 % Κρυφή γκαουσιανή μεταβλητή της δορυφορικής σκίασης ανά (χρήστη, δορυφόρο)
 % (βλ. «Satellite candidates»). Ταξιδεύει μέσα στο prevChannelState και
 % μηδενίζεται στην αρχή κάθε διέλευσης μαζί με το υπόλοιπο κανάλι.
@@ -313,22 +335,23 @@ for u = 1:numUsers
     % σταθμού και των K-1 μετατοπισμένων αντιγράφων του) η απόσταση κάθε
     % ζεύξης μετριέται από το πλησιέστερο αντίγραφο. Όλο το κανάλι (απώλειες,
     % LOS, σκίαση, παρεμβολή) εξαρτάται από τον σταθμό μόνο μέσω αυτής.
+    % Τα αντίγραφα και οι αποστάσεις είναι ανά site.
     if useWrapAround
         dImg = distance(user_geo(u,1), user_geo(u,2), ...
             reshape(bsImageGeo(:,:,1), [], 1), reshape(bsImageGeo(:,:,2), [], 1), wgs84);
-        wrappedDist = min(reshape(dImg, numBs, []), [], 2);
+        [wrappedDist, nearImg] = min(reshape(dImg, numSites, []), [], 2);
     end
-    for b = 1:numBs
+    for b = 1:numSites
         % Οριζόντια απόσταση (γεωδαιτική) και φυσικά ύψη κεραιών. Η γεωμετρία
         % για τη nrPathLoss κατασκευάζεται απευθείας από αυτά: η κατακόρυφη
         % συντεταγμένη ENU αποκλίνει από το ύψος κεραίας λόγω καμπυλότητας.
         if useWrapAround
             groundDistance = wrappedDist(b);
         else
-            groundDistance = distance(bs_geo(b,1), bs_geo(b,2), ...
+            groundDistance = distance(siteGeo(b,1), siteGeo(b,2), ...
                                       user_geo(u,1), user_geo(u,2), wgs84);
         end
-        hBs = bs_geo(b,3);
+        hBs = siteGeo(b,3);
         hUt = user_geo(u,3);
         d3d = hypot(groundDistance, hBs - hUt);
 
@@ -388,12 +411,43 @@ for u = 1:numUsers
         % γραμμική ισχύ, όχι μία από αυτές (TS 38.133 Πίν. 9.2.5.2-1).
         pathLoss = pathLoss - smallScaleFadingDb(isLos, terrKdBLos, measNAvgTerr);
         pathLossMat(u,b) = pathLoss;
-
-        % Ο λόγος σήματος προς θόρυβο ΜΟΝΟ, χωρίς παρεμβολή, κρατείται ως
-        % διαγνωστικό: είναι το άνω φράγμα του SINR και δείχνει πόσο κοστίζει
-        % η παρεμβολή σε κάθε ζεύξη.
-        snrDbMat(u,b) = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
     end
+
+    %% ===== Λαμβανόμενη ισχύς ανά κελί =====
+    % Χωρίς τομείς: σταθερό σύνθετο κέρδος, EIRP = P + G_E,max + 10log10(M).
+    % Με τομείς: κέρδος της κεραίας του κελιού στην κατεύθυνση του χρήστη,
+    % G(θ,φ) = G_E,max + A''(θ,φ) + κέρδος συστοιχίας (βλ. bsSectorGainDb).
+    % Η κατεύθυνση είναι η γεωμετρική (LOS) από το site, ή από το πλησιέστερο
+    % αντίγραφό του με wrap-around, όπως στη βαθμονόμηση μεγάλης κλίμακας του
+    % TR 38.901 Πίν. 7.8-1 ("UT attachment: based on pathloss considering the
+    % LOS angle") και του TR 36.873 Πίν. 8.2-1. Τα κελιά του ίδιου site έχουν
+    % τις ίδιες απώλειες διάδοσης· ισχύς ανά κελί σε dBW.
+    cellPathLossMat(u,:) = pathLossMat(u, cellSite);
+    cellRange3DMat(u,:)  = range3DMat(u, cellSite);
+    if sectorized
+        if useWrapAround
+            imgLat = bsImageGeo(sub2ind(size(bsImageGeo), (1:numSites)', nearImg, ones(numSites,1)));
+            imgLon = bsImageGeo(sub2ind(size(bsImageGeo), (1:numSites)', nearImg, 2*ones(numSites,1)));
+        else
+            imgLat = siteGeo(:,1);
+            imgLon = siteGeo(:,2);
+        end
+        % Αζιμούθιο από το site προς τον χρήστη (από βορρά, δεξιόστροφα) ->
+        % αζιμούθιο GCS φ (από ανατολή, αριστερόστροφα).
+        [~, azNorth] = distance(imgLat, imgLon, user_geo(u,1), user_geo(u,2), wgs84);
+        phiSiteDeg   = 90 - azNorth;
+        % Ζενιθιακή γωνία στο site (90° = οριζόντια, > 90° προς τα κάτω).
+        thetaSiteDeg = 90 + atand((siteGeo(:,3) - user_geo(u,3)) ./ groundDistanceMat(u,:)');
+        phiCell = mod(phiSiteDeg(cellSite) - cellBoresightDeg + 180, 360) - 180;
+        gainDb  = bsSectorGainDb(thetaSiteDeg(cellSite), phiCell, simParameters.BsAntenna);
+        rxDbW   = (simParameters.TxPower - 30) + gainDb' - cellPathLossMat(u,:);
+    else
+        rxDbW   = (simParameters.EIRP - 30) - cellPathLossMat(u,:);
+    end
+    % Ο λόγος σήματος προς θόρυβο ΜΟΝΟ, χωρίς παρεμβολή, κρατείται ως
+    % διαγνωστικό: είναι το άνω φράγμα του SINR και δείχνει πόσο κοστίζει
+    % η παρεμβολή σε κάθε ζεύξη.
+    snrDbMat(u,:) = rxDbW - noisePowerBS_dBW;
 
     %% ===== SINR ανά επίγειο υποψήφιο =====
     % Όλοι οι σταθμοί εκπέμπουν ταυτόχρονα στο ίδιο φάσμα: επαναχρησιμοποίηση
@@ -414,12 +468,12 @@ for u = 1:numUsers
     % χωρίς να παραβιαστεί ο έλεγχος εγκυρότητας. Η παρεμβολή είναι επομένως
     % κάτω φράγμα, όπως και λόγω του μικρού πλήθους σταθμών.
     noiseLinW   = 10^(noisePowerBS_dBW/10);
-    rxPowLinW   = 10.^(((simParameters.EIRP - 30) - pathLossMat(u,:))/10);
+    rxPowLinW   = 10.^(rxDbW/10);
     rxPowLinW(~isfinite(rxPowLinW)) = 0;
     totalRxLinW = sum(rxPowLinW);
 
     for b = 1:numBs
-        if ~isfinite(pathLossMat(u,b))
+        if ~isfinite(cellPathLossMat(u,b))
             continue;
         end
         interfLinW     = totalRxLinW - rxPowLinW(b);
@@ -434,8 +488,8 @@ for u = 1:numUsers
             userBestSinr      = sinr_db;
             userBestNode      = "BS" + string(b);
             userBestType      = "Terrestrial";
-            userBestDistance  = range3DMat(u,b);
-            userBestPathLoss  = pathLossMat(u,b);
+            userBestDistance  = cellRange3DMat(u,b);
+            userBestPathLoss  = cellPathLossMat(u,b);
             userBestElevation = NaN;
         end
     end
@@ -580,8 +634,8 @@ for u = 1:numUsers
             candType(nCand) = "Terrestrial";
             candSinr(nCand) = sinrDbMat(u,b);
             candSinrMeas(nCand) = filtSinrBsMat(u,b);
-            candDist(nCand) = range3DMat(u,b);
-            candPl(nCand)   = pathLossMat(u,b);
+            candDist(nCand) = cellRange3DMat(u,b);
+            candPl(nCand)   = cellPathLossMat(u,b);
         end
     end
     for k = 1:numSats
@@ -782,7 +836,7 @@ newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
 newChannelState.FiltSinrSat_dB  = filtSinrSatMat;
 % Γεωμετρία όλων των υποψηφίων, μόνο για την καταγραφή των handovers.
 newChannelState.SatElev_deg     = satElevMat;
-newChannelState.BsDist_m        = range3DMat;
+newChannelState.BsDist_m        = cellRange3DMat;
 
 end
 

@@ -83,6 +83,7 @@ def = struct( ...
     'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
     'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
     'wrapAround',    true, ...   % wrap-around του πλέγματος (6 αντίγραφα), όπως στη βαθμονόμηση TR 38.901
+    'bsSectors',     3, ...      % τομείς ανά site: 3 (TR 38.901 Πίν. 7.8-1, ITU-R M.2412-0 §8.3) ή 1 (ομοκατευθυντικό, σταθερό κέρδος)
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -253,6 +254,32 @@ simParameters.BsImageGeo = [];
 if opts.wrapAround
     simParameters.BsImageGeo = bsImageGeo;
 end
+% Τομείς: 3 κελιά (TRxP) ανά site, κατευθύνσεις 30°, 150°, 270° (αζιμούθιο από
+% τον άξονα x = ανατολή, αριστερόστροφα· TR 38.901 Πίν. 7.8-1, "3 sectors per
+% cell site"). Στο πλέγμα μας οι γείτονες είναι στις 0°, 60°, ..., οπότε κάθε
+% τομέας κοιτά ανάμεσα σε δύο γειτονικά sites, όπως στη διάταξη του ITU-R
+% M.2135-1 Σχ. 1 (M.2412-0 §8.3). Κελί c = 3(site-1) + τομέας, κόμβος "BSc".
+% Κεραία τομέα: TR 36.873 Πίν. 7.1-1 / TR 38.901 Πίν. 7.3-1 (στοιχείο) και
+% TR 38.901 Πίν. 7.8-1 (UMa: (M,N,P) = (10,1,1), d_V = 0.5λ, μία θύρα,
+% ηλεκτρική κλίση 102°). Στην κατεύθυνση μέγιστου κέρδους δίνει 8 + 10 = 18
+% dBi, ίσο με το σταθερό κέρδος του ομοκατευθυντικού μοντέλου.
+switch opts.bsSectors
+    case 3
+        sectorBoresightDeg = [30; 150; 270];
+    case 1
+        sectorBoresightDeg = [];
+    otherwise
+        error('runSimulation:Sectors', 'bsSectors: 1 ή 3.');
+end
+numSec   = opts.bsSectors;
+numCells = numBs * numSec;
+cell_geo = repelem(bs_geo, numSec, 1);
+simParameters.CellSite         = repelem((1:numBs)', numSec, 1);
+simParameters.CellBoresightDeg = repmat(sectorBoresightDeg, numBs, 1);
+simParameters.BsAntenna = struct('ElementGainDbi', simParameters.AntennaGain, ...
+    'Theta3dBDeg', 65, 'Phi3dBDeg', 65, 'SlaVDb', 30, 'AmDb', 30, ...
+    'NumVertElements', simParameters.NumAntennaElements, 'VertSpacingLambda', 0.5, ...
+    'ElecTiltDeg', 102);
 simParameters.PathLoss.EnvironmentHeight = 1;
 simParameters.TxPower = 49;                 % dBm, conducted (TR 38.901 Πίν. 7.8-1, UMa)
 simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain + ...
@@ -459,8 +486,8 @@ fprintf('  Δt = %g s | ταχύτητα χρήστη = %g km/h (%.3f m/s) | π�
 fprintf('  Μετατόπιση ανά βήμα = %.3f m (όριο M.2412 Παρ.1 §5.3.2: 1 m)\n', ueSpeedMps*opts.dtSeconds);
 fprintf('  Τροχιακή περίοδος = %.0f s | ταχύτητα ίχνους = %.0f m/s\n', orbitalPeriodS, groundSpeedMps);
 fprintf('  Εύρος εγκάρσιας μετατόπισης ίχνους = ±%.2f°\n', rad2deg(raanSpanRad));
-fprintf('  Σταθμοί βάσης: %d (εξαγωνικό πλέγμα, ISD %g m) | χρήστες ανά διέλευση: %d-%d, ομοιόμορφα στις κυψέλες, διαδρομή >= %.0f m από κάθε σταθμό\n', ...
-    numBs, opts.bsIsdM, numUsersRange(1), numUsersRange(2), userRMinM);
+fprintf('  Σταθμοί βάσης: %d sites x %d τομείς = %d κελιά (εξαγωνικό πλέγμα, ISD %g m) | χρήστες ανά διέλευση: %d-%d, ομοιόμορφα στις κυψέλες, διαδρομή >= %.0f m από κάθε σταθμό\n', ...
+    numBs, numSec, numCells, opts.bsIsdM, numUsersRange(1), numUsersRange(2), userRMinM);
 fprintf('  Δορυφόροι: %d στο ίδιο επίπεδο, ανά %.1f s (%.2f°, ισοδύναμο %.1f ανά επίπεδο) | ζενιθιακή ορατότητα %.0f s | FRF = %d (%.0f MHz ανά δέσμη)\n', ...
     opts.numSats, satSpacingS, rad2deg(meanMotion*satSpacingS), ...
     ternary(satSpacingS > 0, orbitalPeriodS/max(satSpacingS,eps), NaN), 2*halfVisS, ...
@@ -554,9 +581,9 @@ while passIdx < opts.numPasses
 
     % Ιστορικό μετρήσεων και ακολουθία εξυπηρετούντων ανά πολιτική, για την
     % καταγραφή των handovers. Κυκλικός buffer hoHistW βημάτων.
-    hoHist = struct('Bs', nan(hoHistW, numUsers, numBs), ...
+    hoHist = struct('Bs', nan(hoHistW, numUsers, numCells), ...
         'Sat', nan(hoHistW, numUsers, opts.numSats), ...
-        'Elev', nan(hoHistW, numUsers, opts.numSats), 'Dist', nan(numUsers, numBs));
+        'Elev', nan(hoHistW, numUsers, opts.numSats), 'Dist', nan(numUsers, numCells));
     hoNodeSeq = struct();
     for pL = hoLogPolicies
         hoNodeSeq.(pL{1}) = strings(numSteps, numUsers);
@@ -585,7 +612,7 @@ while passIdx < opts.numPasses
             satSlantRangeVec, satElevationVec, satPathLossVec, satSinrDbVec, ...
             channelState, networkEnergy, serviceStateVec, throughputMbpsVec, ...
             bsReasonVec, satReasonVec, policyKpis, decisionState] = ...
-            simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, ...
+            simulateScenario(cell_geo, user_geo, sat_geo, wgs84, simParameters, ...
                              satParameters, channelState, prevDecisionState);
 
         % --- Καταγραφή handovers του βήματος ---
@@ -952,9 +979,9 @@ if ~isempty(fieldnames(refSnapshot))
         refSnapshot.bestDistanceVec, refSnapshot.bestPathLossVec, refSnapshot.bestSinrDbVec, ...
         refSnapshot.capacityMbpsVec, refSnapshot.bestElevationDegVec, ...
         refSnapshot.nodePowerWattsVec, refSnapshot.energyPerBitUJVec);
-    visual(bs_geo, refSnapshot.user_geo, refSnapshot.sat_geo, wgs84, numBs, ...
+    visual(cell_geo, refSnapshot.user_geo, refSnapshot.sat_geo, wgs84, numCells, ...
         size(refSnapshot.user_geo,1), refSnapshot.bestNodeTypeVec, refSnapshot.bestNodeVec, ...
-        opts.bsIsdM);
+        opts.bsIsdM, simParameters.CellBoresightDeg);
     saveas(gcf, fullfile(opts.outputDir, 'network_3d.png'));
     close(gcf);
 end
@@ -1079,6 +1106,10 @@ runParams.groundSpeed_mps  = groundSpeedMps;
 runParams.scenarioType     = simParameters.PathLoss.Scenario;
 runParams.bs_geo           = bs_geo;
 runParams.bsRings          = opts.bsRings;
+runParams.bsSectors        = opts.bsSectors;
+runParams.cellSite         = simParameters.CellSite;
+runParams.cellBoresight_deg = simParameters.CellBoresightDeg;
+runParams.bsAntenna        = simParameters.BsAntenna;
 runParams.bsIsd_m          = opts.bsIsdM;
 runParams.numSats          = opts.numSats;
 runParams.satSpacing_s     = satSpacingS;
@@ -1358,7 +1389,7 @@ keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'numPasses','geometryGrid','datasetPath', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
         'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse', ...
-        'mlbMaxOffsetDb','handoverEventsPath','wrapAround'};
+        'mlbMaxOffsetDb','handoverEventsPath','wrapAround','bsSectors'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))

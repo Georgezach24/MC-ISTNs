@@ -18,6 +18,10 @@ function T = linkBudgetValidation(outputDir, label)
 %   Ζ. Ισοζύγιο ισχύος δικτύου χωρίς διπλή καταμέτρηση.
 %   Η. Οριακές περιπτώσεις με προκαθορισμένη συμπεριφορά: κανένας διαθέσιμος
 %      κόμβος, ένας χρήστης, ισοπαλία υποψηφίων, ανύψωση ακριβώς στη μάσκα.
+%   Θ. Κεραία τομέα (TR 36.873 Πίν. 7.1-1, TR 38.901 Πίν. 7.3-1 και 7.8-1):
+%      τιμές του μοτίβου σε γνωστές κατευθύνσεις, ο παράγοντας συστοιχίας
+%      από τα μιγαδικά βάρη του πίνακα, και το SINR ενός site 3 τομέων μέσα
+%      από τη simulateScenario.
 %
 % Κάθε έλεγχος συγκρίνει μια αναμενόμενη τιμή, υπολογισμένη ανεξάρτητα από
 % κλειστό τύπο, με την τιμή που παράγει ο κώδικας της προσομοίωσης. Τυπώνει
@@ -392,6 +396,64 @@ rng(31);
 C = addCheck(C, 'D8 δορυφορος κατω απο τη μασκα: SINR == SNR', 'dB', 0, ...
              max(abs(satSinrHid - ((satParameters.EIRP - 30) - satPlHid - noiseSatDbw))), 1e-9);
 
+%% ================== Θ. Κεραία τομέα ==================
+% Παράμετροι όπως στο runSimulation.m. Οι αναμενόμενες τιμές προκύπτουν από
+% τους τύπους των πινάκων, γραμμένους εδώ ξανά χωρίς τη bsSectorGainDb.
+ant = struct('ElementGainDbi', 8, 'Theta3dBDeg', 65, 'Phi3dBDeg', 65, 'SlaVDb', 30, ...
+    'AmDb', 30, 'NumVertElements', 10, 'VertSpacingLambda', 0.5, 'ElecTiltDeg', 102);
+aVref = @(th) -min(12*((th - 90)/65).^2, 30);
+aHref = @(ph) -min(12*(ph/65).^2, 30);
+afRef = @(th) afFromWeights(th, 10, 0.5, 102);
+gRef  = @(th, ph) 8 + (-min(-(aVref(th) + aHref(ph)), 30)) + 10*log10(afRef(th));
+
+C = addCheck(C, 'TH1 μεγιστο συστοιχιας στο θ_etilt = M (10 dB)', 'dB', 10, ...
+             10*log10(afRef(102)), 1e-9);
+C = addCheck(C, 'TH2 κερδος στο (102°, 0°) = 8 + A_V(102°) + 10', 'dBi', ...
+             18 - 12*(12/65)^2, bsSectorGainDb(102, 0, ant), 1e-9);
+C = addCheck(C, 'TH3 οριζοντιο ημιευρος: φ = 32.5° -> -3 dB', 'dB', -3, ...
+             bsSectorGainDb(102, 32.5, ant) - bsSectorGainDb(102, 0, ant), 1e-9);
+C = addCheck(C, 'TH4 πισω λοβος: A = -A_m = -30 dB', 'dBi', 8 - 30 + 10*log10(afRef(102)), ...
+             bsSectorGainDb(102, 180, ant), 1e-9);
+thGrid = 90:0.5:150;  phGrid = -180:5:180;
+[TH, PH] = ndgrid(thGrid, phGrid);
+C = addCheck(C, 'TH5 πλεγμα (θ, φ): ιδιο με τους τυπους του πινακα', 'dB', 0, ...
+             max(abs(bsSectorGainDb(TH, PH, ant) - gRef(TH, PH)), [], 'all'), 1e-9);
+C = addCheck(C, 'TH6 συμμετρια φ -> -φ', 'dB', 0, ...
+             max(abs(bsSectorGainDb(TH, PH, ant) - bsSectorGainDb(TH, -PH, ant)), [], 'all'), 1e-12);
+
+% Ένα site, 3 τομείς (30°, 150°, 270°), χρήστες σε διάφορες κατευθύνσεις και
+% αποστάσεις. Οι τρεις τομείς έχουν τις ίδιες απώλειες διάδοσης, οπότε:
+%   SINR = max_c S_c / (N + Σ_{c'≠c} S_c'),  S_c = P + G_c(θ, φ - φ_c) - PL.
+spS = simParameters;
+spS.CellSite = [1; 1; 1];
+spS.CellBoresightDeg = [30; 150; 270];
+spS.BsAntenna = ant;
+siteGeo = [baseLat baseLon 25];
+uAz = [30 75 150 200 270 330 10 110];   % από ανατολή, αριστερόστροφα
+uDs = [120 300 450 200 800 60 950 350];
+uSec = zeros(numel(uAz),3);
+for u = 1:numel(uAz)
+    [la, lo] = reckon(baseLat, baseLon, uDs(u), 90 - uAz(u), wgs84);
+    uSec(u,:) = [la lo 1.5];
+end
+rng(11);
+[~,~,~,~,~,~,~,~,~, secSinr, ~, secPl] = simulateScenario(repmat(siteGeo,3,1), uSec, ...
+    satOverhead, wgs84, spS, satParameters);
+[d2dS, azS] = distance(baseLat, baseLon, uSec(:,1), uSec(:,2), wgs84);
+thS  = 90 + atand((25 - 1.5) ./ d2dS);
+phS  = 90 - azS;
+sExp = zeros(numel(uAz),3);
+for c = 1:3
+    phC = mod(phS - spS.CellBoresightDeg(c) + 180, 360) - 180;
+    sExp(:,c) = 10.^(((simParameters.TxPower - 30) + gRef(thS, phC) - secPl)/10);
+end
+sinrExp = 10*log10(max(sExp, [], 2) ./ (10^(noiseBsDbw/10) + sum(sExp,2) - max(sExp, [], 2)));
+C = addCheck(C, 'TH7 site 3 τομεων: SINR == max S_c/(N + αλλοι τομεις)', 'dB', 0, ...
+             max(abs(secSinr - sinrExp)), 1e-9);
+[~, bestSec] = max(sExp, [], 2);
+C = addCheck(C, 'TH8 χρηστης στον αξονα τομεα -> αυτος ο τομεας', 'λογικο', 1, ...
+             double(isequal(bestSec([1 3 5])', [1 2 3])), 0);
+
 %% ------------------ Πίνακας και εκτύπωση ------------------
 T = table(string({C.name}'), string({C.unit}'), [C.expected]', [C.actual]', ...
     abs([C.actual]' - [C.expected]'), [C.tol]', logical([C.pass]'), ...
@@ -478,6 +540,21 @@ C(k).expected = expected;
 C(k).actual   = actual;
 C(k).tol      = tol;
 C(k).pass     = double(abs(actual - expected) <= tol);
+end
+
+function af = afFromWeights(thetaDeg, K, dVLambda, tiltDeg)
+% Παράγοντας συστοιχίας από τα βάρη του TR 36.873 Πίν. 7.1-1:
+% w_m = exp(-j2π(m-1)(d_V/λ)cos θ_etilt)/sqrt(K), m = 1..K, και απόκριση
+% στοιχείου exp(j2π(m-1)(d_V/λ)cos θ). Βρόχος, όχι διανυσματικός τύπος.
+af = zeros(size(thetaDeg));
+for i = 1:numel(thetaDeg)
+    acc = 0;
+    for m = 1:K
+        w   = exp(-1j*2*pi*(m-1)*dVLambda*cosd(tiltDeg)) / sqrt(K);
+        acc = acc + w * exp(1j*2*pi*(m-1)*dVLambda*cosd(thetaDeg(i)));
+    end
+    af(i) = abs(acc)^2;
+end
 end
 
 function s = boolText(tf)

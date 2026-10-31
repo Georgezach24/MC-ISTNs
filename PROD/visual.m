@@ -1,4 +1,4 @@
-function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeVec, bestNodeVec, userRingM)
+function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeVec, bestNodeVec, userRingM, cellBoresightDeg)
     %% ------------------ 3D Visualization + κάτοψη εδάφους ------------------
     % Δύο πλαίσια: αριστερά η 3D εικόνα με τους δορυφόρους σε πραγματική
     % κλίμακα, όπου όμως το επίγειο δίκτυο (~1 km) χάνεται μέσα σε άξονες
@@ -6,8 +6,14 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     % των σταθμών, των χρηστών και οι επίγειες ζεύξεις.
     % userRingM: απόσταση σταθμών (ISD)· με αυτήν σχεδιάζονται οι κυψέλες
     % στην κάτοψη (προαιρετικό).
+    % bs_geo: μία γραμμή ανά κελί ("BSc"). cellBoresightDeg (προαιρετικό): η
+    % κατεύθυνση του τομέα κάθε κελιού (από ανατολή, αριστερόστροφα)· τότε τα
+    % κελιά ενός site έχουν την ίδια θέση και σχεδιάζονται ως τομείς.
     if nargin < 9
         userRingM = [];
+    end
+    if nargin < 10
+        cellBoresightDeg = [];
     end
     fig = figure('Name', '3D Terrestrial & NTN Network', 'Color', 'w', 'Position', [100, 100, 1500, 700]);
     try
@@ -37,7 +43,7 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     % Σχεδίαση Base Stations (Κόκκινα τρίγωνα)· μία ετικέτα για όλο το πλέγμα,
     % αφού σε αυτή την κλίμακα οι σταθμοί συμπίπτουν
     scatter3(xBS, yBS, zBS, 150, '^', 'MarkerFaceColor', 'r', 'MarkerEdgeColor', 'k', 'DisplayName', 'Base Stations (TN)');
-    text(xBS(1), yBS(1), zBS(1)*1.3, sprintf(' %d BS', numBs), 'FontSize', 10, 'FontWeight', 'bold', 'Color', 'r');
+    text(xBS(1), yBS(1), zBS(1)*1.3, sprintf(' %d cells', numBs), 'FontSize', 10, 'FontWeight', 'bold', 'Color', 'r');
 
     % Σχεδίαση Χρηστών (Μπλε κύκλοι)
     scatter3(xUE, yUE, zUE, 80, 'o', 'MarkerFaceColor', 'b', 'MarkerEdgeColor', 'k', 'DisplayName', 'Users (UE)');
@@ -113,10 +119,11 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     % Κυψέλες των σταθμών: εξάγωνα ακτίνας ISD/sqrt(3) (κυψέλες Voronoi του
     % πλέγματος), η περιοχή όπου ξεκινούν οι χρήστες. Οι γείτονες είναι σε
     % ανατολή/δύση, άρα οι πλευρές είναι κάθετες και οι κορυφές σε 30°+60°k.
+    [~, siteRow] = unique(round([xBS yBS]*1e3), 'rows', 'stable');   % μία γραμμή ανά site
     if isscalar(userRingM)
         rHex = userRingM / sqrt(3) * km;
         angHex = 30 + (0:6)' * 60;
-        for b = 1:numBs
+        for b = siteRow'
             plot(xBS(b)*km + rHex*cosd(angHex), yBS(b)*km + rHex*sind(angHex), ...
                 '-', 'Color', [0.6 0.6 0.6], 'LineWidth', 0.8, 'HandleVisibility', 'off');
         end
@@ -146,16 +153,32 @@ function visual(bs_geo, user_geo, sat_geo, wgs84, numBs, numUsers, bestNodeTypeV
     scatter(xUE(isOut)*km, yUE(isOut)*km, 120, 'x', 'MarkerEdgeColor', 'r', ...
         'LineWidth', 2, 'DisplayName', 'outage');
 
-    scatter(xBS*km, yBS*km, 150, '^', 'MarkerFaceColor', 'r', 'MarkerEdgeColor', 'k', ...
-        'DisplayName', 'base station');
-    for b = 1:numBs
-        text(xBS(b)*km, yBS(b)*km - 0.12, "BS" + b, 'FontSize', 8, 'FontWeight', 'bold', ...
-            'Color', 'r', 'HorizontalAlignment', 'center', 'VerticalAlignment', 'top');
+    scatter(xBS(siteRow)*km, yBS(siteRow)*km, 150, '^', 'MarkerFaceColor', 'r', 'MarkerEdgeColor', 'k', ...
+        'DisplayName', 'base station site');
+    if isempty(cellBoresightDeg)
+        for b = 1:numBs
+            text(xBS(b)*km, yBS(b)*km - 0.12, "BS" + b, 'FontSize', 8, 'FontWeight', 'bold', ...
+                'Color', 'r', 'HorizontalAlignment', 'center', 'VerticalAlignment', 'top');
+        end
+    else
+        % Κατεύθυνση κάθε τομέα, μήκους ISD/3, με τον αριθμό του κελιού στην άκρη.
+        lSec = 0.25 * km;
+        if isscalar(userRingM)
+            lSec = userRingM / 3 * km;
+        end
+        for b = 1:numBs
+            xe = xBS(b)*km + lSec*cosd(cellBoresightDeg(b));
+            ye = yBS(b)*km + lSec*sind(cellBoresightDeg(b));
+            plot([xBS(b)*km xe], [yBS(b)*km ye], 'r-', 'LineWidth', 1, 'HandleVisibility', 'off');
+            text(xe, ye, "" + b, 'FontSize', 7, 'Color', 'r', ...
+                'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle');
+        end
+        plot(nan, nan, 'r-', 'DisplayName', 'sector boresight, cell number BSc');
     end
 
     xlabel('East (km)');
     ylabel('North (km)');
-    title({sprintf('Ground view: %d BS, %d users', numBs, numUsers), ...
+    title({sprintf('Ground view: %d sites, %d cells, %d users', numel(siteRow), numBs, numUsers), ...
         'number next to a magenta user = serving satellite'});
     legend('Location', 'southoutside', 'NumColumns', 2);
 end
