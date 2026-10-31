@@ -484,7 +484,7 @@ refSnapshot = struct();
 % Καταγραφή handovers σε πλήρη ανάλυση 1 s (βλ. logHandoverEvents): ένα κελί
 % ανά διέλευση, για τις πολιτικές που ενδιαφέρουν το ML.
 hoLogPolicies = {'Actual','ActualMLB'};
-hoHistW       = 11;          % βήματα ιστορικού μέτρησης: τρέχον + 10 s πίσω
+hoHistW       = 3;           % βήματα ιστορικού μέτρησης: τρέχον + 2 πίσω (παράθυρο 3 s)
 hoEventCells  = cell(opts.numPasses,1);
 
 if ~isempty(resumeState)
@@ -561,7 +561,7 @@ while passIdx < opts.numPasses
     for pL = hoLogPolicies
         hoNodeSeq.(pL{1}) = strings(numSteps, numUsers);
     end
-    hoPassNum = zeros(0, 27);
+    hoPassNum = zeros(0, numel(handoverEventNumNames()));
     hoPassStr = strings(0, 5);
 
     for s = 1:numSteps
@@ -599,8 +599,7 @@ while passIdx < opts.numPasses
         end
         if ~isempty(prevDecisionState)
             [evNum, evStr] = logHandoverEvents(hoLogPolicies, prevDecisionState, ...
-                decisionState, hoHist, hoHistW, s, opts.dtSeconds, ...
-                passIdx, numUsers, hoPassNum, hoPassStr);
+                decisionState, hoHist, hoHistW, s, opts.dtSeconds, passIdx, numUsers);
             hoPassNum = [hoPassNum; evNum]; %#ok<AGROW>
             hoPassStr = [hoPassStr; evStr]; %#ok<AGROW>
         end
@@ -1152,23 +1151,37 @@ end
 % =====================================================================
 
 function [evNum, evStr] = logHandoverEvents(pols, prevDec, newDec, H, W, s, dtS, ...
-    passIdx, numUsers, pastNum, pastStr)
+    passIdx, numUsers)
 % Ένα δείγμα ανά handover, με την κατάσταση τη στιγμή της απόφασης. Ο ορισμός
 % του handover είναι ο ίδιος με την καταμέτρηση της simulateScenario: αλλαγή
 % από έναν εξυπηρετούντα κόμβο σε άλλον (όχι πρώτη σύνδεση, όχι επανασύνδεση
 % μετά από outage). Καταγράφονται και τα αναγκαστικά, με σημαία, ώστε η ετικέτα
 % να ορίζεται χωρίς κενά στην ακολουθία.
 %
-% Όλα τα χαρακτηριστικά είναι διαθέσιμα ΤΗ ΣΤΙΓΜΗ της απόφασης: οι μετρήσεις
-% είναι οι φιλτραρισμένες (TS 38.331 §5.5.3.2) που βλέπει ο A3, του τρέχοντος
-% βήματος και των προηγούμενων· ο φόρτος είναι αυτός που αναφέρθηκε στο
-% προηγούμενο βήμα. Τίποτα από το μέλλον, που μπαίνει μόνο στις ετικέτες
-% (finishHandoverEvents).
-evNum = zeros(0, 27);
+% Όλα τα χαρακτηριστικά είναι διαθέσιμα ΤΗ ΣΤΙΓΜΗ της απόφασης· τίποτα από το
+% μέλλον, που μπαίνει μόνο στις ετικέτες (finishHandoverEvents). Κάθε στήλη
+% έχει πηγή:
+%  - Μέτρηση εξυπηρετούντος και υποψηφίου, διαφορά τους (gap), μεταβολή στο
+%    τελευταίο 1 s, μέσος όρος και κλίση στα τελευταία 3 s, απόσταση:
+%    Aggarwal, Shyamsundar, Saxena, "Predicting Unstable Handovers Using
+%    Machine Learning in LTE/5G Networks", IEEE ICSigSys 2026, §IV-A/C
+%    (pre_sinr_db, rssi, gap_db, delta_*_1s, avg_*_last3, *_slope_last3,
+%    distance_ue). Η μέτρηση εδώ είναι το φιλτραρισμένο SINR (TS 38.331
+%    §5.5.3.2) που χρησιμοποιεί ο A3. Η κλίση στα 3 s είναι η κλίση ελαχίστων
+%    τετραγώνων στα 3 δείγματα (t-2, t-1, t), δηλαδή (x_t - x_{t-2})/(2 dt).
+%  - Χρόνος παραμονής στον κόμβο που αφήνει και αν ο στόχος είναι ο
+%    προηγούμενος κόμβος: UE History Information, "Time UE Stayed in Cell"
+%    και Last Visited Cell (TS 38.413 §9.3.1.97).
+%  - Φόρτος και πλήθος ενεργών χρηστών των δύο κόμβων, όπως αναφέρθηκαν στο
+%    προηγούμενο βήμα: Resource Status Update (TS 38.423 §9.1.3.21, "Number
+%    of Active UEs" §9.2.2.62)· είσοδος του TR 37.817 §5.3.2.4.
+%  - Ανύψωση δορυφόρου: θέση/γεωμετρία (TR 37.817 §5.3.2.4), το ανάλογο της
+%    απόστασης για δορυφορικό κόμβο.
+%  - Μετατόπιση MLB (Ocn): παράμετρος του A3, όπως η υστέρηση στους
+%    Aggarwal et al. (pre_hysteresis).
+evNum = zeros(0, numel(handoverEventNumNames()));
 evStr = strings(0, 5);
 tNow  = (s-1)*dtS;
-l3    = round(3/dtS);
-l10   = round(10/dtS);
 for pI = 1:numel(pols)
     pol = pols{pI};
     pN  = prevDec.(pol).Node;
@@ -1187,24 +1200,29 @@ for pI = 1:numel(pols)
             hoType = "TerrSat";
         end
         prevNode = prevDec.(pol).Prev(u);
-        mF = histMeas(H, W, s, 0, u, f);
-        mT = histMeas(H, W, s, 0, u, g);
-        eF = histElev(H, W, s, 0, u, f);
-        eT = histElev(H, W, s, 0, u, g);
-        past = pastStr(:,1) == string(pol) & pastNum(:,4) == u & pastNum(:,3) > tNow - 60;
+        % Μετρήσεις και gap στα δείγματα t, t-1, t-2 (lag 0, 1, 2)
+        sinrK = nan(1, W);
+        gapK  = nan(1, W);
+        for lag = 0:W-1
+            mF = histMeas(H, W, s, lag, u, f);
+            mT = histMeas(H, W, s, lag, u, g);
+            sinrK(lag+1) = mF;
+            gapK(lag+1)  = mT - mF;
+        end
+        sinrK(~isfinite(sinrK)) = NaN;
+        gapK(~isfinite(gapK))   = NaN;
         ldNode = prevDec.(pol).LoadNode;
         ldRho  = prevDec.(pol).LoadRho;
         row = [passIdx, s, tNow, u, numUsers, ...
-            newDec.(pol).Forced(u), g == prevNode, ...
-            (prevDec.(pol).Stay(u) + 1)*dtS, sum(past), ...
-            mF, mT, mT - mF, ...
-            mF - histMeas(H, W, s, l3, u, f),  mT - histMeas(H, W, s, l3, u, g), ...
-            mF - histMeas(H, W, s, l10, u, f), mT - histMeas(H, W, s, l10, u, g), ...
-            eF, eT, (eF - histElev(H, W, s, l3, u, f))/(l3*dtS), ...
-            (eT - histElev(H, W, s, l3, u, g))/(l3*dtS), ...
+            newDec.(pol).Forced(u), g == prevNode, (prevDec.(pol).Stay(u) + 1)*dtS, ...
+            sinrK(1), sinrK(1) + gapK(1), gapK(1), ...
+            sinrK(1) - sinrK(2), gapK(1) - gapK(2), ...
+            mean(sinrK), mean(gapK), ...
+            (sinrK(1) - sinrK(3))/(2*dtS), (gapK(1) - gapK(3))/(2*dtS), ...
+            histElev(H, W, s, 0, u, f), histElev(H, W, s, 0, u, g), ...
             bsDist(H, u, f), bsDist(H, u, g), ...
             sum(ldRho(ldNode == f)), sum(ldRho(ldNode == g)), ...
-            sum(pN == f), sum(sN == g), newDec.(pol).Offset(u)];
+            sum(pN == f), sum(pN == g), newDec.(pol).Offset(u)];
         evNum(end+1,:) = row;                                     %#ok<AGROW>
         evStr(end+1,:) = [string(pol), f, g, prevNode, hoType]; %#ok<AGROW>
     end
@@ -1258,11 +1276,11 @@ ev.NextNode = nextNode;
 end
 
 function names = handoverEventNumNames()
-names = {'PassID','Step','Time_s','UserID','NumUsers','Forced','ReturnToPrev', ...
-    'StayFrom_s','HoLast60s','MeasFrom_dB','MeasTo_dB','Margin_dB', ...
-    'MeasFromDelta3s_dB','MeasToDelta3s_dB','MeasFromDelta10s_dB','MeasToDelta10s_dB', ...
-    'ElevFrom_deg','ElevTo_deg','ElevRateFrom_degps','ElevRateTo_degps', ...
-    'DistFrom_m','DistTo_m','LoadFrom','LoadTo','UsersOnFrom','UsersOnTo','MlbOffset_dB'};
+names = {'PassID','Step','Time_s','UserID','NumUsers','Forced','ReturnToPrev','StayFrom_s', ...
+    'SinrServ_dB','SinrCand_dB','Gap_dB','DeltaSinr1s_dB','DeltaGap1s_dB', ...
+    'AvgSinr3s_dB','AvgGap3s_dB','SlopeSinr3s_dBps','SlopeGap3s_dBps', ...
+    'ElevFrom_deg','ElevTo_deg','DistFrom_m','DistTo_m', ...
+    'LoadFrom','LoadTo','UsersOnFrom','UsersOnTo','MlbOffset_dB'};
 end
 
 function saveHandoverEvents(cells, path, meta)
