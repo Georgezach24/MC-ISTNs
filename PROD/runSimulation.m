@@ -42,7 +42,7 @@ function [convTable, summary] = runSimulation(opts)
 %
 % Η προσομοίωση προχωρά πάντα με βήμα dtSeconds και όλοι οι δείκτες
 % υπολογίζονται σε αυτή την ανάλυση. Στο αρχείο όμως γράφεται μία γραμμή κάθε
-% datasetStride βήματα: διαδοχικά δείγματα του ίδιου χρήστη απέχουν 0.83 m και
+% datasetStride βήματα: διαδοχικά δείγματα του ίδιου χρήστη απέχουν 0.17 m και
 % είναι σχεδόν ταυτόσημα, οπότε η πλήρης ανάλυση θα παρήγαγε αρχείο εκατοντάδων
 % MB χωρίς να προσθέτει πληροφορία. Η διέλευση αναφοράς αποθηκεύεται χωριστά σε
 % πλήρη ανάλυση, όπου χρειάζεται για τις χρονοσειρές.
@@ -62,17 +62,23 @@ if nargin < 1 || isempty(opts)
 end
 thisDir = fileparts(mfilename('fullpath'));
 def = struct( ...
-    'dtSeconds',    1, ...      % s, βήμα (M.2412 Παρ.1 §5.3.2 + TR 38.821 Πίν. 7.3.2.1.4-1)
+    'dtSeconds',    0.2, ...    % s, βήμα = περίοδος L1->L3 (TR 36.839 Πίν. 5.3.2.1, TS 38.133 Πίν. 9.2.5.2-1)
     'ueSpeedKmh',   3, ...      % km/h, πεζός χρήστης (M.2412 ΠΙΝ. 5 b/c)
     'passWindowS',  900, ...    % s, παράθυρο ανά διέλευση γύρω από τη μέγιστη προσέγγιση
     'numPasses',    300, ...    % σταθερό πλήθος διελεύσεων (η εκτέλεση αναφοράς έπιασε το στόχο CI στις 227)
     'geometryGrid', true, ...   % στρωματοποιημένη εγκάρσια μετατόπιση ίχνους· false = rand() ανά διέλευση
     'ciTolerance',  0.05, ...   % στόχος αναφοράς: σχετικό ημιεύρος 95% CI (ρυθμός/ενέργεια)
     'ciToleranceFrac', 0.02, ...% στόχος αναφοράς: απόλυτο ημιεύρος 95% CI (ποσοστά)
-    'datasetStride', 5, ...     % κάθε πόσα βήματα γράφεται γραμμή στο dataset
+    'datasetStride', 25, ...    % κάθε πόσα βήματα γράφεται γραμμή στο dataset (25 x 0.2 s = 5 s)
     'hysteresisDb',  3, ...      % TS 38.331 §6.3.2: 0..15 dB, βήμα 0.5 dB (τιμή πεδίου 6)
-    'timeToTriggerMs', 2560, ... % TS 38.331 §6.3.2: απαριθμημένη τιμή, 3 βήματα στο Δt = 1 s
+    'timeToTriggerMs', 480, ...  % TR 36.839 Πίν. 5.3.2.1 Set 1 (με offset 3 dB, K = 4)· 3 βήματα στο Δt = 0.2 s
     'pingPongMtsS',  1, ...      % s, ελάχιστος χρόνος παραμονής (MTS) για τον ορισμό του ping-pong
+    'rlfQoutDb',    -8, ...      % dB, κατώφλι out-of-sync (TR 36.839 Πίν. 5.2.1.3.1)
+    'rlfQinDb',     -6, ...      % dB, κατώφλι in-sync (TR 36.839 Πίν. 5.2.1.3.1)
+    'rlfT310Ms',  1000, ...      % ms, T310 (TR 36.839 Πίν. 5.2.1.3.1, προεπιλογή του 36.331)
+    'rlfN310',       1, ...      % διαδοχικά out-of-sync που ξεκινούν τον T310 (TR 36.839)
+    'rlfN311',       1, ...      % διαδοχικά in-sync που τον σταματούν (TR 36.839)
+    'softLosState',  true, ...   % soft LOS (TR 38.901 §7.6.3.3, εξ. 7.6-18/19)· false = σκληρή μετάβαση
     'l3FilterK',     4, ...      % TS 38.331 §6.3.2 filterCoefficient (DEFAULT fc4)· 0 = χωρίς φίλτρο
     'measPeriodMs',  200, ...    % TS 38.133 Πίν. 9.2.5.2-1, FR1 χωρίς DRX
     'measAveraging', true, ...   % μέση τιμή μέτρησης μέσα στο βήμα· false = στιγμιαίο δείγμα
@@ -81,6 +87,7 @@ def = struct( ...
     'bsIsdM',        500, ...    % m, απόσταση σταθμών (TR 38.901 Πίν. 7.8-1, UMa)
     'numSats',       3, ...      % διαδοχικοί δορυφόροι στο ίδιο τροχιακό επίπεδο
     'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
+    'mlbReportPeriodMs', 1000, ...% ms, Reporting Periodicity της αναφοράς φόρτου (TS 38.423 §9.1.3.18)
     'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
     'wrapAround',    true, ...   % wrap-around του πλέγματος (6 αντίγραφα), όπως στη βαθμονόμηση TR 38.901
     'bsSectors',     3, ...
@@ -298,14 +305,26 @@ simParameters.Mobility.HysteresisDb    = opts.hysteresisDb;
 simParameters.Mobility.TimeToTriggerMs = opts.timeToTriggerMs;
 simParameters.Mobility.DtSeconds       = opts.dtSeconds;
 % Ping-pong: επιστροφή στον αμέσως προηγούμενο κόμβο μετά από παραμονή στον
-% ενδιάμεσο το πολύ PingPongMtsS (ορισμός MTS του 3GPP TR 36.839). Με Δt = 1 s
-% ο χρόνος παραμονής μετριέται σε ακέραια βήματα, οπότε το «< 1 s» του ορισμού
-% γίνεται «<= 1 βήμα»: η μικρότερη παραμονή που μπορεί να παρατηρηθεί.
+% ενδιάμεσο λιγότερο από PingPongMtsS (ορισμός MTS του 3GPP TR 36.839). Ο
+% χρόνος παραμονής μετριέται σε ακέραια βήματα: με Δt = 0.2 s «< 1 s» σημαίνει
+% έως 4 βήματα (0.8 s)· με Δt = 1 s κρατείται 1 βήμα, η μικρότερη παρατηρήσιμη.
 simParameters.Mobility.PingPongMtsS    = opts.pingPongMtsS;
+% Παρακολούθηση ζεύξης και RLF (TS 38.331 §5.3.10, τιμές TR 36.839 Πίν.
+% 5.2.1.3.1): ο εξυπηρετών κόμβος εγκαταλείπεται μόνο με handover του A3 ή με
+% RLF, όχι με την πρώτη βύθιση του SINR (βλ. simulateScenario, mobilityStep).
+% Soft LOS (TR 38.901 §7.6.3.3): το ίδιο το TR σημειώνει ότι με κινητικότητα η
+% μετάβαση LOS -> NLOS δίνει «hard transition in the channel response» και
+% ορίζει την προαιρετική soft κατάσταση για να την αποφύγει. Με εκθετική
+% συσχέτιση η κρυφή μεταβλητή περνά πολλές φορές το κατώφλι γύρω από κάθε
+% μετάβαση, και τα άλματα πληθαίνουν όσο μικραίνει το βήμα.
+simParameters.SoftLos = opts.softLosState;
+simParameters.Mobility.Rlf = struct('QoutDb', opts.rlfQoutDb, 'QinDb', opts.rlfQinDb, ...
+    'T310Ms', opts.rlfT310Ms, 'N310', opts.rlfN310, 'N311', opts.rlfN311);
 % Mobility Load Balancing (TS 38.300 §15.5.1), μόνο στις πολιτικές *MLB: η
 % μετατόπιση του A3 ως προς τον στόχο είναι MlbMaxOffsetDb επί τη διαφορά
 % εικονικού φόρτου, περιορισμένη στο [-1, 1] (βλ. simulateScenario).
 simParameters.Mobility.MlbMaxOffsetDb  = opts.mlbMaxOffsetDb;
+simParameters.Mobility.LoadReportPeriodMs = opts.mlbReportPeriodMs;
 
 % Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1 & 6.1.3.2-1).
 % Η πυκνότητα EIRP (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
@@ -470,9 +489,9 @@ policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
                  'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz', ...
                  'HoRate_perUserMin','HoRateTerrTerr_perUserMin', ...
                  'HoRateTerrSat_perUserMin','HoRateSatSat_perUserMin', ...
-                 'PingPongRate_perUserMin','HoRateForced_perUserMin', ...
-                 'HoRateTerrTerrForced_perUserMin','HoRateTerrSatForced_perUserMin', ...
-                 'HoRateSatSatForced_perUserMin','FracSatellite'};
+                 'PingPongRate_perUserMin','RlfRate_perUserMin', ...
+                 'RlfRateTerr_perUserMin','RlfRateSat_perUserMin', ...
+                 'HoFailRate_perUserMin','FracSatellite'};
 numPolicy       = numel(policyNames);
 numPolicyMetric = numel(policyMetrics);
 policyPassKpi   = nan(opts.numPasses, numPolicy, numPolicyMetric);
@@ -509,10 +528,12 @@ passIdx = 0;
 refPassTable = table();
 refSnapshot = struct();
 
-% Καταγραφή handovers σε πλήρη ανάλυση 1 s (βλ. logHandoverEvents): ένα κελί
+% Καταγραφή handovers σε πλήρη ανάλυση (βλ. logHandoverEvents): ένα κελί
 % ανά διέλευση, για τις πολιτικές που ενδιαφέρουν το ML.
 hoLogPolicies = {'Actual','ActualMLB'};
-hoHistW       = 3;           % βήματα ιστορικού μέτρησης: τρέχον + 2 πίσω (παράθυρο 3 s)
+% Ιστορικό μέτρησης 2 s πίσω από το τρέχον βήμα, ώστε να υπάρχουν τα δείγματα
+% t, t-1 s, t-2 s των χαρακτηριστικών 1 s / 3 s (Aggarwal et al.).
+hoHistW       = 2*round(1/opts.dtSeconds) + 1;
 hoEventCells  = cell(opts.numPasses,1);
 
 if ~isempty(resumeState)
@@ -699,6 +720,14 @@ ppFrac = pol(:,:,iPp) ./ pol(:,:,iHo);
 ppFrac(~isfinite(ppFrac)) = NaN;
 pol(:,:,end+1) = ppFrac;
 policyMetrics{end+1} = 'PingPongFrac';
+
+% Ποσοστό αποτυχίας handover (TR 36.839 Ορισμός 4): αποτυχίες / (αποτυχίες +
+% επιτυχή handovers), με τον ίδιο λόγο ρυθμών της διέλευσης.
+iHof = find(strcmp(policyMetrics, 'HoFailRate_perUserMin'), 1);
+hofFrac = pol(:,:,iHof) ./ (pol(:,:,iHof) + pol(:,:,iHo));
+hofFrac(~isfinite(hofFrac)) = NaN;
+pol(:,:,end+1) = hofFrac;
+policyMetrics{end+1} = 'HoFailFrac';
 numPolicyMetric = numel(policyMetrics);
 
 polPassID = repelem((1:numPasses)', numPolicy, 1);
@@ -769,17 +798,18 @@ pairedTable = table(pairPolicy, pairBaseline, pairMetric, pairN, pairMean, pairH
 
 fprintf('\n  Σύγκριση πολιτικών στην ίδια διέλευση (%d διελεύσεις)\n', numPasses);
 iPpFrac = find(strcmp(policyMetrics, 'PingPongFrac'), 1);
-iForced = find(strcmp(policyMetrics, 'HoRateForced_perUserMin'), 1);
+iRlf = find(strcmp(policyMetrics, 'RlfRate_perUserMin'), 1);
+iHofFrac = find(strcmp(policyMetrics, 'HoFailFrac'), 1);
 iSatFrac = find(strcmp(policyMetrics, 'FracSatellite'), 1);
-fprintf('    %-18s %12s %12s %12s %10s %14s %10s %12s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός', ...
-    'δορυφ.', 'HO/χρήστη/min', 'ping-pong', 'αναγκαστικά');
+fprintf('    %-18s %12s %12s %12s %10s %14s %10s %14s %10s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός', ...
+    'δορυφ.', 'HO/χρήστη/min', 'ping-pong', 'RLF/χρήστη/min', 'αποτ. HO');
 for pI = 1:numPolicy
     hoM = mean(pol(:,pI,iHo),'omitnan');
-    fprintf('    %-18s %12.2f %12.4f %12.4f %9.1f%% %14.3f %9.1f%% %11.1f%%\n', policyNames{pI}, ...
+    fprintf('    %-18s %12.2f %12.4f %12.4f %9.1f%% %14.3f %9.1f%% %14.3f %9.1f%%\n', policyNames{pI}, ...
         mean(pol(:,pI,2),'omitnan'), mean(pol(:,pI,3),'omitnan'), ...
         mean(pol(:,pI,5),'omitnan'), 100*mean(pol(:,pI,iSatFrac),'omitnan'), hoM, ...
-        100*mean(pol(:,pI,iPpFrac),'omitnan'), ...
-        100*mean(pol(:,pI,iForced),'omitnan')/hoM);
+        100*mean(pol(:,pI,iPpFrac),'omitnan'), mean(pol(:,pI,iRlf),'omitnan'), ...
+        100*mean(pol(:,pI,iHofFrac),'omitnan'));
 end
 fprintf('\n    Διαφορές ανά διέλευση (πολιτική μείον βάση), 95%% CI:\n');
 for q = 1:height(pairedTable)
@@ -944,8 +974,12 @@ runParams.datasetBytes     = dir(opts.datasetPath).bytes;
 runParams.datasetSha256    = fileSha256(opts.datasetPath);
 saveHandoverEvents(hoEventCells(1:numPasses), opts.handoverEventsPath, struct( ...
     'dtSeconds', opts.dtSeconds, 'passWindowS', opts.passWindowS, ...
-    'pingPongMtsS', opts.pingPongMtsS, 'hysteresisDb', opts.hysteresisDb, ...
+    'pingPongMtsS', opts.pingPongMtsS, ...
+    'pingPongMaxStay_s', max(1, ceil(opts.pingPongMtsS/opts.dtSeconds - 1e-9) - 1)*opts.dtSeconds, ...
+    'hysteresisDb', opts.hysteresisDb, ...
     'timeToTriggerMs', opts.timeToTriggerMs, 'rngSeed', opts.rngSeed, ...
+    'rlfQoutDb', opts.rlfQoutDb, 'rlfQinDb', opts.rlfQinDb, 'rlfT310Ms', opts.rlfT310Ms, ...
+    'rlfN310', opts.rlfN310, 'rlfN311', opts.rlfN311, ...
     'policies', {hoLogPolicies}));
 runParams.handoverEventsPath   = opts.handoverEventsPath;
 runParams.handoverEvents       = sum(cellfun(@(e) numel(e.PassID), hoEventCells(1:numPasses)));
@@ -963,6 +997,13 @@ runParams.ciHalfWidthFinal = lastHw;
 runParams.hysteresis_dB    = opts.hysteresisDb;
 runParams.timeToTrigger_ms = opts.timeToTriggerMs;
 runParams.pingPongMts_s    = opts.pingPongMtsS;
+runParams.pingPongMaxStay_s = max(1, ceil(opts.pingPongMtsS/opts.dtSeconds - 1e-9) - 1)*opts.dtSeconds;
+runParams.softLosState = opts.softLosState;
+runParams.mlbReportPeriod_ms = opts.mlbReportPeriodMs;
+runParams.rlf = struct('Qout_dB', opts.rlfQoutDb, 'Qin_dB', opts.rlfQinDb, ...
+    'T310_ms', opts.rlfT310Ms, 'N310', opts.rlfN310, 'N311', opts.rlfN311, ...
+    'T310_steps', max(1, ceil(opts.rlfT310Ms/(opts.dtSeconds*1000))), ...
+    'source', 'TR 36.839 V11.1.0 Πίν. 5.2.1.3.1· διαδικασία TS 38.331 §5.3.10');
 runParams.timeToTrigger_steps = max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000)));
 runParams.measAveraging    = opts.measAveraging;
 runParams.measNAvgTerrestrial = simParameters.Meas.NAvg;
@@ -1106,7 +1147,9 @@ for pI = 1:numel(pols)
     pol = pols{pI};
     pN  = prevDec.(pol).Node;
     sN  = newDec.(pol).Node;
-    isHo = pN ~= "" & pN ~= "None" & sN ~= "None" & sN ~= pN;
+    % Μόνο επιτυχή handovers του A3· οι επανεγκαταστάσεις μετά από RLF ή
+    % αποτυχία δεν είναι handovers (TR 36.839 Ορισμός 6).
+    isHo = newDec.(pol).Cause == "HO";
     for u = find(isHo)'
         f = pN(u);
         g = sN(u);
@@ -1120,25 +1163,27 @@ for pI = 1:numel(pols)
             hoType = "TerrSat";
         end
         prevNode = prevDec.(pol).Prev(u);
-        % Μετρήσεις και gap στα δείγματα t, t-1, t-2 (lag 0, 1, 2)
-        sinrK = nan(1, W);
-        gapK  = nan(1, W);
-        for lag = 0:W-1
-            mF = histMeas(H, W, s, lag, u, f);
-            mT = histMeas(H, W, s, lag, u, g);
-            sinrK(lag+1) = mF;
-            gapK(lag+1)  = mT - mF;
+        % Μετρήσεις και gap στα δείγματα t, t-1 s, t-2 s: ανά δευτερόλεπτο,
+        % όπως το σύνολο δεδομένων των Aggarwal et al., ανεξάρτητα από το βήμα.
+        lagStep = (W - 1)/2;
+        sinrK = nan(1, 3);
+        gapK  = nan(1, 3);
+        for k = 1:3
+            mF = histMeas(H, W, s, (k-1)*lagStep, u, f);
+            mT = histMeas(H, W, s, (k-1)*lagStep, u, g);
+            sinrK(k) = mF;
+            gapK(k)  = mT - mF;
         end
         sinrK(~isfinite(sinrK)) = NaN;
         gapK(~isfinite(gapK))   = NaN;
         ldNode = prevDec.(pol).LoadNode;
         ldRho  = prevDec.(pol).LoadRho;
         row = [passIdx, s, tNow, u, numUsers, ...
-            newDec.(pol).Forced(u), g == prevNode, (prevDec.(pol).Stay(u) + 1)*dtS, ...
+            g == prevNode, (prevDec.(pol).Stay(u) + 1)*dtS, ...
             sinrK(1), sinrK(1) + gapK(1), gapK(1), ...
             sinrK(1) - sinrK(2), gapK(1) - gapK(2), ...
             mean(sinrK), mean(gapK), ...
-            (sinrK(1) - sinrK(3))/(2*dtS), (gapK(1) - gapK(3))/(2*dtS), ...
+            (sinrK(1) - sinrK(3))/(2*lagStep*dtS), (gapK(1) - gapK(3))/(2*lagStep*dtS), ...
             histElev(H, W, s, 0, u, f), histElev(H, W, s, 0, u, g), ...
             bsDist(H, u, f), bsDist(H, u, g), ...
             sum(ldRho(ldNode == f)), sum(ldRho(ldNode == g)), ...
@@ -1149,32 +1194,40 @@ for pI = 1:numel(pols)
 end
 end
 
-function ev = finishHandoverEvents(num, str, nodeSeq, dtS)
+function ev = finishHandoverEvents(num, str, nodeSeq, causeSeq, dtS)
 % Συμπληρώνει τι ακολούθησε κάθε handover, από την ακολουθία εξυπηρετούντων
 % της διέλευσης σε πλήρη ανάλυση:
 %   StayTo_s   βήματα στον νέο κόμβο από τη στιγμή του handover ως την αποχώρηση,
 %              σε s (ίδια σύμβαση με την παραμονή του ορισμού ping-pong)
 %   NextNode   πού πήγε μετά ("None" = outage, "" = τέλος διέλευσης πρώτα)
+%   NextCause  πώς έφυγε: "HO" handover του A3, "RLF" ή "HOF" επανεγκατάσταση
+%              μετά από RLF ή αποτυχία ("" = τέλος διέλευσης πρώτα)
 %   Censored   η διέλευση τελείωσε πριν φύγει από τον νέο κόμβο
-% Ping-pong με παράθυρο T: NextNode == FromNode && StayTo_s <= T. Με T = 1 s
-% ταυτίζεται με την καταμέτρηση της simulateScenario (MTS, TR 36.839).
+% Η παραμονή τελειώνει και με RLF που επανεγκαθιστά τον χρήστη στον ίδιο
+% κόμβο (TR 36.839 §5.2.2: μετά από αποτυχία η παραμονή δεν καταγράφεται).
+% Ping-pong: NextNode == FromNode && NextCause == "HO" && StayTo_s <=
+% pingPongMaxStay_s (μεταδεδομένα του αρχείου· 0.8 s για MTS 1 s με Δt = 0.2 s).
+% Έτσι ταυτίζεται με την καταμέτρηση της simulateScenario (TR 36.839 Ορισμός 5).
 n = size(num,1);
 stayTo   = nan(n,1);
 toEnd    = nan(n,1);
 censored = false(n,1);
 nextNode = strings(n,1);
+nextCause = strings(n,1);
 for i = 1:n
     seq = nodeSeq.(char(str(i,1)))(:, num(i,4));
+    cau = causeSeq.(char(str(i,1)))(:, num(i,4));
     s   = num(i,2);
     nSteps = numel(seq);
     toEnd(i) = (nSteps - s)*dtS;
-    j = find(seq(s+1:end) ~= str(i,3), 1);
+    j = find(seq(s+1:end) ~= str(i,3) | cau(s+1:end) == "RLF" | cau(s+1:end) == "HOF", 1);
     if isempty(j)
         stayTo(i)   = (nSteps - s + 1)*dtS;
         censored(i) = true;
     else
-        stayTo(i)   = j*dtS;
-        nextNode(i) = seq(s+j);
+        stayTo(i)    = j*dtS;
+        nextNode(i)  = seq(s+j);
+        nextCause(i) = cau(s+j);
     end
 end
 names = handoverEventNumNames();
@@ -1182,7 +1235,6 @@ ev = struct();
 for c = 1:numel(names)
     ev.(names{c}) = num(:,c);
 end
-ev.Forced       = logical(ev.Forced);
 ev.ReturnToPrev = logical(ev.ReturnToPrev);
 ev.Policy   = str(:,1);
 ev.FromNode = str(:,2);
@@ -1193,10 +1245,11 @@ ev.TimeToPassEnd_s = toEnd;
 ev.StayTo_s = stayTo;
 ev.Censored = censored;
 ev.NextNode = nextNode;
+ev.NextCause = nextCause;
 end
 
 function names = handoverEventNumNames()
-names = {'PassID','Step','Time_s','UserID','NumUsers','Forced','ReturnToPrev','StayFrom_s', ...
+names = {'PassID','Step','Time_s','UserID','NumUsers','ReturnToPrev','StayFrom_s', ...
     'SinrServ_dB','SinrCand_dB','Gap_dB','DeltaSinr1s_dB','DeltaGap1s_dB', ...
     'AvgSinr3s_dB','AvgGap3s_dB','SlopeSinr3s_dBps','SlopeGap3s_dBps', ...
     'ElevFrom_deg','ElevTo_deg','DistFrom_m','DistTo_m', ...
@@ -1278,7 +1331,8 @@ keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'numPasses','geometryGrid','datasetPath', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
         'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse', ...
-        'mlbMaxOffsetDb','handoverEventsPath','wrapAround','bsSectors'};
+        'mlbMaxOffsetDb','handoverEventsPath','wrapAround','bsSectors', ...
+        'rlfQoutDb','rlfQinDb','rlfT310Ms','rlfN310','rlfN311','softLosState','mlbReportPeriodMs'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
@@ -1449,9 +1503,10 @@ end
 function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, pngPath)
 % Ρυθμός handovers ανά πολιτική, σε απόλυτες τιμές και όχι ως «βελτίωση»: η
 % αποκλειστικά δορυφορική πολιτική με έναν δορυφόρο δεν έχει κανένα handover,
-% οπότε η σχετική διαφορά από αυτήν δεν ορίζεται. Στοιβαγμένα ανά τύπο και, μέσα
-% σε κάθε τύπο, σε αποφάσεις του A3 (σκούρο) και αναγκαστικά (ανοιχτό, απώλεια
-% του εξυπηρετούντος κόμβου). Το 95% CI αφορά το σύνολο, πάνω στις διελεύσεις.
+% οπότε η σχετική διαφορά από αυτήν δεν ορίζεται. Στοιβαγμένα ανά τύπο· μόνο
+% επιτυχή handovers του A3 (TR 36.839 Ορισμός 6). Τα RLF και οι αποτυχίες
+% handover δεν είναι handovers και δίνονται στην ετικέτα κάθε στήλης. Το 95% CI
+% αφορά το σύνολο, πάνω στις διελεύσεις.
 % Τύποι που είναι μηδενικοί σε όλες τις πολιτικές παραλείπονται από το υπόμνημα
 % (π.χ. δορυφορικό-δορυφορικό με έναν δορυφόρο).
 typeKey   = {'TerrTerr','TerrSat','SatSat'};
@@ -1459,7 +1514,6 @@ typeLabel = {'επίγειο \leftrightarrow επίγειο','επίγειο \le
              'δορυφορικό \leftrightarrow δορυφορικό'};
 polLabel  = {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική','υπό εξέταση + MLB','μόνο επίγεια + MLB'};
 cols      = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
-lightMix  = 0.55;   % ανάμειξη με λευκό για το αναγκαστικό τμήμα
 numPolicy = numel(policyNames);
 
 idx    = @(name) find(strcmp(policyMetrics, name), 1);
@@ -1468,22 +1522,19 @@ stackV  = zeros(numPolicy, 0);
 segCol  = zeros(0, 3);
 segLbl  = {};
 for t = 1:numel(typeKey)
-    allV    = polMean(['HoRate' typeKey{t} '_perUserMin']);
-    forcedV = polMean(['HoRate' typeKey{t} 'Forced_perUserMin']);
+    allV = polMean(['HoRate' typeKey{t} '_perUserMin']);
     if ~any(allV > 0)
         continue;
     end
-    stackV(:,end+1) = allV - forcedV; %#ok<AGROW>
-    stackV(:,end+1) = forcedV;        %#ok<AGROW>
-    segCol(end+1,:) = cols(t,:);                              %#ok<AGROW>
-    segCol(end+1,:) = cols(t,:) + lightMix*(1 - cols(t,:));   %#ok<AGROW>
-    segLbl{end+1} = [typeLabel{t} ' (A3)'];          %#ok<AGROW>
-    segLbl{end+1} = [typeLabel{t} ' (αναγκαστικό)']; %#ok<AGROW>
+    stackV(:,end+1) = allV;         %#ok<AGROW>
+    segCol(end+1,:) = cols(t,:);    %#ok<AGROW>
+    segLbl{end+1}   = typeLabel{t}; %#ok<AGROW>
 end
 totV    = pol(:,:,idx('HoRate_perUserMin'));
 totM    = mean(totV, 1, 'omitnan');
 totHw   = 1.96 * std(totV, 0, 1, 'omitnan') ./ sqrt(sum(isfinite(totV), 1));
-forcedM = mean(pol(:,:,idx('HoRateForced_perUserMin')), 1, 'omitnan');
+rlfM    = mean(pol(:,:,idx('RlfRate_perUserMin')), 1, 'omitnan');
+hofM    = 100 * mean(pol(:,:,idx('HoFailFrac')), 1, 'omitnan');
 ppM     = 100 * mean(pol(:,:,idx('PingPongFrac')), 1, 'omitnan');
 
 fig = figure('Visible','off','Position',[100 100 1150 560]);
@@ -1505,10 +1556,10 @@ top = max(totM + totHw, [], 'omitnan');
 if ~(top > 0), top = 1; end
 for pI = 1:numPolicy
     if totM(pI) > 0
-        lbl = sprintf('%.3f\nαναγκαστικά %.0f%%\nping-pong %.1f%%', totM(pI), ...
-            100*forcedM(pI)/totM(pI), ppM(pI));
+        lbl = sprintf('%.3f\nping-pong %.1f%%\nαποτυχίες %.1f%%\nRLF %.3f/min', totM(pI), ...
+            ppM(pI), hofM(pI), rlfM(pI));
     else
-        lbl = sprintf('%.3f\nκανένα handover', totM(pI));
+        lbl = sprintf('%.3f\nκανένα handover\nRLF %.3f/min', totM(pI), rlfM(pI));
     end
     text(pI, totM(pI) + max(totHw(pI), 0) + 0.04*top, lbl, ...
         'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', 'FontSize', 9);
@@ -1522,7 +1573,8 @@ if ~isempty(segLbl)
 end
 grid on;
 title(sprintf(['Ρυθμός handovers ανά πολιτική: %d διελεύσεις, 95%% CI\n' ...
-    'αναγκαστικό = απώλεια του εξυπηρετούντος κόμβου· ping-pong = επιστροφή με παραμονή \\leq %g s'], ...
+    'επιτυχή handovers του A3· ping-pong = επιστροφή με παραμονή \\leq %g s· ' ...
+    'αποτυχίες και RLF κατά TR 36.839 (Qout -8 dB, Qin -6 dB, T310 1 s)'], ...
     numPasses, mtsS));
 saveas(fig, pngPath);
 close(fig);
@@ -1690,8 +1742,10 @@ hoHist = struct('Bs', nan(hoHistW, numUsers, numCells), ...
     'Sat', nan(hoHistW, numUsers, opts.numSats), ...
     'Elev', nan(hoHistW, numUsers, opts.numSats), 'Dist', nan(numUsers, numCells));
 hoNodeSeq = struct();
+hoCauseSeq = struct();
 for pL = hoLogPolicies
-    hoNodeSeq.(pL{1}) = strings(numSteps, numUsers);
+    hoNodeSeq.(pL{1})  = strings(numSteps, numUsers);
+    hoCauseSeq.(pL{1}) = strings(numSteps, numUsers);
 end
 hoPassNum = zeros(0, numel(handoverEventNumNames()));
 hoPassStr = strings(0, 5);
@@ -1727,7 +1781,8 @@ for s = 1:numSteps
     hoHist.Elev(slot,:,:) = channelState.SatElev_deg;
     hoHist.Dist           = channelState.BsDist_m;
     for pL = hoLogPolicies
-        hoNodeSeq.(pL{1})(s,:) = decisionState.(pL{1}).Node';
+        hoNodeSeq.(pL{1})(s,:)  = decisionState.(pL{1}).Node';
+        hoCauseSeq.(pL{1})(s,:) = decisionState.(pL{1}).Cause';
     end
     if ~isempty(prevDecisionState)
         [evNum, evStr] = logHandoverEvents(hoLogPolicies, prevDecisionState, ...
@@ -1826,7 +1881,7 @@ policyPassRow = mean(policyStepBuf, 1, 'omitnan');
 
 % -- Handovers της διέλευσης: τι ακολούθησε το καθένα --
 hoEvents = finishHandoverEvents(hoPassNum, hoPassStr, ...
-    hoNodeSeq, opts.dtSeconds);
+    hoNodeSeq, hoCauseSeq, opts.dtSeconds);
 
 % -- Γραμμές του αρχείου: κρατούνται τα βήματα 1, 1+stride, ... --
 % Η διέλευση αναφοράς (1) κρατείται και σε πλήρη ανάλυση, για τις χρονοσειρές.
@@ -1926,9 +1981,17 @@ if any(isOut & (~isnan(capacityVec) | throughputVec ~= 0 | nodeLoadVec ~= 0))
         'Διέλευση %d, βήμα %d: χρήστης σε outage με μη μηδενική χωρητικότητα/ρυθμαπόδοση/φορτίο.', ...
         passIdx, stepIdx);
 end
-if any(~isOut & (~isfinite(capacityVec) | capacityVec <= 0))
+% Συνδεδεμένος χρήστης: πεπερασμένη, μη αρνητική χωρητικότητα. Μηδενική μόνο
+% όσο τρέχει ο T310 με SINR κάτω από το MCS 0 ή χωρίς ζεύξη στο μοντέλο (NaN),
+% και θετική πάντα πάνω από το MCS 0 (-7.53 dB).
+if any(~isOut & (~isfinite(capacityVec) | capacityVec < 0))
     error('runSimulation:ServedInconsistent', ...
-        'Διέλευση %d, βήμα %d: εξυπηρετούμενος χρήστης χωρίς πεπερασμένη θετική χωρητικότητα.', ...
+        'Διέλευση %d, βήμα %d: συνδεδεμένος χρήστης χωρίς πεπερασμένη μη αρνητική χωρητικότητα.', ...
+        passIdx, stepIdx);
+end
+if any(~isOut & sinrVec >= 10*log10(2^0.2344 - 1) & capacityVec <= 0)
+    error('runSimulation:ServedInconsistent', ...
+        'Διέλευση %d, βήμα %d: χρήστης πάνω από το MCS 0 με μηδενική χωρητικότητα.', ...
         passIdx, stepIdx);
 end
 if any(~isOut & nodeLoadVec < 1)
@@ -1936,9 +1999,9 @@ if any(~isOut & nodeLoadVec < 1)
         'Διέλευση %d, βήμα %d: εξυπηρετούμενος χρήστης με φορτίο κόμβου < 1.', ...
         passIdx, stepIdx);
 end
-if any(~isOut & ~isfinite(sinrVec))
+if any(~isOut & isnan(sinrVec) & capacityVec ~= 0)
     error('runSimulation:SinrInconsistent', ...
-        'Διέλευση %d, βήμα %d: εξυπηρετούμενος χρήστης χωρίς πεπερασμένο SINR.', ...
+        'Διέλευση %d, βήμα %d: χρήστης χωρίς ζεύξη στο μοντέλο με μη μηδενική χωρητικότητα.', ...
         passIdx, stepIdx);
 end
 end

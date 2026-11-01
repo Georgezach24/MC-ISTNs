@@ -454,6 +454,64 @@ C = addCheck(C, 'TH7 site 3 τομεων: SINR == max S_c/(N + αλλοι τομ
 C = addCheck(C, 'TH8 χρηστης στον αξονα τομεα -> αυτος ο τομεας', 'λογικο', 1, ...
              double(isequal(bestSec([1 3 5])', [1 2 3])), 0);
 
+%% ================== Ι. Soft LOS και RLF ==================
+% Soft LOS (TR 38.901 §7.6.3.3, εξ. 7.6-18): LOS_soft = 1/2 + (1/π) arctan(
+% sqrt(d_LOS/λ)(G + F(d))). Όρια: P_LOS = 1 -> F = +Inf -> LOS_soft = 1, και
+% το πρόσημο του G + F είναι η σκληρή απόφαση (LOS_soft > 1/2 <=> LOS).
+spSoft = simParameters; spSoft.SoftLos = true;
+satNoS = satParameters; satNoS.MinElevationDeg = 95;
+rng(17);
+uNear = [baseLat + 15/111320, baseLon, 1.5];   % d2D = 15 m < 18 m: P_LOS = 1 (UMa)
+[~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, chNear] = simulateScenario([baseLat baseLon 25], ...
+    uNear, satOverhead, wgs84, spSoft, satNoS);
+C = addCheck(C, 'I1 P_LOS = 1 -> LOS_soft = 1', '-', 1, chNear.LosSoft(1), 0);
+nU = 200;
+uMany = zeros(nU,3);
+for u = 1:nU
+    [la, lo] = reckon(baseLat, baseLon, 20 + 1500*rand(), 360*rand(), wgs84);
+    uMany(u,:) = [la lo 1.5];
+end
+[~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, chMany] = simulateScenario([baseLat baseLon 25], ...
+    uMany, satOverhead, wgs84, spSoft, satNoS);
+okS = ~isnan(chMany.LosSoft(:,1));
+C = addCheck(C, 'I2 LOS_soft στο [0, 1]', 'λογικο', 1, ...
+             double(all(chMany.LosSoft(okS,1) >= 0 & chMany.LosSoft(okS,1) <= 1)), 0);
+C = addCheck(C, 'I2 LOS_soft > 1/2 <=> σκληρη αποφαση LOS', 'λογικο', 1, ...
+             double(isequal(chMany.LosSoft(okS,1) > 0.5, chMany.IsLOS(okS,1))), 0);
+
+% RLF (TS 38.331 §5.3.10, TR 36.839 Πίν. 5.2.1.3.1), με Δt = 1 s ώστε T310 =
+% 1 βήμα. Ένας χρήστης, ένας σταθμός, δορυφόρος απρόσιτος: το SINR είναι το
+% SNR, και με πτώση ισχύος 60 dB πέφτει κάτω από το Qout = -8 dB.
+spR = simParameters;
+spR.Mobility = struct('HysteresisDb', 3, 'TimeToTriggerMs', 480, 'DtSeconds', 1, ...
+    'PingPongMtsS', 1, 'MlbMaxOffsetDb', 6, ...
+    'Rlf', struct('QoutDb', -8, 'QinDb', -6, 'T310Ms', 1000, 'N310', 1, 'N311', 1));
+spLow = spR; spLow.EIRP = spR.EIRP - 60;
+uR = [baseLat + 300/111320, baseLon, 1.5];
+bsR = [baseLat baseLon 25];
+rng(19);
+[n1,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, ch1,~,~,~,~,~,~, d1] = simulateScenario(bsR, uR, ...
+    satOverhead, wgs84, spR, satNoS);
+[n2,t2,~,~,s2,c2,~,~,~,~,~,~,~,~,~,~, ch2,~,~,thr2,~,~,k2, d2] = simulateScenario(bsR, uR, ...
+    satOverhead, wgs84, spLow, satNoS, ch1, d1);
+C = addCheck(C, 'I3 SINR < Qout: ο χρηστης μενει στον σταθμο', 'λογικο', 1, ...
+             double(n1 == "BS1" && n2 == "BS1" && t2 == "Terrestrial" && s2 < -8), 0);
+C = addCheck(C, 'I3 ο T310 ξεκινα (0 βηματα)', 'βηματα', 0, d2.Actual.T310, 0);
+C = addCheck(C, 'I3 κατω απο το MCS 0: μηδενικος ρυθμος', 'Mbps', 0, thr2 + c2, 0);
+C = addCheck(C, 'I3 κανενα RLF ακομα', '1/min', 0, k2.Actual.RlfRate_perUserMin, 0);
+[n3,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,k3] = simulateScenario(bsR, uR, ...
+    satOverhead, wgs84, spLow, satNoS, ch2, d2);
+C = addCheck(C, 'I4 ληξη T310 χωρις in-sync -> RLF, outage', 'λογικο', 1, ...
+             double(n3 == "None"), 0);
+C = addCheck(C, 'I4 RLF ανα χρηστη ανα λεπτο (1 σε 1 s)', '1/min', 60, ...
+             k3.Actual.RlfRate_perUserMin, 1e-12);
+C = addCheck(C, 'I4 το RLF δεν ειναι handover', '1/min', 0, k3.Actual.HoRate_perUserMin, 0);
+[n3b,~,~,~,s3b,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,k3b, d3b] = simulateScenario(bsR, uR, ...
+    satOverhead, wgs84, spR, satNoS, ch2, d2);
+C = addCheck(C, 'I5 SINR > Qin πριν τη ληξη -> μενει, T310 σταματα', 'λογικο', 1, ...
+             double(n3b == "BS1" && s3b > -6 && d3b.Actual.T310 == -1 && ...
+                    k3b.Actual.RlfRate_perUserMin == 0), 0);
+
 %% ------------------ Πίνακας και εκτύπωση ------------------
 T = table(string({C.name}'), string({C.unit}'), [C.expected]', [C.actual]', ...
     abs([C.actual]' - [C.expected]'), [C.tol]', logical([C.pass]'), ...

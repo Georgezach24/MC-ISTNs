@@ -142,10 +142,32 @@ if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'PingPo
 else
     pingPongMtsS = 1;
 end
+% Ping-pong: παραμονή ΜΙΚΡΟΤΕΡΗ από το MTS (TR 36.839 Ορισμός 5), σε ακέραια
+% βήματα. Με Δt = 1 s η μικρότερη παρατηρήσιμη παραμονή είναι 1 βήμα = MTS,
+% οπότε κρατείται το 1 βήμα· με Δt = 0.2 s: έως 4 βήματα = 0.8 s.
+ppMaxStaySteps = max(1, ceil(pingPongMtsS/dtSecHys - 1e-9) - 1);
 % Ο χρόνος επιβεβαίωσης μετατρέπεται σε διαδοχικά βήματα. Η στρογγυλοποίηση
 % είναι προς τα πάνω επειδή το πρότυπο απαιτεί η συνθήκη να ΙΣΧΥΕΙ για τη
 % διάρκεια αυτή· με Δt = 1 s οι τιμές κάτω από 1024 ms δεν διακρίνονται.
 nTtt = max(1, ceil(tttMs / (dtSecHys*1000)));
+
+%% ------------------ Παρακολούθηση ζεύξης και RLF ------------------
+% Ο εξυπηρετών κόμβος δεν εγκαταλείπεται με την πρώτη βύθιση του SINR. Η
+% απώλεια της ζεύξης κρίνεται με τη διαδικασία του TS 38.331 §5.3.10:
+% N310 διαδοχικές ενδείξεις out-of-sync (SINR < Qout) ξεκινούν τον T310·
+% N311 διαδοχικές in-sync (SINR > Qin) όσο τρέχει τον σταματούν· αν λήξει,
+% δηλώνεται RLF και ο χρήστης κάνει επανεγκατάσταση (§5.3.7) σε κελί που
+% επιλέγει εκ νέου. Τιμές: TR 36.839 Πίν. 5.2.1.3.1 (Qout -8 dB, Qin -6 dB,
+% T310 1 s = προεπιλογή του 36.331, N310 = N311 = 1). Μία ένδειξη ανά βήμα:
+% με N310 = N311 = 1 η καταμέτρηση είναι η ίδια· ο T310 γίνεται βήματα με
+% στρογγυλοποίηση προς τα πάνω, όπως ο χρόνος επιβεβαίωσης.
+rlfP = struct('QoutDb', -8, 'QinDb', -6, 'T310Ms', 1000, 'N310', 1, 'N311', 1);
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'Rlf')
+    rlfP = simParameters.Mobility.Rlf;
+end
+mob = struct('MinUsableDb', minUsableSinrDb, 'HysDb', hysDb, 'NTtt', nTtt, ...
+    'QoutDb', rlfP.QoutDb, 'QinDb', rlfP.QinDb, 'N310', rlfP.N310, 'N311', rlfP.N311, ...
+    'NT310', max(1, ceil(rlfP.T310Ms / (dtSecHys*1000))));
 
 %% ------------------ Εξισορρόπηση φόρτου (Mobility Load Balancing) ------------------
 % TS 38.300 §15.5.1: το MLB μοιράζει τον φόρτο αλλάζοντας τις παραμέτρους του
@@ -213,23 +235,29 @@ newDecision = struct();
 % reporting). Η απόφαση του επόμενου βήματος βλέπει τον φόρτο αυτού, δηλαδή με
 % καθυστέρηση ενός βήματος, και όχι τον φόρτο που θα προκύψει από την ίδια.
 % Υπολογίζεται σε όλες τις πολιτικές, αλλά μόνο οι *MLB τον χρησιμοποιούν.
-% Forced/Offset: αν η επιλογή του βήματος ήταν αναγκαστική και ποια μετατόπιση
-% είχε ο επιλεγμένος κόμβος. Μόνο για την καταγραφή των handovers.
+% Cause/Offset: πώς άλλαξε ο κόμβος στο βήμα ("HO" επιτυχές handover του A3,
+% "RLF" επανεγκατάσταση μετά από RLF, "HOF" επανεγκατάσταση μετά από αποτυχία
+% στον στόχο, "" καμία αλλαγή) και ποια μετατόπιση είχε ο επιλεγμένος κόμβος.
+% Oos/Is/T310: μετρητές N310/N311 και βήματα από την εκκίνηση του T310 (-1 =
+% δεν τρέχει), TS 38.331 §5.3.10.1.
 for pol = policyNamesLocal
     newDecision.(pol{1}) = struct('Node', strings(numUsers,1), ...
         'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), ...
         'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1), ...
-        'Forced', false(numUsers,1), 'Offset', zeros(numUsers,1), ...
-        'LoadNode', strings(0,1), 'LoadRho', zeros(0,1));
+        'Cause', strings(numUsers,1), 'Offset', zeros(numUsers,1), ...
+        'Oos', zeros(numUsers,1), 'Is', zeros(numUsers,1), 'T310', -ones(numUsers,1), ...
+        'LoadNode', strings(0,1), 'LoadRho', zeros(0,1), 'LoadAge', 0);
 end
 hasPrevDecision = ~isempty(prevDecision);
 
-% Handovers του βήματος ανά πολιτική, ανά τύπο: επίγειο-επίγειο, επίγειο-
-% δορυφορικό (και προς τις δύο κατευθύνσεις), δορυφορικό-δορυφορικό.
+% Επιτυχή handovers του βήματος ανά πολιτική, ανά τύπο: επίγειο-επίγειο,
+% επίγειο-δορυφορικό (και προς τις δύο κατευθύνσεις), δορυφορικό-δορυφορικό.
+% RLF ανά τύπο εξυπηρετούντος κόμβου (TR 36.839 Ορισμός 2) και αποτυχίες
+% handover (Ορισμός 3).
 hoCount = struct();
 for pol = policyNamesLocal
     hoCount.(pol{1}) = struct('TerrTerr', 0, 'TerrSat', 0, 'SatSat', 0, 'PingPong', 0, ...
-        'TerrTerrForced', 0, 'TerrSatForced', 0, 'SatSatForced', 0);
+        'RlfTerr', 0, 'RlfSat', 0, 'HoFail', 0);
 end
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
@@ -260,6 +288,16 @@ pLosMat           = nan(numUsers,numSites);
 losMat            = false(numUsers,numSites);
 losLatentMat      = zeros(numUsers,numSites);
 sfMat             = nan(numUsers,numSites);
+% Soft LOS (TR 38.901 §7.6.3.3, εξ. 7.6-18/19): δύο διεργασίες σκίασης, μία
+% για κάθε κατάσταση, ώστε το κανάλι να υπολογίζεται και ως LOS και ως NLOS.
+sfLosMat          = zeros(numUsers,numSites);
+sfNlosMat         = zeros(numUsers,numSites);
+losSoftMat        = nan(numUsers,numSites);
+useSoftLos = isfield(simParameters, 'SoftLos') && simParameters.SoftLos;
+% Συντελεστής της εξ. 7.6-18: sqrt(d_LOS/λ). Το d_LOS δεν ορίζεται ρητά στο
+% εδάφιο· λαμβάνεται η απόσταση συσχέτισης της κατάστασης LOS/NLOS του Πίν.
+% 7.6.3.1-2 (UMa/UMi: 50 m), με την οποία παράγεται και η G.
+softLosK = sqrt(50 / (physconst('LightSpeed')/simParameters.CarrierFrequency));
 snrDbMat          = nan(numUsers,numBs);   % χωρίς παρεμβολή, διαγνωστικό
 sinrDbMat         = nan(numUsers,numBs);
 cellPathLossMat   = nan(numUsers,numBs);   % = απώλειες του site του κελιού
@@ -275,7 +313,8 @@ satElevMat        = nan(numUsers,numSats);
 
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
-    isequal(size(prevChannelState.IsLOS), [numUsers, numSites]);
+    isequal(size(prevChannelState.IsLOS), [numUsers, numSites]) && ...
+    (~useSoftLos || isfield(prevChannelState, 'SfLos_dB'));
 % Κρυφή γκαουσιανή μεταβλητή της δορυφορικής σκίασης ανά (χρήστη, δορυφόρο)
 % (βλ. «Satellite candidates»). Ταξιδεύει μέσα στο prevChannelState και
 % μηδενίζεται στην αρχή κάθε διέλευσης μαζί με το υπόλοιπο κανάλι.
@@ -445,12 +484,41 @@ for u = 1:numUsers
         end
         [isLos, losLatent] = spatiallyConsistentLos(pLos, userMoveDistance, ...
             hasPrevState, prevLatent);
+        pLosMat(u,b)      = pLos;
+        losMat(u,b)       = isLos;
+        losLatentMat(u,b) = losLatent;
+
+        if useSoftLos
+            % Soft LOS, TR 38.901 §7.6.3.3: LOS_soft = 1/2 + (1/π) arctan(
+            % sqrt(d_LOS/λ) (G + F(d))), F(d) = sqrt(2) erf^-1(2 P_LOS(d) - 1).
+            % G = -latent: ίδια κατανομή, και το πρόσημο του G + F δίνει την
+            % ίδια σκληρή απόφαση με το spatiallyConsistentLos (όριο K -> ∞).
+            % Τα βήματα του καναλιού γίνονται δύο φορές, μία ως LOS και μία ως
+            % NLOS, και H = sqrt(LOS_soft) H_LOS + sqrt(1-LOS_soft) H_NLOS
+            % (εξ. 7.6-19). Σε ισχύ, με ανεξάρτητες φάσεις των δύο σκελών:
+            % P = LOS_soft P_LOS + (1 - LOS_soft) P_NLOS.
+            losSoft = 0.5 + atan(softLosK*(-losLatent + sqrt(2)*erfinv(2*pLos - 1)))/pi;
+            losSoftMat(u,b) = losSoft;
+            if hasPrevState
+                rhoL = shadowFadingCorrelation(userMoveDistance, simParameters.PathLoss.Scenario, true);
+                rhoN = shadowFadingCorrelation(userMoveDistance, simParameters.PathLoss.Scenario, false);
+                sfL = rhoL*prevChannelState.SfLos_dB(u,b)  + sqrt(1 - rhoL^2)*sfSigmaLosMat(u,b)*randn();
+                sfN = rhoN*prevChannelState.SfNlos_dB(u,b) + sqrt(1 - rhoN^2)*sfSigmaNlosMat(u,b)*randn();
+            else
+                sfL = sfSigmaLosMat(u,b)*randn();
+                sfN = sfSigmaNlosMat(u,b)*randn();
+            end
+            sfLosMat(u,b) = sfL; sfNlosMat(u,b) = sfN;
+            sfMat(u,b) = isLos*sfL + (~isLos)*sfN;   % διαγνωστικό
+            plL = plLosMat(u,b)  + sfL - smallScaleFadingDb(true,  terrKdBLos, measNAvgTerr);
+            plN = plNlosMat(u,b) + sfN - smallScaleFadingDb(false, terrKdBLos, measNAvgTerr);
+            pathLossMat(u,b) = -10*log10(losSoft*10^(-plL/10) + (1 - losSoft)*10^(-plN/10));
+            continue;
+        end
+
         rho = shadowFadingCorrelation(userMoveDistance, ...
             simParameters.PathLoss.Scenario, isLos);
         useCorrelatedSF = hasPrevState && (isLos == prevIsLos);
-        pLosMat(u,b)     = pLos;
-        losMat(u,b)      = isLos;
-        losLatentMat(u,b) = losLatent;
 
         if isLos
             pathLoss = plLosMat(u,b);  sigmaSF = sfSigmaLosMat(u,b);
@@ -728,13 +796,15 @@ for u = 1:numUsers
             otherwise,              keepMask = isSat;
         end
 
-        pN = ""; pP = ""; pC = 0; pPrev = ""; pStay = 0;
+        pN = ""; pPrev = ""; pStay = 0;
+        st = struct('Node', "", 'Pending', "", 'Count', 0, 'Oos', 0, 'Is', 0, 'T310', -1);
         if hasPrevDecision
-            pN = prevDecision.(polName).Node(u);
-            pP = prevDecision.(polName).Pending(u);
-            pC = prevDecision.(polName).Count(u);
-            pPrev = prevDecision.(polName).Prev(u);
-            pStay = prevDecision.(polName).Stay(u);
+            pd = prevDecision.(polName);
+            pN = pd.Node(u);
+            pPrev = pd.Prev(u);
+            pStay = pd.Stay(u);
+            st = struct('Node', pN, 'Pending', pd.Pending(u), 'Count', pd.Count(u), ...
+                'Oos', pd.Oos(u), 'Is', pd.Is(u), 'T310', pd.T310(u));
         end
 
         % Μετατόπιση φόρτου κάθε υποψηφίου ως προς τον εξυπηρετούντα (0 για
@@ -752,28 +822,50 @@ for u = 1:numUsers
             candOffsetDb(candNode == pN) = 0;
         end
 
-        [ci, pendN, pendC, isForced] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
-            keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt, candOffsetDb);
+        [ci, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, keepMask, ...
+            st, mob, candOffsetDb);
 
-        if ci == 0
-            selNode = "None"; selType = "Outage"; selSinr = NaN;
+        % ci > 0: υποψήφιος του καταλόγου· ci = 0 με st.Node = κόμβος: ο
+        % χρήστης μένει στον εξυπηρετούντα ενώ τρέχει ο T310, αλλά η ζεύξη
+        % του δεν υπάρχει πια στο μοντέλο (π.χ. δορυφόρος κάτω από τη γωνία
+        % αποκοπής), οπότε δεν έχει SINR· ci = 0 με "None": εκτός κάλυψης.
+        selNode = st.Node;
+        if ci > 0
+            selType = candType(ci); selSinr = candSinr(ci);
+        elseif selNode == "None"
+            selType = "Outage"; selSinr = NaN;
         else
-            selNode = candNode(ci); selType = candType(ci); selSinr = candSinr(ci);
+            selSinr = NaN;
+            if startsWith(selNode, "SAT")
+                selType = "Satellite";
+            else
+                selType = "Terrestrial";
+            end
         end
         newDecision.(polName).Node(u)    = selNode;
-        newDecision.(polName).Pending(u) = pendN;
-        newDecision.(polName).Count(u)   = pendC;
-        newDecision.(polName).Forced(u)  = isForced;
+        newDecision.(polName).Pending(u) = st.Pending;
+        newDecision.(polName).Count(u)   = st.Count;
+        newDecision.(polName).Oos(u)     = st.Oos;
+        newDecision.(polName).Is(u)      = st.Is;
+        newDecision.(polName).T310(u)    = st.T310;
+        newDecision.(polName).Cause(u)   = ev.Cause;
         if ci > 0
             newDecision.(polName).Offset(u) = candOffsetDb(ci);
         end
+        if ev.Rlf
+            if startsWith(pN, "SAT")
+                hoCount.(polName).RlfSat = hoCount.(polName).RlfSat + 1;
+            else
+                hoCount.(polName).RlfTerr = hoCount.(polName).RlfTerr + 1;
+            end
+        end
+        hoCount.(polName).HoFail = hoCount.(polName).HoFail + ev.HoFail;
 
-        % Handover = αλλαγή από έναν εξυπηρετούντα κόμβο σε άλλον, με τον ίδιο
-        % ορισμό που χρησιμοποιεί το runSimulation.m για το LinkState
-        % "InTransition". Η επανασύνδεση μετά από outage (None -> κόμβος) και η
-        % πρώτη σύνδεση της διέλευσης δεν μετρούν.
-        isHo = pN ~= "" && pN ~= "None" && selNode ~= "None" && selNode ~= pN;
-        if isHo
+        % Handover = επιτυχής εκτέλεση του A3 από έναν εξυπηρετούντα κόμβο σε
+        % άλλον. Η επανεγκατάσταση μετά από RLF ή αποτυχία δεν είναι handover
+        % (TR 36.839 Ορισμός 6: «successful handovers excl. handover
+        % failures»), ούτε η πρώτη σύνδεση ή η επανασύνδεση μετά από outage.
+        if ev.Cause == "HO"
             fromSat = startsWith(pN, "SAT");
             toSat   = startsWith(selNode, "SAT");
             if ~fromSat && ~toSat
@@ -784,26 +876,24 @@ for u = 1:numUsers
                 hoType = 'TerrSat';
             end
             hoCount.(polName).(hoType) = hoCount.(polName).(hoType) + 1;
-            % Αναγκαστικό: ο προηγούμενος κόμβος χάθηκε. Αλλιώς η αλλαγή είναι
-            % απόφαση του A3, με υστέρηση και χρόνο επιβεβαίωσης.
-            if isForced
-                hoCount.(polName).([hoType 'Forced']) = hoCount.(polName).([hoType 'Forced']) + 1;
-            end
-            % Παραμονή στον pN = βήματα από την είσοδο σε αυτόν ως τώρα.
-            if selNode == pPrev && (pStay + 1)*dtSecHys <= pingPongMtsS
+            % Ping-pong (TR 36.839 Ορισμός 5): επιστροφή στον κόμβο πριν το
+            % προηγούμενο handover, με παραμονή στον pN μικρότερη από το MTS.
+            if selNode == pPrev && (pStay + 1) <= ppMaxStaySteps
                 hoCount.(polName).PingPong = hoCount.(polName).PingPong + 1;
             end
             newDecision.(polName).Prev(u) = pN;
             newDecision.(polName).Stay(u) = 0;
-        elseif selNode ~= "None" && selNode == pN
+        elseif ev.Cause == "" && selNode ~= "None" && selNode == pN
             newDecision.(polName).Prev(u) = pPrev;
             newDecision.(polName).Stay(u) = pStay + 1;
         end
-        % Αλλιώς (outage ή πρώτη σύνδεση) Prev = "" και Stay = 0 από την
-        % αρχικοποίηση: η αλυσίδα των handovers ξεκινά από την αρχή.
+        % Αλλιώς (RLF, αποτυχία, outage ή πρώτη σύνδεση) Prev = "" και Stay = 0
+        % από την αρχικοποίηση: η αλυσίδα ξεκινά από την αρχή, αφού «whenever
+        % there is a handover failure, the time of stay should not be logged»
+        % (TR 36.839 §5.2.2).
 
         if strcmp(polName, 'Actual')
-            if ci == 0
+            if selNode == "None"
                 % Σε outage κρατάμε τα διαγνωστικά του καλύτερου υποψηφίου,
                 % αλλά ο χρήστης δεν ανατίθεται σε κόμβο.
                 bestNodeVec(u)         = "None";
@@ -812,16 +902,23 @@ for u = 1:numUsers
                 bestPathLossVec(u)     = userBestPathLoss;
                 bestSinrDbVec(u)       = userBestSinr;
                 bestElevationDegVec(u) = userBestElevation;
-            else
-                % Με υστέρηση ο επιλεγμένος κόμβος δεν είναι κατ' ανάγκη ο
-                % καλύτερος: η χωρητικότητα υπολογίζεται από το SINR του
-                % κόμβου στον οποίο ο χρήστης είναι όντως συνδεδεμένος.
+            elseif ci > 0
+                % Ο επιλεγμένος κόμβος δεν είναι κατ' ανάγκη ο καλύτερος: η
+                % χωρητικότητα υπολογίζεται από το SINR του κόμβου στον οποίο
+                % ο χρήστης είναι όντως συνδεδεμένος.
                 bestNodeVec(u)         = candNode(ci);
                 bestNodeTypeVec(u)     = candType(ci);
                 bestDistanceVec(u)     = candDist(ci);
                 bestPathLossVec(u)     = candPl(ci);
                 bestSinrDbVec(u)       = candSinr(ci);
                 bestElevationDegVec(u) = candElev(ci);
+            else
+                bestNodeVec(u)         = selNode;
+                bestNodeTypeVec(u)     = selType;
+                bestDistanceVec(u)     = NaN;
+                bestPathLossVec(u)     = NaN;
+                bestSinrDbVec(u)       = NaN;
+                bestElevationDegVec(u) = NaN;
             end
         end
         polNodeMat(u,pI) = selNode;
@@ -838,7 +935,7 @@ end
 % 5.1.3.1-1): κοινή για τη χωρητικότητα και για τον φόρτο του MLB.
 alloc = struct('BW_bs', BW_bs, 'pOutPerChainW', pOutPerChainW, ...
                'targetNormalizedSe', targetNormalizedSe, 'numBs', numBs, ...
-               'maxSe', 5.5547);
+               'maxSe', 5.5547, 'minUsableDb', minUsableSinrDb);
 
 [capacityMbpsVec, throughputMbpsVec, serviceStateVec, nodePowerWattsVec, ...
  energyPerBitUJVec, networkEnergy] = allocateAndTally(bestNodeVec, ...
@@ -877,12 +974,29 @@ for pI = 2:numPolLocal
         hoCount.(polName), dtSecHys);
 end
 
-% Αναφορά φόρτου για το επόμενο βήμα.
+% Αναφορά φόρτου για το επόμενο βήμα. Στέλνεται περιοδικά, με Reporting
+% Periodicity του Resource Status Request (TS 38.423 §9.1.3.18: 500, 1000,
+% 2000, 5000, 10000 ms)· ανάμεσα στις αναφορές ισχύει η τελευταία. LoadAge =
+% βήματα από την τελευταία αναφορά.
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'LoadReportPeriodMs')
+    nLoadRep = max(1, round(simParameters.Mobility.LoadReportPeriodMs / (dtSecHys*1000)));
+else
+    nLoadRep = 1;
+end
 for pI = 1:numPolLocal
-    [ldNode, ldRho] = virtualLoad(polNodeMat(:,pI), polSinrMat(:,pI), ...
-        targetNormalizedSe, alloc.maxSe);
-    newDecision.(policyNamesLocal{pI}).LoadNode = ldNode;
-    newDecision.(policyNamesLocal{pI}).LoadRho  = ldRho;
+    polName = policyNamesLocal{pI};
+    if hasPrevDecision && isfield(prevDecision.(polName), 'LoadAge') && ...
+            prevDecision.(polName).LoadAge + 1 < nLoadRep
+        newDecision.(polName).LoadNode = prevDecision.(polName).LoadNode;
+        newDecision.(polName).LoadRho  = prevDecision.(polName).LoadRho;
+        newDecision.(polName).LoadAge  = prevDecision.(polName).LoadAge + 1;
+    else
+        [ldNode, ldRho] = virtualLoad(polNodeMat(:,pI), polSinrMat(:,pI), ...
+            targetNormalizedSe, alloc.maxSe, minUsableSinrDb);
+        newDecision.(polName).LoadNode = ldNode;
+        newDecision.(polName).LoadRho  = ldRho;
+        newDecision.(polName).LoadAge  = 0;
+    end
 end
 
 %% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
@@ -892,6 +1006,9 @@ newChannelState.IsLOS           = losMat;
 newChannelState.LosLatent       = losLatentMat;
 newChannelState.SatShadowLatent = satShadowLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
+newChannelState.SfLos_dB        = sfLosMat;
+newChannelState.SfNlos_dB       = sfNlosMat;
+newChannelState.LosSoft         = losSoftMat;
 newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
 newChannelState.FiltSinrSat_dB  = filtSinrSatMat;
 % Γεωμετρία όλων των υποψηφίων, μόνο για την καταγραφή των handovers.
@@ -900,99 +1017,150 @@ newChannelState.BsDist_m        = cellRange3DMat;
 
 end
 
-function [chosenIdx, pendNode, pendCount, forced] = applyHysteresis(candNode, candSinr, ...
-    candSinrMeas, keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt, ...
-    candOffsetDb)
-% Απόφαση επιλογής κόμβου με υστέρηση και χρόνο επιβεβαίωσης, κατά τη μεταφορά
-% του Event A3 του TS 38.331 §5.5.4.4:
-%   είσοδος (A3-1):  M_n - Hys > M_p     έξοδος (A3-2):  M_n + Hys < M_p
-% με Off = Ofn = Ocn = Ofp = Ocp = 0, δηλαδή χωρίς μετατοπίσεις ανά κυψέλη ή
-% ανά συχνότητα, και με τη συνθήκη εισόδου να πρέπει να ισχύει για nTtt
-% διαδοχικά βήματα. Δεν πρόκειται για υλοποίηση της διαδικασίας RRC: δεν
-% υπάρχει σηματοδοσία, αναφορά μέτρησης, ούτε έλεγχος επιτυχίας.
+function [chosenIdx, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, keepMask, st, P, candOffsetDb)
+% Ένα βήμα κινητικότητας για έναν χρήστη σε μία πολιτική: παρακολούθηση της
+% ζεύξης (RLM) του εξυπηρετούντος κόμβου και απόφαση handover κατά Event A3.
 %
-% Δύο διαφορετικά SINR, σκόπιμα:
-%   candSinr     το πραγματικό SINR της ζεύξης. Καθορίζει ΜΟΝΟ αν η ζεύξη
-%                μπορεί να σηκώσει δεδομένα, δηλαδή τον έλεγχο κατωφλίου.
-%                Το κατώφλι είναι φυσικό όριο (MCS 0), όχι μέτρηση.
-%   candSinrMeas η φιλτραρισμένη μέτρηση κατά §5.5.3.2. Καθορίζει ΠΟΙΟΝ
-%                υποψήφιο βλέπει ο μηχανισμός απόφασης ως καλύτερο και αν
-%                ικανοποιείται η συνθήκη A3. Αυτό βλέπει ένα πραγματικό
-%                τερματικό· δεν βλέπει ποτέ στιγμιαίο δείγμα.
-% Με l3Alpha = 1 τα δύο ταυτίζονται και η συμπεριφορά ανάγεται στην παλιά.
+% (1) RLM, TS 38.331 §5.3.10.1 και §5.3.10.3, τιμές TR 36.839 Πίν. 5.2.1.3.1:
+%     out-of-sync όταν SINR < Qout, in-sync όταν SINR > Qin. P.N310
+%     διαδοχικά out-of-sync ξεκινούν τον T310· P.N311 διαδοχικά in-sync όσο
+%     τρέχει τον σταματούν· στη λήξη του (P.NT310 βήματα) δηλώνεται RLF. Η
+%     ένδειξη in-sync ελέγχεται πριν τη λήξη: η μέτρηση του βήματος της λήξης
+%     ανήκει στο διάστημα που έτρεχε ο χρονομετρητής.
+% (2) Event A3, TS 38.331 §5.5.4.4: είσοδος M_n + Ocn - Hys > M_p για P.NTtt
+%     διαδοχικά βήματα (Ocn = μετατόπιση MLB). Συγκρίνεται η φιλτραρισμένη
+%     μέτρηση (§5.5.3.2), όχι το στιγμιαίο SINR.
+% (3) Αποτυχία handover, TR 36.839 Ορισμός 3:
+%     - η εντολή handover φτάνει ενώ τρέχει ο T310 (κριτήριο 1 της
+%       κατάστασης 2): ο χρήστης μένει στον εξυπηρετούντα με τον T310 να
+%       συνεχίζει (§5.4.1)·
+%     - RLF ενώ ισχύει η συνθήκη εισόδου του A3 (κριτήριο 2 της κατάστασης 2)·
+%     - SINR του στόχου < Qout στο τέλος της εκτέλεσης (κατάσταση 3): ο
+%       χρήστης δεν συνδέεται στον στόχο και κάνει επανεγκατάσταση.
+% (4) Μετά από RLF ή αποτυχία στον στόχο ο χρήστης κάνει επανεγκατάσταση
+%     (TS 38.331 §5.3.7) σε κελί που επιλέγει εκ νέου. Το TR 36.839 αφήνει
+%     το μοντέλο ανάκαμψης ελεύθερο («companies should have the flexibility to
+%     choose a realistic RLF recovery model», §5.4.1)· εδώ είναι ο ίδιος
+%     κανόνας με την πρώτη σύνδεση: ο καλύτερος υποψήφιος στη μέτρηση με SINR
+%     τουλάχιστον όσο του MCS 0, αλλιώς outage. Η διάρκεια της
+%     επανεγκατάστασης δεν μοντελοποιείται (μικρότερη του βήματος).
 %
-%   candOffsetDb η μετατόπιση κάθε υποψηφίου ως προς τον εξυπηρετούντα
-%                (Ocn - Ocp του A3, εδώ από το MLB). Προστίθεται στη μέτρηση
-%                του υποψηφίου ΜΟΝΟ στη σύγκριση με τον εξυπηρετούντα· η
-%                επιλογή χωρίς εξυπηρετούντα (πρώτη σύνδεση, απώλεια ζεύξης)
-%                δεν έχει ζεύγος κυψελών και γίνεται στη σκέτη μέτρηση.
-%                Μηδενικές τιμές = A3 χωρίς μετατοπίσεις.
-if nargin < 11 || isempty(candOffsetDb)
-    candOffsetDb = zeros(size(candSinrMeas));
-end
-usable = keepMask & (candSinr >= minUsableSinrDb);
-chosenIdx = 0; pendNode = ""; pendCount = 0;
-% forced: ο εξυπηρετών κόμβος υπήρχε αλλά δεν είναι πια αξιοποιήσιμος (κάτω από
-% το κατώφλι, εκτός πεδίου ισχύος του μοντέλου ή κάτω από τη γωνία αποκοπής),
-% οπότε η επιλογή δεν περνά από τον κανόνα A3. Αφορά μόνο την καταμέτρηση.
-forced = false;
+% Δύο SINR, σκόπιμα: candSinr είναι το πραγματικό SINR της ζεύξης (RLM,
+% έλεγχος στόχου, επιλογή κελιού), candSinrMeas η φιλτραρισμένη μέτρηση του
+% L3 που βλέπει ο A3.
+%
+% Επιστρέφει: chosenIdx δείκτη στον κατάλογο υποψηφίων (0 = κανένας: outage
+% αν st.Node == "None", αλλιώς ο εξυπηρετών χωρίς ζεύξη στο μοντέλο), τη νέα
+% κατάσταση st και τα γεγονότα ev (Cause "", "HO", "RLF", "HOF"· Rlf· HoFail).
+ev = struct('Cause', "", 'Rlf', false, 'HoFail', false);
+valid = keepMask & isfinite(candSinrMeas);
+pN = st.Node;
 
-if ~any(usable)
-    return;   % κανένας επιλέξιμος υποψήφιος -> εκτός κάλυψης
-end
-
-masked = candSinrMeas; masked(~usable) = -Inf;
-[~, iBest] = max(masked);
-
-iPrev = 0;
-if prevNode ~= "" && prevNode ~= "None"
-    hit = find(candNode == prevNode & usable, 1);
-    if ~isempty(hit)
-        iPrev = hit;
-    end
-end
-
-if iPrev == 0
-    % Δεν υπάρχει εξυπηρετών κόμβος, είτε επειδή είναι το πρώτο βήμα είτε
-    % επειδή η ζεύξη του έπεσε κάτω από το κατώφλι. Η υστέρηση καθυστερεί τη
-    % μετάβαση προς καλύτερο κόμβο· δεν κρατά μια ζεύξη που έχει πάψει να
-    % είναι αξιοποιήσιμη. Η επιλογή γίνεται άμεσα.
-    chosenIdx = iBest;
-    forced = prevNode ~= "" && prevNode ~= "None";
+if pN == "" || pN == "None"
+    [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st);
     return;
 end
 
-% Με εξυπηρετούντα, ο καλύτερος υποψήφιος κρίνεται στη μέτρηση συν τη
-% μετατόπισή του (η μετατόπιση του ίδιου του εξυπηρετούντος είναι 0).
-masked = masked + candOffsetDb;
-[~, iBest] = max(masked);
-
-if iBest == iPrev
-    chosenIdx = iPrev;
-    return;
+iPrev = find(candNode == pN & valid, 1);
+if isempty(iPrev)
+    iPrev = 0;
+    sServ = -Inf;   % η ζεύξη δεν μετριέται: out-of-sync
+else
+    sServ = candSinr(iPrev);
 end
 
-if candSinrMeas(iBest) + candOffsetDb(iBest) - hysDb > candSinrMeas(iPrev)
-    % Η συνθήκη εισόδου ισχύει: ο μετρητής επιβεβαίωσης προχωρά μόνο αν ο
-    % υποψήφιος είναι ο ίδιος με το προηγούμενο βήμα.
-    if prevPending == candNode(iBest)
-        pendCount = prevCount + 1;
+% ---- (1) RLM ----
+if st.T310 < 0
+    if sServ < P.QoutDb
+        st.Oos = st.Oos + 1;
     else
-        pendCount = 1;
+        st.Oos = 0;
     end
-    if pendCount >= nTtt
-        chosenIdx = iBest;
-        pendNode  = "";
-        pendCount = 0;
-    else
-        chosenIdx = iPrev;
-        pendNode  = candNode(iBest);
+    if st.Oos >= P.N310
+        st.T310 = 0; st.Oos = 0; st.Is = 0;
     end
 else
-    % Η συνθήκη έπαψε να ισχύει: ο μετρητής μηδενίζεται, όπως απαιτεί η
-    % απαίτηση του προτύπου να ισχύει η συνθήκη συνεχώς για TimeToTrigger.
-    chosenIdx = iPrev;
+    st.T310 = st.T310 + 1;
+    if sServ > P.QinDb
+        st.Is = st.Is + 1;
+    else
+        st.Is = 0;
+    end
+    if st.Is >= P.N311
+        st.T310 = -1; st.Is = 0;
+    elseif st.T310 >= P.NT310
+        ev.Rlf = true;
+        ev.HoFail = st.Count > 0;    % RLF στην κατάσταση 2
+        ev.Cause = "RLF";
+        [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st);
+        return;
+    end
 end
+
+% ---- (2) A3 ----
+chosenIdx = iPrev;
+masked = candSinrMeas + candOffsetDb;
+masked(~valid) = -Inf;
+if iPrev > 0
+    masked(iPrev) = candSinrMeas(iPrev);   % η μετατόπιση του ίδιου είναι 0
+    mServ = candSinrMeas(iPrev);
+else
+    mServ = -Inf;
+end
+[mBest, iBest] = max(masked);
+if ~isfinite(mBest) || iBest == iPrev
+    st.Pending = ""; st.Count = 0;
+    return;
+end
+if mBest - P.HysDb > mServ
+    if st.Pending == candNode(iBest)
+        st.Count = st.Count + 1;
+    else
+        st.Pending = candNode(iBest);
+        st.Count = 1;
+    end
+else
+    % Η συνθήκη έπαψε να ισχύει: ο μετρητής μηδενίζεται.
+    st.Pending = ""; st.Count = 0;
+    return;
+end
+if st.Count < P.NTtt
+    return;
+end
+
+% ---- (3) Εντολή handover ----
+st.Pending = ""; st.Count = 0;
+if st.T310 >= 0
+    ev.HoFail = true;   % κριτήριο 1: ο T310 τρέχει, ο χρήστης μένει
+    return;
+end
+if candSinr(iBest) < P.QoutDb
+    ev.HoFail = true;   % κατάσταση 3: ο στόχος δεν είναι προσβάσιμος
+    ev.Cause = "HOF";
+    [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st);
+    return;
+end
+ev.Cause = "HO";
+chosenIdx = iBest;
+st.Node = candNode(iBest);
+st.Oos = 0; st.Is = 0; st.T310 = -1;   % νέα ζεύξη, νέα παρακολούθηση
+end
+
+function [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st)
+% Επιλογή κελιού χωρίς εξυπηρετούντα (πρώτη σύνδεση, μετά από outage ή μετά
+% από RLF/αποτυχία): ο καλύτερος υποψήφιος στη μέτρηση, μεταξύ όσων έχουν
+% SINR τουλάχιστον όσο του MCS 0. Κανένας: outage.
+usable = valid & (candSinr >= P.MinUsableDb);
+st.Pending = ""; st.Count = 0; st.Oos = 0; st.Is = 0; st.T310 = -1;
+if ~any(usable)
+    chosenIdx = 0;
+    st.Node = "None";
+    return;
+end
+m = candSinrMeas;
+m(~usable) = -Inf;
+[~, chosenIdx] = max(m);
+st.Node = candNode(chosenIdx);
 end
 
 function [capacityMbpsVec, throughputMbpsVec, serviceStateVec, ...
@@ -1049,8 +1217,16 @@ for u = 1:numUsers
 
     % Χωρητικότητα Shannon, με clamp στη μέγιστη φασματική απόδοση του NR
     % (MCS 28 / 64QAM, TS 38.214 Πίν. 5.1.3.1-1) ώστε να μην υπερεκτιμάται σε υψηλό SINR.
+    % Κάτω από το SINR του MCS 0 (ή χωρίς ζεύξη στο μοντέλο, NaN) δεν
+    % αποκωδικοποιείται τίποτα: ο χρήστης είναι συνδεδεμένος, όσο τρέχει ο T310,
+    % αλλά χωρίς ρυθμό. Πριν το RLF αυτό δεν συνέβαινε ποτέ, γιατί κάθε
+    % επιλεγμένος κόμβος είχε SINR τουλάχιστον όσο του MCS 0.
     sinr_lin = 10^(sinrDbVec(u)/10);
-    spectralEfficiency = min(log2(1 + sinr_lin), alloc.maxSe);
+    if sinrDbVec(u) >= alloc.minUsableDb
+        spectralEfficiency = min(log2(1 + sinr_lin), alloc.maxSe);
+    else
+        spectralEfficiency = 0;
+    end
     capacity = B_user * spectralEfficiency;   % bits/s
 
     capacityMbpsVec(u)   = capacity * 1e-6;    % Mbps
@@ -1122,7 +1298,7 @@ levels = [0:6, 8:2:24];
 q = reshape(sign(offsetDb(:)) .* levels(k)', size(offsetDb));
 end
 
-function [nodes, rho] = virtualLoad(nodeVec, sinrDbVec, targetNormalizedSe, maxSe)
+function [nodes, rho] = virtualLoad(nodeVec, sinrDbVec, targetNormalizedSe, maxSe, minUsableDb)
 % Εικονικός φόρτος κάθε κόμβου κατά Awada et al. (PIMRC 2010, εξ. 1-3): το
 % μερίδιο των πόρων του κόμβου που χρειάζεται ο χρήστης u για να ικανοποιηθεί,
 %     κ_u = D_u / (R(SINR_u) * N_tot),     ρ_c = Σ_{u στον c} κ_u,
@@ -1132,7 +1308,9 @@ function [nodes, rho] = virtualLoad(nodeVec, sinrDbVec, targetNormalizedSe, maxS
 % απαίτηση D_u χρησιμοποιείται το ίδιο κριτήριο εξυπηρέτησης με την κατανομή
 % πόρων (targetNormalizedSe επί του εύρους του κόμβου), άρα κ_u = target/SE_u
 % και ρ_c <= 1 σημαίνει ότι ο κόμβος μπορεί να εξυπηρετήσει όλους τους χρήστες του.
-served = nodeVec ~= "None" & nodeVec ~= "" & isfinite(sinrDbVec);
+% Χρήστης κάτω από το MCS 0 (όσο τρέχει ο T310) δεν δρομολογείται και δεν
+% καταναλώνει πόρους· με R = 0 το κ_u δεν ορίζεται.
+served = nodeVec ~= "None" & nodeVec ~= "" & isfinite(sinrDbVec) & sinrDbVec >= minUsableDb;
 nodes  = unique(nodeVec(served));
 rho    = zeros(numel(nodes),1);
 se     = min(log2(1 + 10.^(sinrDbVec/10)), maxSe);
@@ -1180,12 +1358,13 @@ s.HoRateTerrTerr_perUserMin = ho.TerrTerr * perUserMin;
 s.HoRateTerrSat_perUserMin  = ho.TerrSat  * perUserMin;
 s.HoRateSatSat_perUserMin   = ho.SatSat   * perUserMin;
 s.PingPongRate_perUserMin   = ho.PingPong * perUserMin;
-% Το μέρος των παραπάνω που ήταν αναγκαστικό (απώλεια του εξυπηρετούντος
-% κόμβου). Η διαφορά από τον συνολικό ρυθμό είναι οι αποφάσεις του A3.
-s.HoRateForced_perUserMin         = (ho.TerrTerrForced + ho.TerrSatForced + ho.SatSatForced) * perUserMin;
-s.HoRateTerrTerrForced_perUserMin = ho.TerrTerrForced * perUserMin;
-s.HoRateTerrSatForced_perUserMin  = ho.TerrSatForced  * perUserMin;
-s.HoRateSatSatForced_perUserMin   = ho.SatSatForced   * perUserMin;
+% RLF ανά χρήστη ανά λεπτό (TR 36.839 Ορισμός 2 επί 60 s), συνολικά και ανά
+% τύπο εξυπηρετούντος κόμβου, και αποτυχίες handover (Ορισμός 3). Το ποσοστό
+% αποτυχίας (Ορισμός 4) υπολογίζεται ανά διέλευση στο runSimulation.m.
+s.RlfRate_perUserMin        = (ho.RlfTerr + ho.RlfSat) * perUserMin;
+s.RlfRateTerr_perUserMin    = ho.RlfTerr * perUserMin;
+s.RlfRateSat_perUserMin     = ho.RlfSat  * perUserMin;
+s.HoFailRate_perUserMin     = ho.HoFail  * perUserMin;
 end
 
 function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)
