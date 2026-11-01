@@ -1,0 +1,29 @@
+Σύγκριση vs 20261031_202833_runSimulation
+
+  ~ checksRun : 270300  ->  1350300
+  ~ ciHalfWidthFinal : [0.013580279 0.013419074 0.01916101 0.018337537 0.017546963]  ->  [0.013797562 0.015795091 0.019946904 0.018884045 0.01982153]
+  ~ ciTargetFromPass : 278  ->  299
+  ~ datasetBytes : 3.7290431e+08  ->  3.7405696e+08
+  ~ datasetSha256 : 71338cfb3dc7da2e32c481b39a79966bd2247014565d61a0ef9bae730246f53f  ->  7d0ab538127ab6b0bdc572e6137dc2c5745c45e2ebaa18970fecaec9c01eab04
+  ~ datasetStride : 5  ->  25
+  ~ dtSeconds : 1  ->  0.2
+  ~ handoverEvents : 320071  ->  269492
+  ~ handoverEventsSha256 : 70e2060877e1e2010136cab1f539e9c7ad46ff5f7b3fda8ce079cf3b0199861a  ->  f6eb7516274ef02a000576ab35b94ad9c24647eb6fb3487515e3eb226a14dfc1
+  ~ l3FilterAlphaAtDt : 0.96875  ->  0.5
+  ~ measNAvgSatellite : 11  ->  3
+  ~ measNAvgTerrestrial : 17  ->  5
+  + mlbReportPeriod_ms = 1000
+  + pingPongMaxStay_s = 0.8
+  ~ policyMetrics : MeanCapacity_Mbps, TotalRate_Mbps, FracServed, FracBelowTarget, FracOutage, BitPerJouleRf, Spectrum_MHz, HoRate_perUserMin, HoRateTerrTerr_perUserMin, HoRateTerrSat_perUserMin, HoRateSatSat_perUserMin, PingPongRate_perUserMin, HoRateForced_perUserMin, HoRateTerrTerrForced_perUserMin, HoRateTerrSatForced_perUserMin, HoRateSatSatForced_perUserMin, FracSatellite, SpectralEff_bpsHz, PingPongFrac  ->  MeanCapacity_Mbps, TotalRate_Mbps, FracServed, FracBelowTarget, FracOutage, BitPerJouleRf, Spectrum_MHz, HoRate_perUserMin, HoRateTerrTerr_perUserMin, HoRateTerrSat_perUserMin, HoRateSatSat_perUserMin, PingPongRate_perUserMin, RlfRate_perUserMin, RlfRateTerr_perUserMin, RlfRateSat_perUserMin, HoFailRate_perUserMin, FracSatellite, SpectralEff_bpsHz, PingPongFrac, HoFailFrac
+  + rlf.N310 = 1
+  + rlf.N311 = 1
+  + rlf.Qin_dB = -6
+  + rlf.Qout_dB = -8
+  + rlf.T310_ms = 1000
+  + rlf.T310_steps = 5
+  + rlf.source = TR 36.839 V11.1.0 Πίν. 5.2.1.3.1· διαδικασία TS 38.331 §5.3.10
+  ~ satellite.Meas.L3Alpha : 0.96875  ->  0.5
+  ~ satellite.Meas.NAvg : 11  ->  3
+  + softLosState = true
+  ~ stepDisplacement_m : 0.83333333  ->  0.16666667
+  ~ timeToTrigger_ms : 2560  ->  480
