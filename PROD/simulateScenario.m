@@ -167,7 +167,7 @@ if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'Rlf')
 end
 mob = struct('MinUsableDb', minUsableSinrDb, 'HysDb', hysDb, 'NTtt', nTtt, ...
     'QoutDb', rlfP.QoutDb, 'QinDb', rlfP.QinDb, 'N310', rlfP.N310, 'N311', rlfP.N311, ...
-    'NT310', max(1, ceil(rlfP.T310Ms / (dtSecHys*1000))));
+    'NT310', max(1, ceil(rlfP.T310Ms / (dtSecHys*1000))), 'NReport', 0);
 
 %% ------------------ Εξισορρόπηση φόρτου (Mobility Load Balancing) ------------------
 % TS 38.300 §15.5.1: το MLB μοιράζει τον φόρτο αλλάζοντας τις παραμέτρους του
@@ -190,6 +190,42 @@ if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'MlbMax
     mlbMaxOffsetDb = simParameters.Mobility.MlbMaxOffsetDb;
 else
     mlbMaxOffsetDb = 6;   % = HMmax - f(0) του Nasri & Altman
+end
+
+%% ------------------ Απόφαση handover με ML ------------------
+% Το A3 δεν εκτελεί το handover· στέλνει αναφορά μέτρησης, και την απόφαση
+% την παίρνει ο εξυπηρετών σταθμός: "The source gNB decides to handover the
+% UE, based on MeasurementReport and RRM information" (TS 38.300 §9.2.3.2.1,
+% βήμα 3). Το πώς αποφασίζει είναι υλοποίηση του σταθμού, και το TR 37.817
+% §5.3 μελετά ακριβώς αυτό με ML: βελτιστοποίηση κινητικότητας που μειώνει
+% τα ping-pong και τις αποτυχίες, με εισόδους τα δεδομένα του §5.3.2.4.
+% Εδώ το μοντέλο εκτιμά, από την κατάσταση τη στιγμή της αναφοράς, την
+% πιθανότητα το handover να γίνει ping-pong (TR 36.839 Ορισμός 5), όπως
+% προβλέπουν τα ασταθή handovers οι Aggarwal et al. (ICSigSys 2026). Αν η
+% πιθανότητα ξεπερνά το κατώφλι του μοντέλου, ο σταθμός δεν στέλνει εντολή
+% και περιμένει την επόμενη αναφορά: όσο ισχύει η συνθήκη εισόδου ο UE
+% αναφέρει ανά reportInterval (TS 38.331 ReportConfigNR), οπότε η απόφαση
+% ξαναπαίρνεται ReportSteps βήματα αργότερα με νέα δεδομένα. Αν η συνθήκη
+% πάψει να ισχύει, η εκκρεμότητα ακυρώνεται όπως στον A3. Ένας κρατημένος
+% χρήστης που χάνει τη ζεύξη του κάνει RLF κανονικά, οπότε το κόστος της
+% αναμονής μετράει στους ίδιους δείκτες με το όφελος.
+%
+% simParameters.Mobility.MlGate (κενό = χωρίς τις πολιτικές *ML):
+%   Model        δέντρα του μοντέλου (βλ. handoverGatePredict)
+%   Threshold    κατώφλι πιθανότητας για την αναμονή
+%   FeatIdx      ποιες στήλες του [handoverFeatures(), FromSat, ToSat] δέχεται
+%   ReportSteps  reportInterval σε βήματα (προς τα πάνω, όπως ο TTT)
+mlGate = [];
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'MlGate')
+    mlGate = simParameters.Mobility.MlGate;
+end
+hasMl = ~isempty(mlGate);
+% Ιστορικό της φιλτραρισμένης μέτρησης για τα χαρακτηριστικά 1 s / 3 s: τα
+% δείγματα t, t-1 s, t-2 s, όπως στην καταγραφή των handovers (runSimulation).
+histW   = 2*round(1/dtSecHys) + 1;
+histLag = (histW - 1)/2;
+if hasMl
+    mob.NReport = mlGate.ReportSteps;
 end
 
 %% ------------------ Μέτρηση: μέση τιμή και φίλτρο L3 ------------------
@@ -225,7 +261,16 @@ policyNamesLocal    = {'Actual','TerrestrialOnly','SatelliteOnly', ...
 policyBaseLocal     = {'Actual','TerrestrialOnly','SatelliteOnly', ...
                        'Actual','TerrestrialOnly'};
 policyMlbLocal      = [false false false true true];
+% Με μοντέλο, δύο ακόμη: η μεικτή χωρίς και με MLB, με την απόφαση του
+% σταθμού από το ML (βλ. «Απόφαση handover με ML»). Ίδιο κανάλι, ίδιος A3.
+if hasMl
+    policyNamesLocal = [policyNamesLocal, {'ActualML','ActualMLBML'}];
+    policyBaseLocal  = [policyBaseLocal,  {'Actual','Actual'}];
+    policyMlbLocal   = [policyMlbLocal, false, true];
+end
 numPolLocal         = numel(policyNamesLocal);
+policyMlLocal       = [false(1,5), true(1, numPolLocal - 5)];
+nGateFeat           = numel(handoverFeatures());
 % Prev/Stay: ο κόμβος πριν το τελευταίο handover και τα βήματα παραμονής στον
 % τρέχοντα από τότε. Χρειάζονται μόνο για την καταμέτρηση των ping-pong· δεν
 % επηρεάζουν την απόφαση.
@@ -240,13 +285,20 @@ newDecision = struct();
 % στον στόχο, "" καμία αλλαγή) και ποια μετατόπιση είχε ο επιλεγμένος κόμβος.
 % Oos/Is/T310: μετρητές N310/N311 και βήματα από την εκκίνηση του T310 (-1 =
 % δεν τρέχει), TS 38.331 §5.3.10.1.
-for pol = policyNamesLocal
-    newDecision.(pol{1}) = struct('Node', strings(numUsers,1), ...
-        'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), ...
+% Wait: βήματα ως την επόμενη αναφορά μέτρησης μετά από απόφαση αναμονής του
+% σταθμού (μόνο στις *ML· αλλού πάντα 0). GateFeat: τα χαρακτηριστικά που
+% είδε το μοντέλο στο βήμα (NaN = δεν ρωτήθηκε), για τον έλεγχο του
+% runSimulation ότι είναι ίδια με τα καταγεγραμμένα.
+for pI = 1:numPolLocal
+    newDecision.(policyNamesLocal{pI}) = struct('Node', strings(numUsers,1), ...
+        'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), 'Wait', zeros(numUsers,1), ...
         'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1), ...
         'Cause', strings(numUsers,1), 'Offset', zeros(numUsers,1), ...
         'Oos', zeros(numUsers,1), 'Is', zeros(numUsers,1), 'T310', -ones(numUsers,1), ...
         'LoadNode', strings(0,1), 'LoadRho', zeros(0,1), 'LoadAge', 0);
+    if policyMlLocal(pI)
+        newDecision.(policyNamesLocal{pI}).GateFeat = nan(numUsers, nGateFeat);
+    end
 end
 hasPrevDecision = ~isempty(prevDecision);
 
@@ -257,7 +309,7 @@ hasPrevDecision = ~isempty(prevDecision);
 hoCount = struct();
 for pol = policyNamesLocal
     hoCount.(pol{1}) = struct('TerrTerr', 0, 'TerrSat', 0, 'SatSat', 0, 'PingPong', 0, ...
-        'RlfTerr', 0, 'RlfSat', 0, 'HoFail', 0);
+        'RlfTerr', 0, 'RlfSat', 0, 'HoFail', 0, 'Held', 0);
 end
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
@@ -340,6 +392,22 @@ else
 end
 filtSinrBsMat  = nan(numUsers, numBs);
 filtSinrSatMat = nan(numUsers, numSats);
+
+% Κυκλικό ιστορικό histW βημάτων της φιλτραρισμένης μέτρησης, μόνο για τις
+% πολιτικές *ML. Μηδενίζεται μαζί με το υπόλοιπο κανάλι στην αρχή κάθε
+% διέλευσης, οπότε histStep είναι ο αύξων αριθμός του βήματος στη διέλευση,
+% όπως το s του runSimulation.
+if hasMl
+    if hasPrevFilt && isfield(prevChannelState, 'HistStep')
+        histBs   = prevChannelState.HistFiltBs;
+        histSat  = prevChannelState.HistFiltSat;
+        histStep = prevChannelState.HistStep + 1;
+    else
+        histBs   = nan(histW, numUsers, numBs);
+        histSat  = nan(histW, numUsers, numSats);
+        histStep = 1;
+    end
+end
 
 lambdaSat    = physconst('LightSpeed') / satParameters.CarrierFrequency;
 noiseSatLinW = 10^(noisePowerSAT_dBW/10);
@@ -797,14 +865,14 @@ for u = 1:numUsers
         end
 
         pN = ""; pPrev = ""; pStay = 0;
-        st = struct('Node', "", 'Pending', "", 'Count', 0, 'Oos', 0, 'Is', 0, 'T310', -1);
+        st = struct('Node', "", 'Pending', "", 'Count', 0, 'Wait', 0, 'Oos', 0, 'Is', 0, 'T310', -1);
         if hasPrevDecision
             pd = prevDecision.(polName);
             pN = pd.Node(u);
             pPrev = pd.Prev(u);
             pStay = pd.Stay(u);
             st = struct('Node', pN, 'Pending', pd.Pending(u), 'Count', pd.Count(u), ...
-                'Oos', pd.Oos(u), 'Is', pd.Is(u), 'T310', pd.T310(u));
+                'Wait', pd.Wait(u), 'Oos', pd.Oos(u), 'Is', pd.Is(u), 'T310', pd.T310(u));
         end
 
         % Μετατόπιση φόρτου κάθε υποψηφίου ως προς τον εξυπηρετούντα (0 για
@@ -822,8 +890,22 @@ for u = 1:numUsers
             candOffsetDb(candNode == pN) = 0;
         end
 
+        % Πολιτική με ML: ό,τι χρειάζεται η απόφαση του σταθμού για να
+        % υπολογίσει τα χαρακτηριστικά, αν ο A3 στείλει αναφορά σε αυτό το
+        % βήμα (βλ. mlGateDecision). Τα μεγάλα πεδία περνούν χωρίς αντίγραφο.
+        gateCtx = [];
+        if policyMlLocal(pI) && hasPrevDecision
+            gateCtx = struct('Gate', mlGate, 'User', u, 'Step', histStep, ...
+                'W', histW, 'Lag', histLag, 'DtS', dtSecHys, 'NumUsers', numUsers, ...
+                'HistBs', histBs, 'HistSat', histSat, ...
+                'FiltBs', filtSinrBsMat(u,:), 'FiltSat', filtSinrSatMat(u,:), ...
+                'Elev', satElevMat(u,:), 'Dist', cellRange3DMat(u,:), ...
+                'Prev', pPrev, 'Stay', pStay, 'PrevNodes', pd.Node, ...
+                'LoadNode', pd.LoadNode, 'LoadRho', pd.LoadRho);
+        end
+
         [ci, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, keepMask, ...
-            st, mob, candOffsetDb);
+            st, mob, candOffsetDb, gateCtx);
 
         % ci > 0: υποψήφιος του καταλόγου· ci = 0 με st.Node = κόμβος: ο
         % χρήστης μένει στον εξυπηρετούντα ενώ τρέχει ο T310, αλλά η ζεύξη
@@ -845,6 +927,7 @@ for u = 1:numUsers
         newDecision.(polName).Node(u)    = selNode;
         newDecision.(polName).Pending(u) = st.Pending;
         newDecision.(polName).Count(u)   = st.Count;
+        newDecision.(polName).Wait(u)    = st.Wait;
         newDecision.(polName).Oos(u)     = st.Oos;
         newDecision.(polName).Is(u)      = st.Is;
         newDecision.(polName).T310(u)    = st.T310;
@@ -852,6 +935,10 @@ for u = 1:numUsers
         if ci > 0
             newDecision.(polName).Offset(u) = candOffsetDb(ci);
         end
+        if ~isempty(ev.GateFeat)
+            newDecision.(polName).GateFeat(u,:) = ev.GateFeat;
+        end
+        hoCount.(polName).Held = hoCount.(polName).Held + ev.Held;
         if ev.Rlf
             if startsWith(pN, "SAT")
                 hoCount.(polName).RlfSat = hoCount.(polName).RlfSat + 1;
@@ -1011,13 +1098,21 @@ newChannelState.SfNlos_dB       = sfNlosMat;
 newChannelState.LosSoft         = losSoftMat;
 newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
 newChannelState.FiltSinrSat_dB  = filtSinrSatMat;
+if hasMl
+    slot = mod(histStep - 1, histW) + 1;
+    histBs(slot,:,:)  = filtSinrBsMat;
+    histSat(slot,:,:) = filtSinrSatMat;
+    newChannelState.HistFiltBs  = histBs;
+    newChannelState.HistFiltSat = histSat;
+    newChannelState.HistStep    = histStep;
+end
 % Γεωμετρία όλων των υποψηφίων, μόνο για την καταγραφή των handovers.
 newChannelState.SatElev_deg     = satElevMat;
 newChannelState.BsDist_m        = cellRange3DMat;
 
 end
 
-function [chosenIdx, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, keepMask, st, P, candOffsetDb)
+function [chosenIdx, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, keepMask, st, P, candOffsetDb, gateCtx)
 % Ένα βήμα κινητικότητας για έναν χρήστη σε μία πολιτική: παρακολούθηση της
 % ζεύξης (RLM) του εξυπηρετούντος κόμβου και απόφαση handover κατά Event A3.
 %
@@ -1045,14 +1140,22 @@ function [chosenIdx, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, ke
 %     τουλάχιστον όσο του MCS 0, αλλιώς outage. Η διάρκεια της
 %     επανεγκατάστασης δεν μοντελοποιείται (μικρότερη του βήματος).
 %
+% (5) Απόφαση του σταθμού (μόνο με gateCtx, πολιτικές *ML): όταν λήξει ο
+%     TTT και φτάσει η αναφορά, το μοντέλο αποφασίζει αν θα σταλεί εντολή
+%     (βλ. «Απόφαση handover με ML» στην αρχή του αρχείου). Αν όχι, η
+%     επόμενη αναφορά έρχεται P.NReport βήματα αργότερα (st.Wait), εφόσον
+%     η συνθήκη εισόδου εξακολουθεί να ισχύει για τον ίδιο υποψήφιο.
+%     Χωρίς gateCtx το st.Wait μένει 0 και ο κανόνας είναι ο A3 ακριβώς.
+%
 % Δύο SINR, σκόπιμα: candSinr είναι το πραγματικό SINR της ζεύξης (RLM,
 % έλεγχος στόχου, επιλογή κελιού), candSinrMeas η φιλτραρισμένη μέτρηση του
 % L3 που βλέπει ο A3.
 %
 % Επιστρέφει: chosenIdx δείκτη στον κατάλογο υποψηφίων (0 = κανένας: outage
 % αν st.Node == "None", αλλιώς ο εξυπηρετών χωρίς ζεύξη στο μοντέλο), τη νέα
-% κατάσταση st και τα γεγονότα ev (Cause "", "HO", "RLF", "HOF"· Rlf· HoFail).
-ev = struct('Cause', "", 'Rlf', false, 'HoFail', false);
+% κατάσταση st και τα γεγονότα ev (Cause "", "HO", "RLF", "HOF"· Rlf· HoFail·
+% Held = ο σταθμός αποφάσισε αναμονή· GateFeat = ό,τι είδε το μοντέλο).
+ev = struct('Cause', "", 'Rlf', false, 'HoFail', false, 'Held', false, 'GateFeat', []);
 valid = keepMask & isfinite(candSinrMeas);
 pN = st.Node;
 
@@ -1109,27 +1212,39 @@ else
 end
 [mBest, iBest] = max(masked);
 if ~isfinite(mBest) || iBest == iPrev
-    st.Pending = ""; st.Count = 0;
+    st.Pending = ""; st.Count = 0; st.Wait = 0;
     return;
 end
 if mBest - P.HysDb > mServ
     if st.Pending == candNode(iBest)
         st.Count = st.Count + 1;
+        st.Wait  = max(st.Wait - 1, 0);
     else
         st.Pending = candNode(iBest);
         st.Count = 1;
+        st.Wait  = 0;
     end
 else
     % Η συνθήκη έπαψε να ισχύει: ο μετρητής μηδενίζεται.
-    st.Pending = ""; st.Count = 0;
+    st.Pending = ""; st.Count = 0; st.Wait = 0;
     return;
 end
-if st.Count < P.NTtt
+if st.Count < P.NTtt || st.Wait > 0
     return;
 end
 
+% ---- (5) Απόφαση του σταθμού ----
+if ~isempty(gateCtx)
+    [holdHo, ev.GateFeat] = mlGateDecision(gateCtx, candNode, iBest, candOffsetDb, pN);
+    if holdHo
+        ev.Held = true;
+        st.Wait = P.NReport;
+        return;
+    end
+end
+
 % ---- (3) Εντολή handover ----
-st.Pending = ""; st.Count = 0;
+st.Pending = ""; st.Count = 0; st.Wait = 0;
 if st.T310 >= 0
     ev.HoFail = true;   % κριτήριο 1: ο T310 τρέχει, ο χρήστης μένει
     return;
@@ -1151,7 +1266,7 @@ function [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid
 % από RLF/αποτυχία): ο καλύτερος υποψήφιος στη μέτρηση, μεταξύ όσων έχουν
 % SINR τουλάχιστον όσο του MCS 0. Κανένας: outage.
 usable = valid & (candSinr >= P.MinUsableDb);
-st.Pending = ""; st.Count = 0; st.Oos = 0; st.Is = 0; st.T310 = -1;
+st.Pending = ""; st.Count = 0; st.Wait = 0; st.Oos = 0; st.Is = 0; st.T310 = -1;
 if ~any(usable)
     chosenIdx = 0;
     st.Node = "None";
@@ -1161,6 +1276,68 @@ m = candSinrMeas;
 m(~usable) = -Inf;
 [~, chosenIdx] = max(m);
 st.Node = candNode(chosenIdx);
+end
+
+function [holdHo, feat] = mlGateDecision(g, candNode, iBest, candOffsetDb, servNode)
+% Απόφαση του σταθμού για μια αναφορά A3 από τον servNode προς τον
+% candNode(iBest): τα χαρακτηριστικά (handoverFeatures, ίδια με την
+% καταγραφή του runSimulation), η πιθανότητα ping-pong από το μοντέλο και
+% αναμονή αν ξεπερνά το κατώφλι. Η αντιστοίχιση ένα προς ένα με την
+% καταγραφή: μέτρηση lag βήματα πριν = histMeas, ανύψωση = histElev με lag 0,
+% απόσταση = bsDist, φόρτος/χρήστες από την απόφαση του προηγούμενου βήματος.
+tgtNode = candNode(iBest);
+[satF, idxF] = gateNodeIndex(servNode);
+[satT, idxT] = gateNodeIndex(tgtNode);
+mF = [gateMeas(g, satF, idxF, 0), gateMeas(g, satF, idxF, g.Lag), gateMeas(g, satF, idxF, 2*g.Lag)];
+mT = [gateMeas(g, satT, idxT, 0), gateMeas(g, satT, idxT, g.Lag), gateMeas(g, satT, idxT, 2*g.Lag)];
+feat = handoverFeatures(struct('SinrFrom', mF, 'SinrTo', mT, ...
+    'LagS', g.Lag*g.DtS, 'NumUsers', g.NumUsers, ...
+    'ReturnToPrev', tgtNode == g.Prev, 'StayFrom_s', (g.Stay + 1)*g.DtS, ...
+    'ElevFrom', gateGeom(g.Elev, satF, idxF), 'ElevTo', gateGeom(g.Elev, satT, idxT), ...
+    'DistFrom', gateGeom(g.Dist, ~satF, idxF), 'DistTo', gateGeom(g.Dist, ~satT, idxT), ...
+    'LoadFrom', sum(g.LoadRho(g.LoadNode == servNode)), ...
+    'LoadTo', sum(g.LoadRho(g.LoadNode == tgtNode)), ...
+    'UsersOnFrom', sum(g.PrevNodes == servNode), 'UsersOnTo', sum(g.PrevNodes == tgtNode), ...
+    'MlbOffset', candOffsetDb(iBest)));
+x = [feat, satF, satT];
+p = handoverGatePredict(g.Gate.Model, x(g.Gate.FeatIdx));
+holdHo = p > g.Gate.Threshold;
+end
+
+function v = gateMeas(g, isSat, idx, lag)
+% Φιλτραρισμένη μέτρηση lag βήματα πριν· NaN εκτός ιστορικού (όπως histMeas).
+v = NaN;
+if lag >= g.W || g.Step - lag < 1
+    return;
+end
+if lag == 0
+    if isSat, v = g.FiltSat(idx); else, v = g.FiltBs(idx); end
+    return;
+end
+slot = mod(g.Step - lag - 1, g.W) + 1;
+if isSat
+    v = g.HistSat(slot, g.User, idx);
+else
+    v = g.HistBs(slot, g.User, idx);
+end
+end
+
+function v = gateGeom(row, applies, idx)
+% Ανύψωση (δορυφόρος) ή απόσταση (σταθμός) του κόμβου· NaN για τον άλλο τύπο.
+if applies
+    v = row(idx);
+else
+    v = NaN;
+end
+end
+
+function [isSat, idx] = gateNodeIndex(node)
+isSat = startsWith(node, "SAT-");
+if isSat
+    idx = str2double(extractAfter(node, "SAT-"));
+else
+    idx = str2double(extractAfter(node, "BS"));
+end
 end
 
 function [capacityMbpsVec, throughputMbpsVec, serviceStateVec, ...
@@ -1365,6 +1542,9 @@ s.RlfRate_perUserMin        = (ho.RlfTerr + ho.RlfSat) * perUserMin;
 s.RlfRateTerr_perUserMin    = ho.RlfTerr * perUserMin;
 s.RlfRateSat_perUserMin     = ho.RlfSat  * perUserMin;
 s.HoFailRate_perUserMin     = ho.HoFail  * perUserMin;
+% Αναφορές A3 στις οποίες ο σταθμός αποφάσισε αναμονή (μόνο στις *ML): πόσο
+% συχνά παρεμβαίνει το μοντέλο.
+s.HoHeldRate_perUserMin     = ho.Held    * perUserMin;
 end
 
 function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)

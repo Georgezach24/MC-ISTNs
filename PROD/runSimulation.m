@@ -89,6 +89,10 @@ def = struct( ...
     'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
     'mlbReportPeriodMs', 1000, ...% ms, Reporting Periodicity της αναφοράς φόρτου (TS 38.423 §9.1.3.18)
     'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
+    'mlGatePath', fullfile(thisDir, '..', 'Model', 'results_handover_gate', 'handover_gate.mat'), ... % μοντέλο της απόφασης handover· '' ή χωρίς αρχείο = χωρίς τις πολιτικές *ML
+    'mlReportIntervalMs', 240, ...% ms, reportInterval (TS 38.331 ReportConfigNR): το μικρότερο από ms120, ms240, ... που διακρίνει το βήμα των 200 ms
+    'passCacheDir', '', ...      % φάκελος με ένα .mat ανά διέλευση· '' = χωρίς (βλ. «Παράλληλη εκτέλεση»)
+    'passSubset',   [], ...      % μόνο αυτές οι διελεύσεις, στο passCacheDir, χωρίς σύνοψη· [] = όλες
     'wrapAround',    true, ...   % wrap-around του πλέγματος (6 αντίγραφα), όπως στη βαθμονόμηση TR 38.901
     'bsSectors',     3, ...
     'numWorkers',    6, ...      % διελεύσεις παράλληλα (Parallel Computing Toolbox)· 0 = σειριακά      % τομείς ανά site: 3 (TR 38.901 Πίν. 7.8-1, ITU-R M.2412-0 §8.3) ή 1 (ομοκατευθυντικό, σταθερό κέρδος)
@@ -119,7 +123,7 @@ checkpointPath = fullfile(opts.outputDir, 'runSimulation_checkpoint.mat');
 % μνήμης στο μηχάνημα). Αν υπάρχει συμβατό σημείο ελέγχου, η εκτέλεση
 % συνεχίζει από την επόμενη διέλευση αντί να ξαναρχίσει από την αρχή.
 resumeState = [];
-if opts.resume && isfile(checkpointPath) && isfile(opts.datasetPath)
+if opts.resume && isempty(opts.passSubset) && isfile(checkpointPath) && isfile(opts.datasetPath)
     S = load(checkpointPath);
     % Σημεία ελέγχου παλαιότερης μορφής δεν κρατούν τη διέλευση αναφοράς (τότε
     % ζούσε σε csv), οπότε δεν μπορούν να συνεχιστούν.
@@ -147,7 +151,9 @@ if opts.resume && isfile(checkpointPath) && isfile(opts.datasetPath)
     end
 end
 
-if isempty(resumeState)
+% Μια διεργασία με passSubset γράφει μόνο στο passCacheDir: τα αρχεία της
+% κύριας εκτέλεσης δεν είναι δικά της.
+if isempty(resumeState) && isempty(opts.passSubset)
     if isfile(opts.datasetPath),  delete(opts.datasetPath);  end
     if isfile(opts.handoverEventsPath), delete(opts.handoverEventsPath); end
     if isfile(resultsMat),        delete(resultsMat);        end
@@ -325,6 +331,17 @@ simParameters.Mobility.Rlf = struct('QoutDb', opts.rlfQoutDb, 'QinDb', opts.rlfQ
 % εικονικού φόρτου, περιορισμένη στο [-1, 1] (βλ. simulateScenario).
 simParameters.Mobility.MlbMaxOffsetDb  = opts.mlbMaxOffsetDb;
 simParameters.Mobility.LoadReportPeriodMs = opts.mlbReportPeriodMs;
+% Απόφαση handover από τον σταθμό με ML (TS 38.300 §9.2.3.2.1, TR 37.817
+% §5.3), στις πολιτικές ActualML και ActualMLBML (βλ. simulateScenario).
+% Χωρίς αρχείο μοντέλου οι δύο πολιτικές απλώς δεν υπάρχουν και η εκτέλεση
+% είναι η ίδια με πριν.
+mlGateInfo = struct();
+simParameters.Mobility.MlGate = [];
+if ~isempty(opts.mlGatePath) && isfile(opts.mlGatePath)
+    [simParameters.Mobility.MlGate, mlGateInfo] = loadHandoverGate(opts.mlGatePath, ...
+        max(1, ceil(opts.mlReportIntervalMs/(opts.dtSeconds*1000))));
+end
+hasMlGate = ~isempty(simParameters.Mobility.MlGate);
 
 % Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1 & 6.1.3.2-1).
 % Η πυκνότητα EIRP (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
@@ -485,6 +502,11 @@ passKpi = nan(opts.numPasses, numKpi);
 % ανεξάρτητων εκτελέσεων, οπότε η διακύμανση της τοπολογίας και του καναλιού
 % απαλείφεται από τη διαφορά.
 policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly','ActualMLB','TerrestrialOnlyMLB'};
+% Με μοντέλο: η μεικτή χωρίς και με MLB, με την απόφαση του σταθμού από ML.
+% Ίδια σειρά με τη simulateScenario.
+if hasMlGate
+    policyNames = [policyNames, {'ActualML','ActualMLBML'}];
+end
 policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
                  'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz', ...
                  'HoRate_perUserMin','HoRateTerrTerr_perUserMin', ...
@@ -492,12 +514,16 @@ policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
                  'PingPongRate_perUserMin','RlfRate_perUserMin', ...
                  'RlfRateTerr_perUserMin','RlfRateSat_perUserMin', ...
                  'HoFailRate_perUserMin','FracSatellite'};
+if hasMlGate
+    policyMetrics{end+1} = 'HoHeldRate_perUserMin';
+end
 numPolicy       = numel(policyNames);
 numPolicyMetric = numel(policyMetrics);
 policyPassKpi   = nan(opts.numPasses, numPolicy, numPolicyMetric);
 
 convRows = cell(opts.numPasses,1);
 checksRun = 0;
+gateChecksRun = 0;   % handovers των *ML με ελεγμένα χαρακτηριστικά (logHandoverEvents)
 totalRows = 0;
 
 fprintf('Ενιαία προσομοίωση ISTN\n');
@@ -531,6 +557,13 @@ refSnapshot = struct();
 % Καταγραφή handovers σε πλήρη ανάλυση (βλ. logHandoverEvents): ένα κελί
 % ανά διέλευση, για τις πολιτικές που ενδιαφέρουν το ML.
 hoLogPolicies = {'Actual','ActualMLB'};
+% Και οι πολιτικές με ML: τα handovers τους δείχνουν τι άφησε να περάσει το
+% μοντέλο, και η καταγραφή τους ελέγχει ότι τα χαρακτηριστικά που είδε είναι
+% τα ίδια με αυτά της εκπαίδευσης. Το μοντέλο εκπαιδεύεται μόνο από τις δύο
+% πρώτες (train_handover_gate.py).
+if hasMlGate
+    hoLogPolicies = [hoLogPolicies, {'ActualML','ActualMLBML'}];
+end
 % Ιστορικό μέτρησης 2 s πίσω από το τρέχον βήμα, ώστε να υπάρχουν τα δείγματα
 % t, t-1 s, t-2 s των χαρακτηριστικών 1 s / 3 s (Aggarwal et al.).
 hoHistW       = 2*round(1/opts.dtSeconds) + 1;
@@ -545,6 +578,9 @@ if ~isempty(resumeState)
     convRows(1:passIdx)  = resumeState.convRows;
     totalRows   = resumeState.totalRows;
     checksRun   = resumeState.checksRun;
+    if isfield(resumeState, 'gateChecksRun')
+        gateChecksRun = resumeState.gateChecksRun;
+    end
     refSnapshot = resumeState.refSnapshot;
     if isfield(resumeState, 'refPassTable')
         refPassTable = resumeState.refPassTable;
@@ -612,16 +648,48 @@ end
 fprintf('  Εκτέλεση διελεύσεων: %s\n\n', ternary(numWorkers > 0, ...
     sprintf('παράλληλα, %d workers', numWorkers), 'σειριακά'));
 
+% Διελεύσεις σε ξεχωριστές διεργασίες MATLAB, για μηχάνημα χωρίς Parallel
+% Computing Toolbox: κάθε διεργασία τρέχει με passSubset ένα μέρος τους και
+% γράφει το αποτέλεσμα καθεμιάς στο passCacheDir· μια τελευταία εκτέλεση με
+% τον ίδιο φάκελο τα διαβάζει αντί να τα ξαναϋπολογίσει και κάνει τη σύνοψη.
+% Κάθε διέλευση εξαρτάται μόνο από το passIdx και το passCtx (runOnePass),
+% οπότε τα αρχεία βγαίνουν ίδια με τη σειριακή εκτέλεση. Κάθε αρχείο κρατά
+% τις επιλογές και το μοντέλο που το παρήγαγαν και χρησιμοποιείται μόνο αν
+% ταιριάζουν (checkpointMatches + SHA-256 του μοντέλου).
+cacheKey = struct('opts', opts, 'mlGateSha256', '');
+if hasMlGate
+    cacheKey.mlGateSha256 = mlGateInfo.Sha256;
+end
+if ~isempty(opts.passCacheDir) && ~isfolder(opts.passCacheDir)
+    mkdir(opts.passCacheDir);
+end
+if ~isempty(opts.passSubset)
+    if isempty(opts.passCacheDir)
+        error('runSimulation:NoPassCache', 'Το passSubset χρειάζεται passCacheDir.');
+    end
+    for p = opts.passSubset(:)'
+        if ~isempty(loadCachedPass(opts.passCacheDir, p, cacheKey))
+            continue;
+        end
+        tP = tic;
+        saveCachedPass(opts.passCacheDir, p, cacheKey, runOnePass(p, passCtx));
+        fprintf('  Διέλευση %3d/%d -> %s (%.0f s)\n', p, opts.numPasses, opts.passCacheDir, toc(tP));
+    end
+    convTable = table();
+    summary = struct('passSubset', opts.passSubset, 'passCacheDir', opts.passCacheDir);
+    return;
+end
+
 while passIdx < opts.numPasses
     batch = passIdx+1 : min(passIdx + max(numWorkers,1), opts.numPasses);
     res = cell(numel(batch), 1);
     if numWorkers > 0
         parfor jB = 1:numel(batch)
-            res{jB} = runOnePass(batch(jB), passCtx);
+            res{jB} = runOrLoadPass(batch(jB), passCtx, cacheKey);
         end
     else
         for jB = 1:numel(batch)
-            res{jB} = runOnePass(batch(jB), passCtx);
+            res{jB} = runOrLoadPass(batch(jB), passCtx, cacheKey);
         end
     end
 
@@ -633,6 +701,7 @@ while passIdx < opts.numPasses
         policyPassKpi(passIdx,:,:)  = R.policyPassKpi;
         hoEventCells{passIdx}       = R.hoEvents;
         checksRun                   = checksRun + R.checks;
+        gateChecksRun               = gateChecksRun + R.gateChecks;
         if passIdx == 1
             refSnapshot = R.refSnapshot;
         end
@@ -684,7 +753,7 @@ while passIdx < opts.numPasses
         ckpt = struct('passIdx', passIdx, 'passKpi', passKpi(1:passIdx,:), ...
             'policyPassKpi', policyPassKpi(1:passIdx,:,:), ...
             'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
-            'checksRun', checksRun, 'refSnapshot', refSnapshot, ...
+            'checksRun', checksRun, 'gateChecksRun', gateChecksRun, 'refSnapshot', refSnapshot, ...
             'refPassTable', refPassTable, 'hoEventCells', {hoEventCells(1:passIdx)}, ...
             'opts', opts);
         save(checkpointPath, 'ckpt');
@@ -750,6 +819,12 @@ policyTable = addvars(policyTable, polPassID, polName, 'Before', 1, ...
 compNames = {'Actual','TerrestrialOnly'; 'Actual','SatelliteOnly'; ...
              'ActualMLB','Actual'; 'TerrestrialOnlyMLB','TerrestrialOnly'; ...
              'ActualMLB','TerrestrialOnlyMLB'};
+% Τι προσθέτει η απόφαση με ML, στον ίδιο A3 με και χωρίς MLB, και η πλήρης
+% (MLB + ML) έναντι του σκέτου A3.
+if hasMlGate
+    compNames = [compNames; {'ActualML','Actual'; 'ActualMLBML','ActualMLB'; ...
+                             'ActualMLBML','Actual'}];
+end
 compIdx = zeros(size(compNames));
 for c = 1:numel(compNames)
     compIdx(c) = find(strcmp(policyNames, compNames{c}), 1);
@@ -830,6 +905,13 @@ plotMlbGain(pairedTable, numPasses, opts.mlbMaxOffsetDb, mlbPng);
 
 hoPng = fullfile(opts.outputDir, 'handover_rates.png');
 plotHandoverRates(pol, policyMetrics, policyNames, numPasses, opts.pingPongMtsS, hoPng);
+mlPng = '';
+if hasMlGate
+    mlPng = fullfile(opts.outputDir, 'ml_gain.png');
+    plotMlGain(pairedTable, numPasses, mlGateInfo, opts.mlReportIntervalMs, mlPng);
+    fprintf('  Απόφαση handover με ML: %d handovers με χαρακτηριστικά ίδια με την καταγραφή\n', ...
+        gateChecksRun);
+end
 
 
 %% ------------------ Καμπύλη σύγκλισης ------------------
@@ -911,6 +993,9 @@ end
 % ένα .mat, ώστε κάθε γράφημα να μπορεί να ξαναφτιαχτεί χωρίς νέα εκτέλεση.
 save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'summary');
 outFiles = {resultsMat, polPng, mlbPng, hoPng, fullfile(opts.outputDir,'network_3d.png')};
+if ~isempty(mlPng)
+    outFiles{end+1} = mlPng;
+end
 
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SINR_dB','SatElevation_deg'};
 kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SINR (dB)','Γωνία ανύψωσης (deg)'};
@@ -1012,6 +1097,9 @@ runParams.l3FilterK        = opts.l3FilterK;
 runParams.l3FilterAlphaAtX = ternary(opts.l3FilterK > 0, 2^(-opts.l3FilterK/4), 0);
 runParams.l3FilterAlphaAtDt = l3Alpha;
 runParams.measPeriod_ms    = opts.measPeriodMs;
+runParams.mlGate           = mlGateInfo;
+runParams.mlReportInterval_ms = opts.mlReportIntervalMs;
+runParams.mlGateChecks     = gateChecksRun;
 runParams.policies         = strjoin(policyNames, ', ');
 runParams.policyMetrics    = strjoin(policyMetrics, ', ');
 runParams.rngSeed          = opts.rngSeed;
@@ -1068,7 +1156,9 @@ runParams.sources          = struct( ...
     'measAvg',    'Clarke 1968, αυτοσυσχέτιση ισχύος J0(2*pi*fD*tau)^2 -> ισοδύναμο πλήθος ανεξάρτητων δειγμάτων ανά βήμα', ...
     'bsLayout',   'TR 38.901 §7.8 Πίν. 7.8-1 (UMa: εξαγωνικό πλέγμα, ISD 500 m, h_BS 25 m)', ...
     'satReuse',   'TR 38.821 §6.1.1.1 Πίν. 6.1.1.1-5 (FRF Option 1 = 1 / Option 2 = 3, εύρος ανά δέσμη προσαρμοσμένο στο FRF) + Σχ. 6.1.1.1-2 (ομοδιαυλικές δέσμες = παρεμβολή)', ...
-    'satSpacing', 'σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο (βλ. σχόλιο satSpacingS)');
+    'satSpacing', 'σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο (βλ. σχόλιο satSpacingS)', ...
+    'mlGate',     'TS 38.300 §9.2.3.2.1 βήμα 3 (απόφαση HO στον σταθμό) + TR 37.817 §5.3 (AI/ML βελτιστοποίηση κινητικότητας) + Aggarwal et al. ICSigSys 2026 (πρόβλεψη ασταθών HO)· ετικέτα ping-pong TR 36.839 Ορισμός 5', ...
+    'mlReport',   'TS 38.331 ReportConfigNR reportInterval (ms120, ms240, ...): επανάληψη της αναφοράς όσο ισχύει η συνθήκη εισόδου');
 
 saveRunVersion('runSimulation', runParams, outFiles, opts.label);
 
@@ -1111,7 +1201,7 @@ end
 % Τοπικές συναρτήσεις
 % =====================================================================
 
-function [evNum, evStr] = logHandoverEvents(pols, prevDec, newDec, H, W, s, dtS, ...
+function [evNum, evStr, gateChecks] = logHandoverEvents(pols, prevDec, newDec, H, W, s, dtS, ...
     passIdx, numUsers)
 % Ένα δείγμα ανά handover, με την κατάσταση τη στιγμή της απόφασης. Ο ορισμός
 % του handover είναι ο ίδιος με την καταμέτρηση της simulateScenario: αλλαγή
@@ -1142,6 +1232,7 @@ function [evNum, evStr] = logHandoverEvents(pols, prevDec, newDec, H, W, s, dtS,
 %    Aggarwal et al. (pre_hysteresis).
 evNum = zeros(0, numel(handoverEventNumNames()));
 evStr = strings(0, 5);
+gateChecks = 0;
 tNow  = (s-1)*dtS;
 for pI = 1:numel(pols)
     pol = pols{pI};
@@ -1163,31 +1254,39 @@ for pI = 1:numel(pols)
             hoType = "TerrSat";
         end
         prevNode = prevDec.(pol).Prev(u);
-        % Μετρήσεις και gap στα δείγματα t, t-1 s, t-2 s: ανά δευτερόλεπτο,
-        % όπως το σύνολο δεδομένων των Aggarwal et al., ανεξάρτητα από το βήμα.
+        % Μετρήσεις στα δείγματα t, t-1 s, t-2 s: ανά δευτερόλεπτο, όπως το
+        % σύνολο δεδομένων των Aggarwal et al., ανεξάρτητα από το βήμα.
         lagStep = (W - 1)/2;
-        sinrK = nan(1, 3);
-        gapK  = nan(1, 3);
+        mF = nan(1, 3);
+        mT = nan(1, 3);
         for k = 1:3
-            mF = histMeas(H, W, s, (k-1)*lagStep, u, f);
-            mT = histMeas(H, W, s, (k-1)*lagStep, u, g);
-            sinrK(k) = mF;
-            gapK(k)  = mT - mF;
+            mF(k) = histMeas(H, W, s, (k-1)*lagStep, u, f);
+            mT(k) = histMeas(H, W, s, (k-1)*lagStep, u, g);
         end
-        sinrK(~isfinite(sinrK)) = NaN;
-        gapK(~isfinite(gapK))   = NaN;
         ldNode = prevDec.(pol).LoadNode;
         ldRho  = prevDec.(pol).LoadRho;
-        row = [passIdx, s, tNow, u, numUsers, ...
-            g == prevNode, (prevDec.(pol).Stay(u) + 1)*dtS, ...
-            sinrK(1), sinrK(1) + gapK(1), gapK(1), ...
-            sinrK(1) - sinrK(2), gapK(1) - gapK(2), ...
-            mean(sinrK), mean(gapK), ...
-            (sinrK(1) - sinrK(3))/(2*lagStep*dtS), (gapK(1) - gapK(3))/(2*lagStep*dtS), ...
-            histElev(H, W, s, 0, u, f), histElev(H, W, s, 0, u, g), ...
-            bsDist(H, u, f), bsDist(H, u, g), ...
-            sum(ldRho(ldNode == f)), sum(ldRho(ldNode == g)), ...
-            sum(pN == f), sum(pN == g), newDec.(pol).Offset(u)];
+        feat = handoverFeatures(struct('SinrFrom', mF, 'SinrTo', mT, ...
+            'LagS', lagStep*dtS, 'NumUsers', numUsers, ...
+            'ReturnToPrev', g == prevNode, 'StayFrom_s', (prevDec.(pol).Stay(u) + 1)*dtS, ...
+            'ElevFrom', histElev(H, W, s, 0, u, f), 'ElevTo', histElev(H, W, s, 0, u, g), ...
+            'DistFrom', bsDist(H, u, f), 'DistTo', bsDist(H, u, g), ...
+            'LoadFrom', sum(ldRho(ldNode == f)), 'LoadTo', sum(ldRho(ldNode == g)), ...
+            'UsersOnFrom', sum(pN == f), 'UsersOnTo', sum(pN == g), ...
+            'MlbOffset', newDec.(pol).Offset(u)));
+        % Πολιτική με ML: η απόφαση είδε χαρακτηριστικά που υπολογίστηκαν
+        % μέσα στη simulateScenario. Πρέπει να είναι ίδια, bit προς bit, με
+        % αυτά που καταγράφονται εδώ και από τα οποία εκπαιδεύεται το μοντέλο.
+        if isfield(newDec.(pol), 'GateFeat') && any(isfinite(newDec.(pol).GateFeat(u,:)))
+            gf = newDec.(pol).GateFeat(u,:);
+            if ~isequaln(gf, feat)
+                error('runSimulation:GateFeatureMismatch', ...
+                    ['Διέλευση %d, βήμα %d, χρήστης %d (%s): τα χαρακτηριστικά της ' ...
+                     'απόφασης ML διαφέρουν από τα καταγεγραμμένα (μέγιστη διαφορά %g).'], ...
+                    passIdx, s, u, pol, max(abs(gf - feat), [], 'omitnan'));
+            end
+            gateChecks = gateChecks + 1;
+        end
+        row = [passIdx, s, tNow, u, feat];
         evNum(end+1,:) = row;                                     %#ok<AGROW>
         evStr(end+1,:) = [string(pol), f, g, prevNode, hoType]; %#ok<AGROW>
     end
@@ -1249,11 +1348,7 @@ ev.NextCause = nextCause;
 end
 
 function names = handoverEventNumNames()
-names = {'PassID','Step','Time_s','UserID','NumUsers','ReturnToPrev','StayFrom_s', ...
-    'SinrServ_dB','SinrCand_dB','Gap_dB','DeltaSinr1s_dB','DeltaGap1s_dB', ...
-    'AvgSinr3s_dB','AvgGap3s_dB','SlopeSinr3s_dBps','SlopeGap3s_dBps', ...
-    'ElevFrom_deg','ElevTo_deg','DistFrom_m','DistTo_m', ...
-    'LoadFrom','LoadTo','UsersOnFrom','UsersOnTo','MlbOffset_dB'};
+names = [{'PassID','Step','Time_s','UserID'}, handoverFeatures()];
 end
 
 function saveHandoverEvents(cells, path, meta)
@@ -1332,7 +1427,8 @@ keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
         'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse', ...
         'mlbMaxOffsetDb','handoverEventsPath','wrapAround','bsSectors', ...
-        'rlfQoutDb','rlfQinDb','rlfT310Ms','rlfN310','rlfN311','softLosState','mlbReportPeriodMs'};
+        'rlfQoutDb','rlfQinDb','rlfT310Ms','rlfN310','rlfN311','softLosState','mlbReportPeriodMs', ...
+        'mlGatePath','mlReportIntervalMs'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
@@ -1500,6 +1596,56 @@ saveas(fig, pngPath);
 close(fig);
 end
 
+function plotMlGain(pairedTable, numPasses, info, reportMs, pngPath)
+% Τι προσθέτει η απόφαση handover με ML στον ίδιο A3, χωρίς και με MLB, και
+% η πλήρης (MLB + ML) έναντι του σκέτου A3. Ίδια σύμβαση με τα policy_gain
+% και mlb_gain: θετική τιμή = καλύτερη η πρώτη πολιτική. Αριστερά οι δείκτες
+% κινητικότητας του TR 36.839 (το πρόβλημα που λύνει το μοντέλο), δεξιά το
+% κόστος του σε κάλυψη και ρυθμό (ό,τι δεν πρέπει να χειροτερέψει).
+pairs = ["ActualML","Actual"; "ActualMLBML","ActualMLB"; "ActualMLBML","Actual"];
+pairLabel = {'A3: με ML έναντι χωρίς','A3 + MLB: με ML έναντι χωρίς', ...
+             'A3 + MLB + ML έναντι σκέτου A3'};
+mobMetric = ["PingPongFrac","HoFailFrac","FracOutage"];
+mobSign   = [-1 -1 -1];
+mobLabel  = {'Μείωση ping-pong (μερίδιο HO)','Μείωση αποτυχιών HO (μερίδιο)', ...
+             'Μείωση εκτός κάλυψης'};
+relMetric = ["HoRate_perUserMin","RlfRate_perUserMin","MeanCapacity_Mbps","TotalRate_Mbps"];
+relSign   = [-1 -1 1 1];
+relLabel  = {'Μείωση handovers','Μείωση RLF','Μέση χωρητικότητα χρήστη', ...
+             'Συνολική ρυθμαπόδοση'};
+
+nP = size(pairs,1);
+mobVal = nan(numel(mobMetric), nP); mobHw = mobVal;
+relVal = nan(numel(relMetric), nP); relHw = relVal;
+for j = 1:nP
+    T = pairedTable(pairedTable.Policy == pairs(j,1), :);
+    [mobVal(:,j), mobHw(:,j)] = gainMatrix(T, pairs(j,2), mobMetric, mobSign, false);
+    [relVal(:,j), relHw(:,j)] = gainMatrix(T, pairs(j,2), relMetric, relSign, true);
+end
+
+fig = figure('Visible','off','Position',[100 100 1400 560]);
+try
+    theme(fig, 'light');
+catch
+end
+subplot(1,2,1);
+gainPanel(mobVal, mobHw, mobLabel, pairLabel, ' μον.');
+xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
+title('Ping-pong, αποτυχίες, κάλυψη');
+
+subplot(1,2,2);
+gainPanel(relVal, relHw, relLabel, pairLabel, '%');
+xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
+title('Handovers, RLF, ρυθμός');
+
+sgtitle(sprintf(['Απόφαση handover στον σταθμό με ML (TS 38.300 §9.2.3.2.1, TR 37.817 §5.3): ' ...
+    '%d διελεύσεις, 95%% CI (ns: το CI περιέχει το 0)\n%d δέντρα, αναμονή αν P(ping-pong) > %.2f, ' ...
+    'νέα αναφορά μετά από %d ms (reportInterval)'], numPasses, info.NumTrees, ...
+    info.Threshold, reportMs));
+saveas(fig, pngPath);
+close(fig);
+end
+
 function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, pngPath)
 % Ρυθμός handovers ανά πολιτική, σε απόλυτες τιμές και όχι ως «βελτίωση»: η
 % αποκλειστικά δορυφορική πολιτική με έναν δορυφόρο δεν έχει κανένα handover,
@@ -1512,7 +1658,12 @@ function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, png
 typeKey   = {'TerrTerr','TerrSat','SatSat'};
 typeLabel = {'επίγειο \leftrightarrow επίγειο','επίγειο \leftrightarrow δορυφορικό', ...
              'δορυφορικό \leftrightarrow δορυφορικό'};
-polLabel  = {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική','υπό εξέταση + MLB','μόνο επίγεια + MLB'};
+labelOf   = containers.Map( ...
+    {'Actual','TerrestrialOnly','SatelliteOnly','ActualMLB','TerrestrialOnlyMLB', ...
+     'ActualML','ActualMLBML'}, ...
+    {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική','υπό εξέταση + MLB','μόνο επίγεια + MLB', ...
+     'υπό εξέταση + ML','υπό εξέταση + MLB + ML'});
+polLabel  = cellfun(@(n) labelOf(n), policyNames, 'UniformOutput', false);
 cols      = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
 numPolicy = numel(policyNames);
 
@@ -1537,7 +1688,7 @@ rlfM    = mean(pol(:,:,idx('RlfRate_perUserMin')), 1, 'omitnan');
 hofM    = 100 * mean(pol(:,:,idx('HoFailFrac')), 1, 'omitnan');
 ppM     = 100 * mean(pol(:,:,idx('PingPongFrac')), 1, 'omitnan');
 
-fig = figure('Visible','off','Position',[100 100 1150 560]);
+fig = figure('Visible','off','Position',[100 100 max(1150, 215*numPolicy) 560]);
 try
     theme(fig, 'light');
 catch
@@ -1646,6 +1797,92 @@ grid on;
 legend(seriesLabels, 'Location', 'southoutside', 'Orientation', 'horizontal');
 end
 
+function R = runOrLoadPass(passIdx, C, cacheKey)
+% Αποτέλεσμα της διέλευσης από το passCacheDir, αν υπάρχει και ταιριάζει·
+% αλλιώς υπολογίζεται (και αποθηκεύεται, αν υπάρχει φάκελος).
+cacheDir = C.opts.passCacheDir;
+R = [];
+if ~isempty(cacheDir)
+    R = loadCachedPass(cacheDir, passIdx, cacheKey);
+end
+if isempty(R)
+    R = runOnePass(passIdx, C);
+    if ~isempty(cacheDir)
+        saveCachedPass(cacheDir, passIdx, cacheKey, R);
+    end
+end
+end
+
+function R = loadCachedPass(cacheDir, passIdx, cacheKey)
+R = [];
+f = fullfile(cacheDir, sprintf('pass_%04d.mat', passIdx));
+if ~isfile(f)
+    return;
+end
+S = load(f, 'R', 'cacheKey');
+if checkpointMatches(S.cacheKey.opts, cacheKey.opts) && ...
+        strcmp(S.cacheKey.mlGateSha256, cacheKey.mlGateSha256)
+    R = S.R;
+end
+end
+
+function saveCachedPass(cacheDir, passIdx, cacheKey, R) %#ok<INUSD> αποθηκεύονται με το όνομά τους
+% Πρώτα σε προσωρινό αρχείο και μετά μετονομασία, ώστε μια διακοπή να μην
+% αφήνει μισό αρχείο που θα διαβαζόταν ως έγκυρο.
+f = fullfile(cacheDir, sprintf('pass_%04d.mat', passIdx));
+tmp = [f '.tmp.mat'];
+save(tmp, 'R', 'cacheKey', '-v7.3');
+movefile(tmp, f, 'f');
+end
+
+function [G, info] = loadHandoverGate(path, reportSteps)
+% Φορτώνει το μοντέλο που έγραψε το Model/train_handover_gate.py και ελέγχει,
+% πριν χρησιμοποιηθεί:
+%   - ότι οι στήλες που περιμένει υπάρχουν με αυτό το όνομα στα
+%     χαρακτηριστικά της προσομοίωσης (handoverFeatures + FromSat, ToSat)·
+%   - ότι η handoverGatePredict δίνει τις ίδιες πιθανότητες με το
+%     scikit-learn στα δείγματα ελέγχου του αρχείου.
+S = load(path);
+allNames = [handoverFeatures(), {'FromSat','ToSat'}];
+featNames = cellstr(S.FeatureNames);
+[ok, featIdx] = ismember(featNames, allNames);
+if ~all(ok)
+    error('runSimulation:GateFeatures', ...
+        'Το μοντέλο %s ζητά στήλες που δεν υπάρχουν στην προσομοίωση: %s', ...
+        path, strjoin(featNames(~ok), ', '));
+end
+M = struct('Roots', double(S.Roots(:)), 'Feature', double(S.Feature(:)), ...
+    'Threshold', double(S.Threshold(:)), 'Left', double(S.Left(:)), ...
+    'Right', double(S.Right(:)), 'Value', double(S.Value(:)), ...
+    'MaxDepth', double(S.MaxDepth), 'Sentinel', double(S.Sentinel));
+testX = double(S.TestX);
+testP = double(S.TestP(:));
+pM = zeros(size(testP));
+for i = 1:numel(testP)
+    pM(i) = handoverGatePredict(M, testX(i,:));
+end
+maxErr = max(abs(pM - testP));
+if ~(maxErr <= 1e-12)
+    error('runSimulation:GatePredict', ...
+        ['Η handoverGatePredict διαφέρει από το scikit-learn στα δείγματα ' ...
+         'ελέγχου του %s (μέγιστη διαφορά %g).'], path, maxErr);
+end
+G = struct('Model', M, 'Threshold', double(S.Threshold_p), ...
+    'FeatIdx', featIdx(:)', 'ReportSteps', reportSteps);
+info = struct('Path', path, 'Sha256', fileSha256(path), ...
+    'Threshold', G.Threshold, 'NumTrees', numel(M.Roots), ...
+    'Features', strjoin(featNames, ', '), 'ReportSteps', reportSteps, ...
+    'SelfTestSamples', numel(testP), 'SelfTestMaxErr', maxErr);
+if isfield(S, 'Meta')
+    info.Meta = S.Meta;
+end
+fprintf('  Μοντέλο απόφασης handover: %s\n', path);
+fprintf('    %d δέντρα, %d χαρακτηριστικά, κατώφλι %.3f, reportInterval %d βήματα\n', ...
+    numel(M.Roots), numel(featIdx), G.Threshold, reportSteps);
+fprintf('    ίδιες πιθανότητες με το scikit-learn σε %d δείγματα (μέγιστη διαφορά %.1e)\n', ...
+    numel(testP), maxErr);
+end
+
 function R = runOnePass(passIdx, C)
 % Μία διέλευση, από την αρχικοποίηση της γεννήτριας ως τα handovers και τις
 % γραμμές του αρχείου. Εξαρτάται μόνο από το passIdx και το σταθερό πλαίσιο C
@@ -1689,6 +1926,7 @@ ueSpeedMps       = C.ueSpeedMps;
 userRMinM        = C.userRMinM;
 wgs84            = C.wgs84;
 checksRun   = 0;
+gateChecks  = 0;
 refSnapshot = struct();
 passKpi     = nan(1, numKpi);
 
@@ -1785,8 +2023,9 @@ for s = 1:numSteps
         hoCauseSeq.(pL{1})(s,:) = decisionState.(pL{1}).Cause';
     end
     if ~isempty(prevDecisionState)
-        [evNum, evStr] = logHandoverEvents(hoLogPolicies, prevDecisionState, ...
+        [evNum, evStr, nGate] = logHandoverEvents(hoLogPolicies, prevDecisionState, ...
             decisionState, hoHist, hoHistW, s, opts.dtSeconds, passIdx, numUsers);
+        gateChecks = gateChecks + nGate;
         hoPassNum = [hoPassNum; evNum]; %#ok<AGROW>
         hoPassStr = [hoPassStr; evStr]; %#ok<AGROW>
     end
@@ -1896,6 +2135,7 @@ R.passKpi       = passKpi;
 R.policyPassKpi = policyPassRow;
 R.hoEvents      = hoEvents;
 R.checks        = checksRun;
+R.gateChecks    = gateChecks;
 R.refSnapshot   = refSnapshot;
 end
 
