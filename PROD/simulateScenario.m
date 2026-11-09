@@ -289,11 +289,17 @@ newDecision = struct();
 % σταθμού (μόνο στις *ML· αλλού πάντα 0). GateFeat: τα χαρακτηριστικά που
 % είδε το μοντέλο στο βήμα (NaN = δεν ρωτήθηκε), για τον έλεγχο του
 % runSimulation ότι είναι ίδια με τα καταγεγραμμένα.
+% Attempt/AttemptOffset: στόχος και μετατόπιση MLB της εντολής handover του
+% βήματος ("" = καμία). Η καταγραφή των handovers (runSimulation) κρατά ΚΑΘΕ
+% εντολή, όχι μόνο τις επιτυχείς: η επιτυχία είναι αποτέλεσμα της απόφασης,
+% οπότε ένα σύνολο μόνο με επιτυχείς θα επέλεγε τα δείγματα με βάση αυτό που
+% το μοντέλο καλείται να προβλέψει.
 for pI = 1:numPolLocal
     newDecision.(policyNamesLocal{pI}) = struct('Node', strings(numUsers,1), ...
         'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), 'Wait', zeros(numUsers,1), ...
         'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1), ...
         'Cause', strings(numUsers,1), 'Offset', zeros(numUsers,1), ...
+        'Attempt', strings(numUsers,1), 'AttemptOffset', zeros(numUsers,1), ...
         'Oos', zeros(numUsers,1), 'Is', zeros(numUsers,1), 'T310', -ones(numUsers,1), ...
         'LoadNode', strings(0,1), 'LoadRho', zeros(0,1), 'LoadAge', 0);
     if policyMlLocal(pI)
@@ -935,6 +941,10 @@ for u = 1:numUsers
         if ci > 0
             newDecision.(polName).Offset(u) = candOffsetDb(ci);
         end
+        if ev.Target ~= ""
+            newDecision.(polName).Attempt(u)       = ev.Target;
+            newDecision.(polName).AttemptOffset(u) = candOffsetDb(candNode == ev.Target);
+        end
         if ~isempty(ev.GateFeat)
             newDecision.(polName).GateFeat(u,:) = ev.GateFeat;
         end
@@ -1154,8 +1164,10 @@ function [chosenIdx, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, ke
 % Επιστρέφει: chosenIdx δείκτη στον κατάλογο υποψηφίων (0 = κανένας: outage
 % αν st.Node == "None", αλλιώς ο εξυπηρετών χωρίς ζεύξη στο μοντέλο), τη νέα
 % κατάσταση st και τα γεγονότα ev (Cause "", "HO", "RLF", "HOF"· Rlf· HoFail·
-% Held = ο σταθμός αποφάσισε αναμονή· GateFeat = ό,τι είδε το μοντέλο).
-ev = struct('Cause', "", 'Rlf', false, 'HoFail', false, 'Held', false, 'GateFeat', []);
+% Held = ο σταθμός αποφάσισε αναμονή· GateFeat = ό,τι είδε το μοντέλο·
+% Target = στόχος της εντολής handover του βήματος, "" αν δεν στάλθηκε).
+ev = struct('Cause', "", 'Rlf', false, 'HoFail', false, 'Held', false, 'GateFeat', [], ...
+    'Target', "");
 valid = keepMask & isfinite(candSinrMeas);
 pN = st.Node;
 
@@ -1244,6 +1256,9 @@ if ~isempty(gateCtx)
 end
 
 % ---- (3) Εντολή handover ----
+% Η εντολή στάλθηκε: από εδώ και πέρα ό,τι συμβεί (επιτυχία ή αποτυχία) είναι
+% αποτέλεσμα της απόφασης και όχι πληροφορία της.
+ev.Target = candNode(iBest);
 st.Pending = ""; st.Count = 0; st.Wait = 0;
 if st.T310 >= 0
     ev.HoFail = true;   % κριτήριο 1: ο T310 τρέχει, ο χρήστης μένει

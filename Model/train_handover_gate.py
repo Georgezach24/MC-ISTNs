@@ -15,8 +15,19 @@ Why this is the decision point
 Label (TR 36.839 Definition 5, the simulation's own count)
     ping-pong = the user returns to the source node with a handover after
     staying on the target less than the MTS (1 s):
-        NextNode == FromNode and NextCause == "HO" and StayTo_s <= pingPongMaxStay_s
+        Outcome == "HO" and NextNode == FromNode and NextCause == "HO"
+        and StayTo_s <= pingPongMaxStay_s
     (pingPongMaxStay_s is read from the events file: 0.8 s at dt = 0.2 s).
+
+No outcome information in the inputs
+    One sample per handover COMMAND, successful or not: success is decided
+    after the command (true SINR of the target, T310), so keeping only the
+    successful ones would select samples by the outcome. Everything that
+    happened after the decision (Outcome, StayTo_s, NextNode, NextCause,
+    Censored, TimeToPassEnd_s) is used only to build the label; identifiers
+    (pass, step, user, seed) are never inputs. Both are checked by an assert.
+    Train/test split and CV are by pass; the evaluation run (seed 42) shares
+    no pass with the training seeds, and the threshold is fixed, not tuned.
 
 Data
     Dataset/ml_train/seed*/handover_events.mat, written by PROD/runSimulation.m
@@ -101,6 +112,16 @@ FEATURES = [
     "LoadFrom", "LoadTo", "UsersOnFrom", "UsersOnTo", "MlbOffset_dB",
     "FromSat", "ToSat",
 ]
+# Ό,τι συνέβη ΜΕΤΑ την απόφαση: μόνο για την ετικέτα, ποτέ ως είσοδος. Το
+# μοντέλο ξέρει μόνο ό,τι ξέρει ο σταθμός τη στιγμή της αναφοράς.
+OUTCOME_COLUMNS = {"Outcome", "StayTo_s", "NextNode", "NextCause", "Censored",
+                   "TimeToPassEnd_s", "PingPong"}
+# Αναγνωριστικά (διέλευση, βήμα, χρήστης, σπόρος): όχι είσοδοι, θα έδιναν
+# στο μοντέλο ταυτότητα δείγματος αντί για κατάσταση.
+ID_COLUMNS = {"PassID", "Step", "Time_s", "UserID", "Seed", "Group", "Policy",
+              "FromNode", "ToNode", "PrevNode"}
+assert not (set(FEATURES) & (OUTCOME_COLUMNS | ID_COLUMNS)), "διαρροή στήλης στις εισόδους"
+
 # Κάτω από κάθε πραγματική τιμή (SINR > -300 dB, ανύψωση >= 0, απόσταση > 0,
 # φόρτος >= 0, μετατόπιση >= -24 dB): ένας κόμβος του δέντρου τη στέλνει πάντα
 # αριστερά, δηλαδή «δεν ορίζεται» είναι μια ξεχωριστή κατηγορία.
@@ -171,11 +192,20 @@ def label_and_filter(df: pd.DataFrame, max_stay: float) -> pd.DataFrame:
     df["FromSat"] = df["FromNode"].str.startswith("SAT").astype(float)
     df["ToSat"] = df["ToNode"].str.startswith("SAT").astype(float)
     df["ReturnToPrev"] = df["ReturnToPrev"].astype(float)
+    # Μία γραμμή ανά εντολή handover, επιτυχή ή όχι (runSimulation,
+    # logHandoverEvents): το μοντέλο ρωτιέται πριν φανεί η έκβαση, οπότε
+    # μαθαίνει από όλες. Αρχεία πριν τη στήλη Outcome είχαν μόνο επιτυχείς.
+    if "Outcome" not in df:
+        df["Outcome"] = "HO"
+    ho = (df["Outcome"] == "HO").to_numpy()
     # Η διέλευση τελείωσε πριν φανεί αν ο χρήστης επιστρέφει μέσα στο MTS:
     # η ετικέτα δεν είναι γνωστή, οπότε το handover δεν χρησιμοποιείται.
-    unknown = df["Censored"].astype(bool) & (df["StayTo_s"] <= max_stay + 1e-9)
+    unknown = ho & df["Censored"].astype(bool).to_numpy() & (df["StayTo_s"] <= max_stay + 1e-9).to_numpy()
     df = df[~unknown].copy()
-    df["PingPong"] = ((df["NextNode"] == df["FromNode"]) & (df["NextCause"] == "HO")
+    # Αποτυχημένη εντολή: ο χρήστης δεν έφτασε στον στόχο, άρα δεν υπάρχει
+    # επιστροφή από αυτόν - όχι ping-pong.
+    df["PingPong"] = ((df["Outcome"] == "HO") & (df["NextNode"] == df["FromNode"])
+                      & (df["NextCause"] == "HO")
                       & (df["StayTo_s"] <= max_stay + 1e-9)).astype(int)
     return df
 
@@ -296,9 +326,9 @@ def main():
 
     raw, max_stay, provenance = build_frame(args.events)
     df = label_and_filter(raw, max_stay)
-    print(f"Handovers (Actual, ActualMLB): {len(df)} από {df['Group'].nunique()} διελεύσεις, "
+    print(f"Εντολές handover (Actual, ActualMLB): {len(df)} από {df['Group'].nunique()} διελεύσεις, "
           f"ping-pong {df['PingPong'].sum()} ({100*df['PingPong'].mean():.2f}%)")
-    print(df.groupby("Policy")["PingPong"].agg(["size", "sum", "mean"]))
+    print(df.groupby(["Policy", "Outcome"])["PingPong"].agg(["size", "sum", "mean"]))
 
     gss = GroupShuffleSplit(n_splits=1, test_size=TEST_SIZE, random_state=RANDOM_STATE)
     tr_idx, te_idx = next(gss.split(df, df["PingPong"], df["Group"]))

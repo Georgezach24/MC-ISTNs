@@ -1230,20 +1230,33 @@ function [evNum, evStr, gateChecks] = logHandoverEvents(pols, prevDec, newDec, H
 %    απόστασης για δορυφορικό κόμβο.
 %  - Μετατόπιση MLB (Ocn): παράμετρος του A3, όπως η υστέρηση στους
 %    Aggarwal et al. (pre_hysteresis).
+%
+% Ένα δείγμα ανά ΕΝΤΟΛΗ handover, όχι μόνο ανά επιτυχές handover: η
+% επιτυχία κρίνεται μετά την απόφαση (πραγματικό SINR του στόχου, T310),
+% άρα είναι αποτέλεσμα και όχι κάτι που ξέρει ο σταθμός. Ένα σύνολο μόνο με
+% επιτυχείς θα διάλεγε τα δείγματα με βάση το αποτέλεσμα, ενώ η απόφαση με
+% ML ρωτιέται για κάθε εντολή. Το αποτέλεσμα κρατείται στη στήλη Outcome
+% (TR 36.839 Ορισμός 3):
+%   "HO"         επιτυχές handover (Ορισμός 6)
+%   "HOF_T310"   η εντολή έφτασε ενώ έτρεχε ο T310: ο χρήστης μένει (κατάσταση 2)
+%   "HOF_TARGET" ο στόχος δεν ήταν προσβάσιμος: επανεγκατάσταση (κατάσταση 3)
+% Σε πολιτική με ML καταγράφονται οι εντολές που άφησε να σταλούν το μοντέλο.
 evNum = zeros(0, numel(handoverEventNumNames()));
-evStr = strings(0, 5);
+evStr = strings(0, 6);
 gateChecks = 0;
 tNow  = (s-1)*dtS;
 for pI = 1:numel(pols)
     pol = pols{pI};
     pN  = prevDec.(pol).Node;
-    sN  = newDec.(pol).Node;
-    % Μόνο επιτυχή handovers του A3· οι επανεγκαταστάσεις μετά από RLF ή
-    % αποτυχία δεν είναι handovers (TR 36.839 Ορισμός 6).
-    isHo = newDec.(pol).Cause == "HO";
-    for u = find(isHo)'
+    isAtt = newDec.(pol).Attempt ~= "";
+    for u = find(isAtt)'
         f = pN(u);
-        g = sN(u);
+        g = newDec.(pol).Attempt(u);
+        switch newDec.(pol).Cause(u)
+            case "HO",  outcome = "HO";
+            case "HOF", outcome = "HOF_TARGET";
+            otherwise,  outcome = "HOF_T310";
+        end
         fromSat = startsWith(f, "SAT");
         toSat   = startsWith(g, "SAT");
         if ~fromSat && ~toSat
@@ -1272,7 +1285,7 @@ for pI = 1:numel(pols)
             'DistFrom', bsDist(H, u, f), 'DistTo', bsDist(H, u, g), ...
             'LoadFrom', sum(ldRho(ldNode == f)), 'LoadTo', sum(ldRho(ldNode == g)), ...
             'UsersOnFrom', sum(pN == f), 'UsersOnTo', sum(pN == g), ...
-            'MlbOffset', newDec.(pol).Offset(u)));
+            'MlbOffset', newDec.(pol).AttemptOffset(u)));
         % Πολιτική με ML: η απόφαση είδε χαρακτηριστικά που υπολογίστηκαν
         % μέσα στη simulateScenario. Πρέπει να είναι ίδια, bit προς bit, με
         % αυτά που καταγράφονται εδώ και από τα οποία εκπαιδεύεται το μοντέλο.
@@ -1288,7 +1301,7 @@ for pI = 1:numel(pols)
         end
         row = [passIdx, s, tNow, u, feat];
         evNum(end+1,:) = row;                                     %#ok<AGROW>
-        evStr(end+1,:) = [string(pol), f, g, prevNode, hoType]; %#ok<AGROW>
+        evStr(end+1,:) = [string(pol), f, g, prevNode, hoType, outcome]; %#ok<AGROW>
     end
 end
 end
@@ -1307,6 +1320,8 @@ function ev = finishHandoverEvents(num, str, nodeSeq, causeSeq, dtS)
 % Ping-pong: NextNode == FromNode && NextCause == "HO" && StayTo_s <=
 % pingPongMaxStay_s (μεταδεδομένα του αρχείου· 0.8 s για MTS 1 s με Δt = 0.2 s).
 % Έτσι ταυτίζεται με την καταμέτρηση της simulateScenario (TR 36.839 Ορισμός 5).
+% Για εντολή που απέτυχε (Outcome ~= "HO") ο χρήστης δεν βρέθηκε ποτέ στον
+% στόχο: StayTo_s = NaN, NextNode/NextCause = "", Censored = false.
 n = size(num,1);
 stayTo   = nan(n,1);
 toEnd    = nan(n,1);
@@ -1319,6 +1334,9 @@ for i = 1:n
     s   = num(i,2);
     nSteps = numel(seq);
     toEnd(i) = (nSteps - s)*dtS;
+    if str(i,6) ~= "HO"
+        continue;
+    end
     j = find(seq(s+1:end) ~= str(i,3) | cau(s+1:end) == "RLF" | cau(s+1:end) == "HOF", 1);
     if isempty(j)
         stayTo(i)   = (nSteps - s + 1)*dtS;
@@ -1340,6 +1358,7 @@ ev.FromNode = str(:,2);
 ev.ToNode   = str(:,3);
 ev.PrevNode = str(:,4);
 ev.HoType   = str(:,5);
+ev.Outcome  = str(:,6);
 ev.TimeToPassEnd_s = toEnd;
 ev.StayTo_s = stayTo;
 ev.Censored = censored;
@@ -1986,7 +2005,7 @@ for pL = hoLogPolicies
     hoCauseSeq.(pL{1}) = strings(numSteps, numUsers);
 end
 hoPassNum = zeros(0, numel(handoverEventNumNames()));
-hoPassStr = strings(0, 5);
+hoPassStr = strings(0, 6);
 
 for s = 1:numSteps
     t = tStart + (s-1)*opts.dtSeconds;
