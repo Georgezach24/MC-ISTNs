@@ -1,3 +1,0 @@
-Σύγκριση vs 20260906_173550_kpiRepeatedRuns_sm
-
-  ~ numRuns : 3  ->  500

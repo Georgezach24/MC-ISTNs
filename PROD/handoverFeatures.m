@@ -4,21 +4,19 @@ function x = handoverFeatures(c)
 %   names = handoverFeatures()    ονόματα των στηλών, με τη σειρά τους
 %   x     = handoverFeatures(c)   διάνυσμα γραμμή, μία τιμή ανά στήλη
 %
-% Μία συνάρτηση για δύο χρήστες: την καταγραφή των handovers στο
-% Dataset/handover_events.mat (runSimulation, logHandoverEvents), από την
-% οποία εκπαιδεύεται το μοντέλο, και την απόφαση με ML μέσα στην προσομοίωση
-% (simulateScenario, mlGateDecision). Έτσι το μοντέλο βλέπει στην εφαρμογή
-% ακριβώς ό,τι είδε στην εκπαίδευση· το runSimulation το επαληθεύει σε κάθε
-% handover των πολιτικών *ML.
+% Κοινή για την καταγραφή (runSimulation/logHandoverEvents, εκπαίδευση) και την
+% απόφαση ML (simulateScenario/mlGateDecision), ώστε το μοντέλο να βλέπει ό,τι
+% είδε στην εκπαίδευση.
 %
-% Πεδία του c (f = κόμβος που αφήνει ο χρήστης, g = στόχος):
-%   SinrFrom, SinrTo  [1x3] φιλτραρισμένη μέτρηση L3 (TS 38.331 §5.5.3.2) των
-%                     f και g στα δείγματα t, t-1 s, t-2 s· NaN όπου δεν
-%                     υπάρχει (αρχή διέλευσης, κόμβος εκτός μέτρησης)
-%   LagS              s, απόσταση των δειγμάτων (1 s)
-%   NumUsers, ReturnToPrev, StayFrom_s, ElevFrom, ElevTo, DistFrom, DistTo,
-%   LoadFrom, LoadTo, UsersOnFrom, UsersOnTo, MlbOffset
-% Οι πηγές κάθε στήλης είναι στο σχόλιο της logHandoverEvents (runSimulation).
+% Πεδία του c (From = εξυπηρετών, To = στόχος) και πηγές:
+%   SinrFrom, SinrTo  [1x3] μέτρηση L3 (TS 38.331 §5.5.3.2) στα t, t-1 s, t-2 s
+%                     -> SINR, gap, μεταβολή 1 s, μέσος όρος/κλίση 3 s
+%                     (Aggarwal et al., IEEE ICSigSys 2026)
+%   LagS              απόσταση δειγμάτων (s)
+%   ReturnToPrev, StayFrom_s   UE History Information (TS 38.413 §9.3.1.97)
+%   LoadFrom/To, UsersOnFrom/To  Resource Status (TS 38.423 §9.1.3.21)
+%   ElevFrom/To, DistFrom/To     γεωμετρία (TR 37.817 §5.3.2.4)
+%   NumUsers, MlbOffset          πλήθος χρηστών, μετατόπιση MLB του A3
 names = {'NumUsers','ReturnToPrev','StayFrom_s', ...
     'SinrServ_dB','SinrCand_dB','Gap_dB','DeltaSinr1s_dB','DeltaGap1s_dB', ...
     'AvgSinr3s_dB','AvgGap3s_dB','SlopeSinr3s_dBps','SlopeGap3s_dBps', ...

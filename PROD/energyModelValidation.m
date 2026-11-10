@@ -1,16 +1,7 @@
 function T = energyModelValidation(outputDir, label)
-% Έλεγχος του ενεργειακού μοντέλου ως προς το πλήθος χρηστών.
-%
-% Δύο πειράματα, με μοναδική μεταβλητή το πλήθος χρηστών ανά κόμβο:
-%
-%   Α. Χρήστες στην ίδια απόσταση. Επαληθεύεται, για κάθε χρήστη και κάθε L,
-%      ότι η χωρητικότητα είναι (B/L)*SE_u και η ενέργεια ανά bit P/(B*SE_u),
-%      δηλαδή ότι το L απλοποιείται αλγεβρικά: E = (P/L) / ((B/L)*SE) = P/(B*SE).
-%
-%   Β. Χρήστες σε αυξανόμενες αποστάσεις. Δείχνει ότι ο δείκτης bit/J σε
-%      επίπεδο δικτύου, σε αντίθεση με την ενέργεια ανά bit, αποτυπώνει τη
-%      σύνθεση των εξυπηρετούμενων χρηστών.
-%
+%ENERGYMODELVALIDATION Ενεργειακό μοντέλο ως προς το πλήθος χρηστών L ανά κόμβο.
+%   Α. Ίδια απόσταση: C_u = (B/L)*SE_u και E_u = P/(B*SE_u), ανεξάρτητη του L.
+%   Β. Αυξανόμενες αποστάσεις: το bit/J του δικτύου αποτυπώνει τη σύνθεση των χρηστών.
 
 if nargin < 1 || isempty(outputDir)
     outputDir = fullfile(fileparts(mfilename('fullpath')), '..', 'Results');
@@ -45,7 +36,7 @@ simParameters.PathLoss.EnvironmentHeight = 1;
 simParameters.TxPower = 49;
 simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain + ...
                      10*log10(simParameters.NumAntennaElements);
-simParameters.Power.NumTrx = 4;   % αλυσίδες πομποδέκτη ανά τομέα· P_out/αλυσίδα <= 20 W (EARTH Πίν. 2)
+simParameters.Power.NumTrx = 4;
 simParameters.Power.P0     = 130;
 simParameters.Power.DeltaP = 4.7;
 simParameters.Power.Psleep = 75;
@@ -88,12 +79,8 @@ for k = 1:nA
     eA(k)   = mean(ePerBit(isfinite(ePerBit)));
     bitPerJouleA(k) = netE.BitPerJoule;
 
-    % Οι χρήστες δεν είναι πανομοιότυποι ως προς το κανάλι (καθένας έχει τη
-    % δική του σκίαση και διαλείψεις), οπότε το L δεν ελέγχεται μέσω του
-    % μέσου όρου αλλά ανά χρήστη, πάνω στη δική του φασματική απόδοση SE_u:
-    %   C_u = (B/L_s)*SE_u      E_u = (P/L_s)/C_u = P/(B*SE_u)
-    % με L_s τους εξυπηρετούμενους του κόμβου (ένας σταθμός, δορυφόρος
-    % απρόσιτος). Ισχύει για οποιαδήποτε πραγματοποίηση του καναλιού.
+    % Έλεγχος ανά χρήστη (κάθε χρήστης έχει δικό του κανάλι):
+    %   C_u = (B/L_s)*SE_u,  E_u = P/(B*SE_u),  L_s = εξυπηρετούμενοι.
     served = ~isnan(capMbps);
     Ls  = sum(served);
     seU = min(log2(1 + 10.^(sinrDb(served)/10)), maxSe);
@@ -128,8 +115,6 @@ T = table(userCounts(:), capA, eA, bitPerJouleA, capB, eB, bitPerJouleB, ...
                       'CapB_Mbps','EnergyB_uJ','BitPerJouleB'});
 
 %% ------------------ Έλεγχοι ------------------
-% 1/L κλιμάκωση και ανεξαρτησία της ενέργειας ανά bit από το L, ως ταυτότητες
-% ανά χρήστη (βλ. πείραμα Α). Ανοχή σε επίπεδο στρογγυλοποίησης.
 scaleOk  = all(capErrA < 1e-9);
 energyOk = all(eErrA < 1e-9);
 
@@ -149,7 +134,7 @@ end
 
 fprintf('\n1. Χωρητικότητα ανά χρήστη ~ 1/L                 : %s\n', boolText(scaleOk));
 fprintf('2. Ενέργεια ανά bit ανεξάρτητη του L             : %s\n', boolText(energyOk));
-fprintf('   (το L απλοποιείται: E = P/(B*SE), βλ. κεφ. 3)\n');
+fprintf('   (το L απλοποιείται: E = P/(B*SE))\n');
 fprintf('3. Μεταβολή bit/J δικτύου στο πείραμα Β          : %.1f%%\n\n', ...
     100*(T.BitPerJouleB(end)-T.BitPerJouleB(1))/T.BitPerJouleB(1));
 
@@ -187,7 +172,6 @@ runParams = struct('rngSeed', 1, 'scenario', 'UMa', 'userCounts', userCounts, ..
     'MinElevationDeg', satParameters.MinElevationDeg);
 runParams.terrestrialPower = simParameters.Power;
 runParams.satellitePower   = satParameters.Power;
-% Οι αριθμοί του γραφήματος κρατούνται στο params.mat της εκτέλεσης, όχι σε csv.
 runParams.results = T;
 saveRunVersion('energyModelValidation', runParams, {pngPath}, label);
 

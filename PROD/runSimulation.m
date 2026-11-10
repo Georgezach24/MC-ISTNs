@@ -1,60 +1,24 @@
 function [convTable, summary] = runSimulation(opts)
-%RUNSIMULATION Ενιαία προσομοίωση του σεναρίου ISTN: μία εκτέλεση που παράγει
-% όλα τα δεδομένα  (αποτελέσματα προσομοίωσης + σύνολο εκπαίδευσης).
+%RUNSIMULATION Προσομοίωση του σεναρίου ISTN (επίγειο UMa + LEO).
 %
-% Δομή του χρόνου, με την πηγή της κάθε επιλογής:
-%
-%   * Στοιχειώδης μονάδα = μία διέλευση του δορυφόρου. Το TR 38.821
-%     Πίν. 4.2-3 NOTE 1 ορίζει ως φυσικό παράθυρο λειτουργίας τον χρόνο
-%     ορατότητας του δορυφόρου ("a period of time corresponding to the
-%     visibility time of the satellite"). Με numSats > 1 το παράθυρο
-%     κεντράρεται στη διέλευση του μεσαίου δορυφόρου και περιέχει τις
-%     διελεύσεις των διαδοχικών δορυφόρων του ίδιου τροχιακού επιπέδου.
-%
-%   * Βήμα Δt = 1 s. Δύο ανεξάρτητοι περιορισμοί δίνουν την ίδια τιμή:
-%       - ITU-R M.2412-0, Παράρτημα 1 §5.3.2: η μετατόπιση του χρήστη ανά
-%         βήμα πρέπει να μένει κάτω από 1 m. Στα 3 km/h -> 0.83 m ανά s.
-%       - TR 38.821 §7.3.2.1.4, Πίν. 7.3.2.1.4-1: η ταχύτερη κλίμακα
-%         κινητικότητας σε LEO NTN είναι 6.61 s (δέσμη 50 km).
-%
-%   * Συνολική διάρκεια: δεν ορίζεται από κανένα πρότυπο ως σταθερός αριθμός.
-%     Το ITU-R M.2412-0 §7.1 ορίζει κριτήριο: "A sufficient number of drops is
-%     simulated to ensure convergence in the UE and system performance metrics.
-%     The proponent should provide information on the width of confidence
-%     intervals". Το ITU-R M.2514-0 §8.2.4 επεκτείνει ρητά τη διαδικασία του
-%     M.2412 στις δορυφορικές αξιολογήσεις. Η προσομοίωση τρέχει ΣΤΑΘΕΡΟ πλήθος
-%     διελεύσεων (numPasses), ίδιο σε κάθε σενάριο, ώστε η διέλευση n να έχει
-%     την ίδια τυχαιότητα παντού και τα σενάρια να συγκρίνονται κατά ζεύγη. Το
-%     διάστημα εμπιστοσύνης δεν σταματά την εκτέλεση· αναφέρεται στο τέλος ως
-%     η απαίτηση του §7.1, μαζί με την καμπύλη σύγκλισης που δείχνει ότι το
-%     πλήθος αρκεί.
-%
-%   * Κίνηση χρηστών: ITU-R M.2412-0 §8.4, ΠΙΝΑΚΑΣ 5 b) και c): "Fixed and
-%     identical speed |v| of all UEs of the same mobility class, randomly and
-%     uniformly distributed direction", με 3 km/h για πεζό χρήστη. Κάθε
-%     διέλευση ξεκινά με νέες θέσεις χρηστών (ένα "drop" κατά M.2412 §7.1)
-%     και οι χρήστες περπατούν συνεχώς μέσα στη διέλευση.
+%   * Μονάδα = μία διέλευση των δορυφόρων (TR 38.821 Πίν. 4.2-3 NOTE 1)· κάθε
+%     διέλευση είναι ένα drop με νέους χρήστες (ITU-R M.2412-0 §7.1).
+%   * Βήμα dtSeconds = 0.2 s = περίοδος μέτρησης L1->L3.
+%   * Σταθερό πλήθος διελεύσεων (numPasses), ίδιο σε όλες τις πολιτικές, ώστε
+%     οι συγκρίσεις να γίνονται κατά ζεύγη· τα 95% CI αναφέρονται στο τέλος
+%     (M.2412-0 §7.1, M.2514-0 §8.2.4).
+%   * Χρήστες: 3 km/h, τυχαία σταθερή κατεύθυνση (M.2412-0 §8.4, Πίν. 5).
 %
 % Χρήση:
-%   runSimulation()                                   % προεπιλογές
-%   runSimulation(struct('numPasses',10))             % σύντομο τρέξιμο δοκιμής
-%   runSimulation(struct('geometryGrid',false))       % τυχαία γεωμετρία ανά διέλευση
-%
-% Η προσομοίωση προχωρά πάντα με βήμα dtSeconds και όλοι οι δείκτες
-% υπολογίζονται σε αυτή την ανάλυση. Στο αρχείο όμως γράφεται μία γραμμή κάθε
-% datasetStride βήματα: διαδοχικά δείγματα του ίδιου χρήστη απέχουν 0.17 m και
-% είναι σχεδόν ταυτόσημα, οπότε η πλήρης ανάλυση θα παρήγαγε αρχείο εκατοντάδων
-% MB χωρίς να προσθέτει πληροφορία. Η διέλευση αναφοράς αποθηκεύεται χωριστά σε
-% πλήρη ανάλυση, όπου χρειάζεται για τις χρονοσειρές.
+%   runSimulation()                          % προεπιλογές
+%   runSimulation(struct('numPasses',10))    % σύντομη δοκιμή
 %
 % Έξοδοι:
-%   Dataset/dataset.csv        μία γραμμή ανά (διέλευση, δείγμα, χρήστη)· το
-%                              ΜΟΝΟ csv της εκτέλεσης, είσοδος του ML μοντέλου
-%   Results/policy_gain.png    πόσο καλύτερη είναι η υπό εξέταση πολιτική από
-%                              καθεμία από τις δύο αποκλειστικές, με 95% CI
-%   Results/*.png              χρονοσειρές διέλευσης αναφοράς + καμπύλη σύγκλισης
-%   Results/simulation_results.mat  οι αριθμοί πίσω από τα γραφήματα (διέλευση
-%                              αναφοράς, σύγκλιση, δείκτες πολιτικών, διαφορές)
+%   Dataset/dataset.csv            μία γραμμή ανά (διέλευση, δείγμα, χρήστη),
+%                                  κάθε datasetStride βήματα
+%   Dataset/handover_events.mat    ένα γεγονός ανά handover (εκπαίδευση ML)
+%   Results/*.png                  διέλευση αναφοράς, σύγκλιση, κέρδη πολιτικών
+%   Results/simulation_results.mat οι αριθμοί πίσω από τα γραφήματα
 
 %% ------------------ Επιλογές ------------------
 if nargin < 1 || isempty(opts)
@@ -65,10 +29,10 @@ def = struct( ...
     'dtSeconds',    0.2, ...    % s, βήμα = περίοδος L1->L3 (TR 36.839 Πίν. 5.3.2.1, TS 38.133 Πίν. 9.2.5.2-1)
     'ueSpeedKmh',   3, ...      % km/h, πεζός χρήστης (M.2412 ΠΙΝ. 5 b/c)
     'passWindowS',  900, ...    % s, παράθυρο ανά διέλευση γύρω από τη μέγιστη προσέγγιση
-    'numPasses',    300, ...    % σταθερό πλήθος διελεύσεων (η εκτέλεση αναφοράς έπιασε το στόχο CI στις 227)
+    'numPasses',    300, ...    % σταθερό πλήθος διελεύσεων
     'geometryGrid', true, ...   % στρωματοποιημένη εγκάρσια μετατόπιση ίχνους· false = rand() ανά διέλευση
-    'ciTolerance',  0.05, ...   % στόχος αναφοράς: σχετικό ημιεύρος 95% CI (ρυθμός/ενέργεια)
-    'ciToleranceFrac', 0.02, ...% στόχος αναφοράς: απόλυτο ημιεύρος 95% CI (ποσοστά)
+    'ciTolerance',  0.05, ...   % στόχος: σχετικό ημιεύρος 95% CI (ρυθμός/ενέργεια)
+    'ciToleranceFrac', 0.02, ...% στόχος: απόλυτο ημιεύρος 95% CI (ποσοστά)
     'datasetStride', 25, ...    % κάθε πόσα βήματα γράφεται γραμμή στο dataset (25 x 0.2 s = 5 s)
     'hysteresisDb',  3, ...      % TS 38.331 §6.3.2: 0..15 dB, βήμα 0.5 dB (τιμή πεδίου 6)
     'timeToTriggerMs', 480, ...  % TR 36.839 Πίν. 5.3.2.1 Set 1 (με offset 3 dB, K = 4)· 3 βήματα στο Δt = 0.2 s
@@ -89,13 +53,11 @@ def = struct( ...
     'satFreqReuse',  1, ...      % TR 38.821 Πίν. 6.1.1.1-5: Option 1 = 1, Option 2 = 3
     'mlbReportPeriodMs', 1000, ...% ms, Reporting Periodicity της αναφοράς φόρτου (TS 38.423 §9.1.3.18)
     'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
-    'mlGatePath', fullfile(thisDir, '..', 'Model', 'results_handover_gate', 'handover_gate.mat'), ... % μοντέλο της απόφασης handover· '' ή χωρίς αρχείο = χωρίς τις πολιτικές *ML
-    'mlReportIntervalMs', 240, ...% ms, reportInterval (TS 38.331 ReportConfigNR): το μικρότερο από ms120, ms240, ... που διακρίνει το βήμα των 200 ms
-    'passCacheDir', '', ...      % φάκελος με ένα .mat ανά διέλευση· '' = χωρίς (βλ. «Παράλληλη εκτέλεση»)
-    'passSubset',   [], ...      % μόνο αυτές οι διελεύσεις, στο passCacheDir, χωρίς σύνοψη· [] = όλες
-    'wrapAround',    true, ...   % wrap-around του πλέγματος (6 αντίγραφα), όπως στη βαθμονόμηση TR 38.901
-    'bsSectors',     3, ...
-    'numWorkers',    6, ...      % διελεύσεις παράλληλα (Parallel Computing Toolbox)· 0 = σειριακά      % τομείς ανά site: 3 (TR 38.901 Πίν. 7.8-1, ITU-R M.2412-0 §8.3) ή 1 (ομοκατευθυντικό, σταθερό κέρδος)
+    'mlGatePath', fullfile(thisDir, '..', 'Model', 'results_handover_gate', 'handover_gate.mat'), ... % μοντέλο ML· χωρίς αρχείο = χωρίς τις πολιτικές *ML
+    'mlReportIntervalMs', 240, ...% ms, reportInterval (TS 38.331 ReportConfigNR)
+    'wrapAround',    true, ...   % wrap-around του πλέγματος (TR 38.901)
+    'bsSectors',     3, ...      % τομείς ανά site: 3 (TR 38.901 Πίν. 7.8-1) ή 1
+    'numWorkers',    6, ...      % παράλληλες διελεύσεις (Parallel Computing Toolbox)· 0 = σειριακά
     'resume',       true, ...   % συνέχιση από σημείο ελέγχου, αν υπάρχει
     'rngSeed',      42, ...
     'datasetPath',  fullfile(thisDir, '..', 'Dataset', 'dataset.csv'), ...
@@ -119,27 +81,19 @@ end
 resultsMat     = fullfile(opts.outputDir, 'simulation_results.mat');
 checkpointPath = fullfile(opts.outputDir, 'runSimulation_checkpoint.mat');
 
-% Σημείο ελέγχου: μια μεγάλη εκτέλεση μπορεί να διακοπεί (π.χ. από έλλειψη
-% μνήμης στο μηχάνημα). Αν υπάρχει συμβατό σημείο ελέγχου, η εκτέλεση
-% συνεχίζει από την επόμενη διέλευση αντί να ξαναρχίσει από την αρχή.
+% Σημείο ελέγχου: μια διακοπείσα εκτέλεση συνεχίζει από την επόμενη διέλευση,
+% αν οι παράμετροι και το μοντέλο ML είναι τα ίδια.
 resumeState = [];
-if opts.resume && isempty(opts.passSubset) && isfile(checkpointPath) && isfile(opts.datasetPath)
+if opts.resume && isfile(checkpointPath) && isfile(opts.datasetPath)
     S = load(checkpointPath);
-    % Το ίδιο mlGatePath μπορεί να δείχνει σε άλλο μοντέλο (ή σε κανένα) μετά
-    % από νέα εκπαίδευση· οι διελεύσεις δύο μοντέλων δεν ανακατεύονται.
     gateSha = '';
     if ~isempty(opts.mlGatePath) && isfile(opts.mlGatePath)
         gateSha = fileSha256(opts.mlGatePath);
     end
-    % Σημεία ελέγχου παλαιότερης μορφής δεν κρατούν τη διέλευση αναφοράς (τότε
-    % ζούσε σε csv), οπότε δεν μπορούν να συνεχιστούν.
-    if isfield(S,'ckpt') && isfield(S.ckpt,'refPassTable') && ...
-            isfield(S.ckpt,'mlGateSha256') && strcmp(S.ckpt.mlGateSha256, gateSha) && ...
-            checkpointMatches(S.ckpt.opts, opts)
-        % Το σημείο ελέγχου γράφεται αμέσως μετά την εγγραφή της διέλευσης στο
-        % CSV. Αν η διακοπή έπεσε ακριβώς ανάμεσα στα δύο, το CSV έχει μία
-        % διέλευση παραπάνω από όση ξέρει το σημείο ελέγχου· τότε η συνέχιση θα
-        % παρήγαγε διπλές γραμμές, οπότε σταματάμε αντί να το αγνοήσουμε.
+    if isfield(S,'ckpt') && isfield(S.ckpt,'mlGateSha256') && ...
+            strcmp(S.ckpt.mlGateSha256, gateSha) && checkpointMatches(S.ckpt.opts, opts)
+        % Διακοπή ανάμεσα στην εγγραφή του CSV και του σημείου ελέγχου θα
+        % έδινε διπλές γραμμές: σταματάμε.
         lastInCsv = max(readmatrix(opts.datasetPath, 'Range', 'A:A', ...
             'NumHeaderLines', 1));
         if lastInCsv ~= S.ckpt.passIdx
@@ -158,9 +112,7 @@ if opts.resume && isempty(opts.passSubset) && isfile(checkpointPath) && isfile(o
     end
 end
 
-% Μια διεργασία με passSubset γράφει μόνο στο passCacheDir: τα αρχεία της
-% κύριας εκτέλεσης δεν είναι δικά της.
-if isempty(resumeState) && isempty(opts.passSubset)
+if isempty(resumeState)
     if isfile(opts.datasetPath),  delete(opts.datasetPath);  end
     if isfile(opts.handoverEventsPath), delete(opts.handoverEventsPath); end
     if isfile(resultsMat),        delete(resultsMat);        end
@@ -170,13 +122,8 @@ end
 wgs84 = wgs84Ellipsoid;
 cLight = physconst('LightSpeed');
 
-%% ------------------ Τοπολογία σταθμών βάσης (σταθερή: το σενάριο) ------------------
-% Εξαγωνικό πλέγμα σταθμών με απόσταση ISD, όπως η διάταξη βαθμονόμησης του
-% TR 38.901 (Πίν. 7.2-1 και 7.8-1: UMa, 19 sites, ISD 500 m, ύψος BS 25 m).
-% Με bsRings = 2: ένας σταθμός στο κέντρο, 6 στον πρώτο και 12 στον δεύτερο
-% δακτύλιο. Το κέντρο είναι το ίδιο σημείο αναφοράς με το προηγούμενο σενάριο.
-% Χωρίς wrap-around: οι κυψέλες του εξωτερικού δακτυλίου δέχονται λιγότερη
-% παρεμβολή από τις εσωτερικές.
+%% ------------------ Τοπολογία σταθμών βάσης ------------------
+% Εξαγωνικό πλέγμα (TR 38.901 Πίν. 7.2-1, 7.8-1: UMa, 19 sites, ISD 500 m, 25 m).
 bsCenterGeo = [37.9838 23.7275];
 bsHeightM   = 25;
 hexOffsets  = hexSiteOffsetsM(opts.bsRings, opts.bsIsdM);   % [ανατολικά βόρεια] m
@@ -189,10 +136,8 @@ end
 numBs = size(bs_geo,1);
 bsClusterRadiusM = opts.bsRings * opts.bsIsdM;   % απόσταση του πιο μακρινού σταθμού από το κέντρο
 
-% Θέσεις του επόμενου δακτυλίου (χωρίς σταθμό): ορίζουν το εξωτερικό όριο των
-% κυψελών. Ένα σημείο ανήκει στο δίκτυο όταν ο πλησιέστερος κόμβος του άπειρου
-% πλέγματος είναι ένας από τους numBs σταθμούς, δηλαδή όταν είναι μέσα σε ένα
-% από τα εξάγωνα (κυψέλες Voronoi) των σταθμών.
+% Θέσεις του επόμενου δακτυλίου (χωρίς σταθμό): ορίζουν το όριο της περιοχής·
+% ένα σημείο ανήκει στο δίκτυο όταν ο πλησιέστερος κόμβος είναι σταθμός.
 ringOffsets = hexSiteOffsetsM(opts.bsRings + 1, opts.bsIsdM);
 ringOffsets = ringOffsets(numBs+1:end,:);
 ghost_geo = zeros(size(ringOffsets,1), 2);
@@ -202,12 +147,9 @@ for b = 1:size(ringOffsets,1)
 end
 cellRadiusM = opts.bsIsdM / sqrt(3);   % ακτίνα εξαγώνου (κορυφή)
 
-% Wrap-around: το πλέγμα των numBs σταθμών (εξάγωνο R δακτυλίων) επαναλαμβάνεται
-% γύρω από τον εαυτό του με τις 6 μετατοπίσεις που πλακοστρώνουν το επίπεδο.
-% Σε αξονικές συντεταγμένες (q, r) είναι ±(2R+1, -R), ±(R, R+1), ±(-R-1, 2R+1),
-% μήκους ISD*sqrt(3R^2+3R+1) (= ISD*sqrt(19) για R = 2). Κάθε ζεύξη μετριέται
-% από το πλησιέστερο αντίγραφο του σταθμού, οπότε κάθε κυψέλη, και του
-% εξωτερικού δακτυλίου, βλέπει τον ίδιο περίγυρο παρεμβολέων.
+% Wrap-around: 6 αντίγραφα του πλέγματος (αξονικές μετατοπίσεις ±(2R+1, -R),
+% ±(R, R+1), ±(-R-1, 2R+1))· κάθε ζεύξη μετριέται από το πλησιέστερο αντίγραφο,
+% οπότε όλες οι κυψέλες βλέπουν τον ίδιο περίγυρο παρεμβολέων.
 R = opts.bsRings;
 wrapQR = [0 0; 2*R+1 -R; R R+1; -R-1 2*R+1; -(2*R+1) R; -R -(R+1); R+1 -(2*R+1)];
 wrapShiftM = opts.bsIsdM * [wrapQR(:,1) + wrapQR(:,2)/2, wrapQR(:,2)*sqrt(3)/2];
@@ -223,8 +165,8 @@ for b = 1:numBs
             norm(o), atan2d(o(1), o(2)), wgs84);
     end
 end
-% Έλεγχος της πλακόστρωσης: κάθε θέση του επόμενου δακτυλίου πρέπει να είναι
-% ακριβώς αντίγραφο ενός σταθμού, και τα αντίγραφα να μην επικαλύπτονται.
+% Έλεγχος πλακόστρωσης: ο επόμενος δακτύλιος = αντίγραφα σταθμών, χωρίς
+% επικαλύψεις, και ίδιος περίγυρος για κάθε σταθμό.
 if opts.wrapAround
     allImg = reshape(reshape(hexOffsets, numBs, 1, 2) + reshape(wrapShiftM, 1, numImg, 2), [], 2);
     for g = 1:size(ringOffsets,1)
@@ -237,8 +179,6 @@ if opts.wrapAround
     if min(dPair(:)) < opts.bsIsdM - 1e-6
         error('runSimulation:WrapAround', 'Επικαλυπτόμενα αντίγραφα σταθμών.');
     end
-    % Η ιδιότητα που ζητείται: ένα σημείο στην ίδια θέση ως προς οποιονδήποτε
-    % σταθμό βλέπει το ίδιο σύνολο αποστάσεων από όλους (επίπεδη γεωμετρία).
     p0 = [123.4 56.7];
     dRef = [];
     for b = 1:numBs
@@ -252,12 +192,11 @@ if opts.wrapAround
     end
 end
 
-numUsersRange = opts.numUsersRange;   % πλήθος χρηστών ανά διέλευση
-ueHeightM     = 1.5;      % m, TR 38.901 §7.4.1 Πίν. 7.4.1-1 (υπαίθριος χρήστης)
+numUsersRange = opts.numUsersRange;
+ueHeightM     = 1.5;      % m, TR 38.901 Πίν. 7.4.1-1 (υπαίθριος χρήστης)
 
-%% ------------------ Ραδιο-configuration ------------------
-% Επίγειο: TR 38.901 §7.8 Πίν. 7.8-1. BS gain = element (8 dBi) + array
-% 10·log10(N), N=10, ιδανική στόχευση -> composite 18 dBi.
+%% ------------------ Ραδιο-παράμετροι ------------------
+% Επίγειο σκέλος: TR 38.901 Πίν. 7.8-1 (στοιχείο 8 dBi + στοιχειοκεραία 10 -> 18 dBi).
 simParameters.Carrier = nrCarrierConfig;
 simParameters.Carrier.NSizeGrid = 51;
 simParameters.Carrier.SubcarrierSpacing = 30;
@@ -275,15 +214,9 @@ simParameters.BsImageGeo = [];
 if opts.wrapAround
     simParameters.BsImageGeo = bsImageGeo;
 end
-% Τομείς: 3 κελιά (TRxP) ανά site, κατευθύνσεις 30°, 150°, 270° (αζιμούθιο από
-% τον άξονα x = ανατολή, αριστερόστροφα· TR 38.901 Πίν. 7.8-1, "3 sectors per
-% cell site"). Στο πλέγμα μας οι γείτονες είναι στις 0°, 60°, ..., οπότε κάθε
-% τομέας κοιτά ανάμεσα σε δύο γειτονικά sites, όπως στη διάταξη του ITU-R
-% M.2135-1 Σχ. 1 (M.2412-0 §8.3). Κελί c = 3(site-1) + τομέας, κόμβος "BSc".
-% Κεραία τομέα: TR 36.873 Πίν. 7.1-1 / TR 38.901 Πίν. 7.3-1 (στοιχείο) και
-% TR 38.901 Πίν. 7.8-1 (UMa: (M,N,P) = (10,1,1), d_V = 0.5λ, μία θύρα,
-% ηλεκτρική κλίση 102°). Στην κατεύθυνση μέγιστου κέρδους δίνει 8 + 10 = 18
-% dBi, ίσο με το σταθερό κέρδος του ομοκατευθυντικού μοντέλου.
+% 3 τομείς ανά site στις 30°, 150°, 270° (TR 38.901 Πίν. 7.8-1· ITU-R M.2412-0
+% §8.3). Κελί c = 3(site-1) + τομέας, κόμβος "BSc". Κεραία: TR 38.901 Πίν.
+% 7.3-1 (στοιχείο) και 7.8-1 ((M,N,P) = (10,1,1), d_V = 0.5λ, κλίση 102°).
 switch opts.bsSectors
     case 3
         sectorBoresightDeg = [30; 150; 270];
@@ -306,42 +239,27 @@ simParameters.TxPower = 49;                 % dBm, conducted (TR 38.901 Πίν. 
 simParameters.EIRP = simParameters.TxPower + simParameters.AntennaGain + ...
                      10*log10(simParameters.NumAntennaElements);   % dBm, composite
 
-simParameters.Power.NumTrx = 4;   % αλυσίδες πομποδέκτη ανά τομέα· P_out/αλυσίδα <= 20 W (EARTH Πίν. 2)
+% Μοντέλο ισχύος EARTH (Auer et al. 2011, Πίν. 2).
+simParameters.Power.NumTrx = 4;   % αλυσίδες ανά τομέα
 simParameters.Power.P0     = 130;
 simParameters.Power.DeltaP = 4.7;
 simParameters.Power.Psleep = 75;
 
-% Υστέρηση και χρόνος επιβεβαίωσης της απόφασης (TS 38.331 §5.5.4.4 Event A3,
-% §6.3.2 Hysteresis / TimeToTrigger). Με μηδενικές τιμές ο κανόνας είναι ο
-% στιγμιαίος argmax χωρίς περιθώριο.
+% Κινητικότητα: Event A3 (TS 38.331 §5.5.4.4), ping-pong με MTS (TR 36.839).
 simParameters.Mobility.HysteresisDb    = opts.hysteresisDb;
 simParameters.Mobility.TimeToTriggerMs = opts.timeToTriggerMs;
 simParameters.Mobility.DtSeconds       = opts.dtSeconds;
-% Ping-pong: επιστροφή στον αμέσως προηγούμενο κόμβο μετά από παραμονή στον
-% ενδιάμεσο λιγότερο από PingPongMtsS (ορισμός MTS του 3GPP TR 36.839). Ο
-% χρόνος παραμονής μετριέται σε ακέραια βήματα: με Δt = 0.2 s «< 1 s» σημαίνει
-% έως 4 βήματα (0.8 s)· με Δt = 1 s κρατείται 1 βήμα, η μικρότερη παρατηρήσιμη.
 simParameters.Mobility.PingPongMtsS    = opts.pingPongMtsS;
-% Παρακολούθηση ζεύξης και RLF (TS 38.331 §5.3.10, τιμές TR 36.839 Πίν.
-% 5.2.1.3.1): ο εξυπηρετών κόμβος εγκαταλείπεται μόνο με handover του A3 ή με
-% RLF, όχι με την πρώτη βύθιση του SINR (βλ. simulateScenario, mobilityStep).
-% Soft LOS (TR 38.901 §7.6.3.3): το ίδιο το TR σημειώνει ότι με κινητικότητα η
-% μετάβαση LOS -> NLOS δίνει «hard transition in the channel response» και
-% ορίζει την προαιρετική soft κατάσταση για να την αποφύγει. Με εκθετική
-% συσχέτιση η κρυφή μεταβλητή περνά πολλές φορές το κατώφλι γύρω από κάθε
-% μετάβαση, και τα άλματα πληθαίνουν όσο μικραίνει το βήμα.
+% Soft LOS (TR 38.901 §7.6.3.3): αποφεύγει τα άλματα LOS <-> NLOS με κινητικότητα.
 simParameters.SoftLos = opts.softLosState;
+% RLF (TS 38.331 §5.3.10, τιμές TR 36.839 Πίν. 5.2.1.3.1).
 simParameters.Mobility.Rlf = struct('QoutDb', opts.rlfQoutDb, 'QinDb', opts.rlfQinDb, ...
     'T310Ms', opts.rlfT310Ms, 'N310', opts.rlfN310, 'N311', opts.rlfN311);
-% Mobility Load Balancing (TS 38.300 §15.5.1), μόνο στις πολιτικές *MLB: η
-% μετατόπιση του A3 ως προς τον στόχο είναι MlbMaxOffsetDb επί τη διαφορά
-% εικονικού φόρτου, περιορισμένη στο [-1, 1] (βλ. simulateScenario).
+% MLB (TS 38.300 §15.5.1), πολιτικές *MLB: Ocn = MlbMaxOffsetDb x διαφορά φόρτου.
 simParameters.Mobility.MlbMaxOffsetDb  = opts.mlbMaxOffsetDb;
 simParameters.Mobility.LoadReportPeriodMs = opts.mlbReportPeriodMs;
-% Απόφαση handover από τον σταθμό με ML (TS 38.300 §9.2.3.2.1, TR 37.817
-% §5.3), στις πολιτικές ActualML και ActualMLBML (βλ. simulateScenario).
-% Χωρίς αρχείο μοντέλου οι δύο πολιτικές απλώς δεν υπάρχουν και η εκτέλεση
-% είναι η ίδια με πριν.
+% Απόφαση handover με ML στον σταθμό (TS 38.300 §9.2.3.2.1, TR 37.817 §5.3),
+% πολιτικές ActualML και ActualMLBML· χωρίς αρχείο μοντέλου δεν τρέχουν.
 mlGateInfo = struct();
 simParameters.Mobility.MlGate = [];
 if ~isempty(opts.mlGatePath) && isfile(opts.mlGatePath)
@@ -350,13 +268,10 @@ if ~isempty(opts.mlGatePath) && isfile(opts.mlGatePath)
 end
 hasMlGate = ~isempty(simParameters.Mobility.MlGate);
 
-% Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1 & 6.1.3.2-1).
-% Η πυκνότητα EIRP (dBW/MHz) είναι το δεδομένο· EIRP και TxPower παράγωγα.
+% Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1, 6.1.3.2-1).
+% Δεδομένο η πυκνότητα EIRP· εύρος ανά δέσμη 30/FRF MHz (Πίν. 6.1.1.1-5).
 satAltitude = 600e3;
 satParameters.CarrierFrequency = 2.0e9;
-% Το εύρος 30 MHz ορίζεται για το σύνολο των δεσμών και "must be adapted based
-% on frequency reuse factor" (TR 38.821 Πίν. 6.1.1.1-5): κάθε δέσμη παίρνει
-% 30/FRF MHz. Με σταθερή πυκνότητα EIRP η ισχύς ανά δέσμη ακολουθεί το εύρος.
 satParameters.FreqReuse = opts.satFreqReuse;
 satParameters.Bandwidth = 30e6 / satParameters.FreqReuse;
 satParameters.AntennaGain = 30;
@@ -365,25 +280,20 @@ satParameters.EIRP = satParameters.EirpDensityDbwPerMHz + 10*log10(satParameters
 satParameters.TxPower = satParameters.EIRP - satParameters.AntennaGain;
 satParameters.MinElevationDeg = 20;
 
-satParameters.Power.Pfix  = 0;       % W, εκτός ενισχυτή· Pfix=0 -> αισιόδοξη υπόθεση
+satParameters.Power.Pfix  = 0;       % W, ισχύς εκτός ενισχυτή (αισιόδοξη υπόθεση)
 satParameters.Power.EtaPA = 0.4;
 
 %% ------------------ Πεδίο ισχύος επίγειων μοντέλων ------------------
-% TR 38.901 §7.4.1, Πίν. 7.4.1-1. Ελέγχεται σε ΚΑΘΕ βήμα για κάθε χρήστη.
+% TR 38.901 Πίν. 7.4.1-1, ελέγχεται σε κάθε βήμα.
 d2dMinM = 10;
 d2dMaxM = 5000;
 
-% Μέγιστη μετατόπιση χρήστη μέσα σε μία διέλευση. Οι χρήστες ξεκινούν
-% ομοιόμορφα μέσα στις κυψέλες των σταθμών (TR 38.901 Πίν. 7.2-1: "UT
-% distribution: Uniform"). Η ελάχιστη απόσταση 35 m από σταθμό (ίδιος
-% πίνακας, UMa) επιβάλλεται σε όλη την ευθεία διαδρομή: απορρίπτεται κάθε
-% θέση/κατεύθυνση που θα περνούσε πιο κοντά. Ένας χρήστης κοντά στο όριο
-% μπορεί να βγει έως maxWalkM έξω από το δίκτυο· η πιο μακρινή απόσταση
-% από σταθμό μένει έτσι κάτω από d2dMax και κάθε ζεύξη μέσα στο πεδίο ισχύος.
+% Χρήστες ομοιόμορφα στις κυψέλες (TR 38.901 Πίν. 7.2-1), με διαδρομή >= 35 m
+% από κάθε σταθμό· όλη η διαδρομή πρέπει να μένει στο πεδίο ισχύος.
 ueSpeedMps   = opts.ueSpeedKmh / 3.6;
 maxWalkM     = ueSpeedMps * opts.passWindowS;
 userRMinM    = 35;
-userRMaxM    = cellRadiusM + maxWalkM;   % μέγιστη απόσταση από τον πλησιέστερο, σε όλη τη διαδρομή
+userRMaxM    = cellRadiusM + maxWalkM;
 if userRMinM >= userRMaxM || 2*bsClusterRadiusM + cellRadiusM + maxWalkM > d2dMaxM
     error('runSimulation:WindowTooLong', ...
         ['Με ταχύτητα %.2f m/s και παράθυρο %.0f s ο χρήστης διανύει %.0f m, ' ...
@@ -392,22 +302,11 @@ if userRMinM >= userRMaxM || 2*bsClusterRadiusM + cellRadiusM + maxWalkM > d2dMa
         ueSpeedMps, opts.passWindowS, maxWalkM, opts.bsRings, opts.bsIsdM, d2dMinM, d2dMaxM);
 end
 
-%% ------------------ Μέτρηση πριν την απόφαση ------------------
-% Το TS 38.331 §5.5.3.2 ορίζει ότι η σύγκριση A3 γίνεται πάνω σε
-% φιλτραρισμένη μέτρηση, όχι στη στιγμιαία τιμή. Δύο σκέλη, και τα δύο
-% τεκμηριωμένα (αντίγραφα των εδαφίων: Sources/TS38331_L3_filtering.md):
-%
-% (α) Το ίδιο το M_n δεν είναι στιγμιαίο δείγμα. Το TS 38.133 Πίν. 9.2.5.2-1
-%     δίνει για FR1 χωρίς DRX περίοδο μέτρησης τουλάχιστον 200 ms, μέσα στην
-%     οποία χωρούν πολλές ανεξάρτητες πραγματώσεις των γρήγορων διαλείψεων.
-%     Το ισοδύναμο πλήθος τους υπολογίζεται απευθείας από την αυτοσυσχέτιση
-%     ισχύος του μοντέλου Clarke και όχι από εμπειρικό χρόνο συνοχής
-%     (βλ. effectiveSamplesClarke παρακάτω).
-% (β) Πάνω σε αυτό εφαρμόζεται το φίλτρο L3. Ο συντελεστής k υποθέτει ρυθμό
-%     δειγματοληψίας X ίσο με μία περίοδο μέτρησης L1, οπότε η ίδια η ρήτρα
-%     απαιτεί προσαρμογή στο βήμα της προσομοίωσης:
-%        a = 2^(-k/4) στα X ms   ->   a' = 1 - (1-a)^(Δt/X)
-%     Με k = 0 δεν εφαρμόζεται φίλτρο (NOTE 1 του ίδιου εδαφίου).
+%% ------------------ Μέτρηση ------------------
+% (α) M_n = μέσος όρος στην περίοδο μέτρησης 200 ms (TS 38.133 Πίν. 9.2.5.2-1),
+%     με ισοδύναμο πλήθος ανεξάρτητων δειγμάτων από το μοντέλο Clarke.
+% (β) Φίλτρο L3 (TS 38.331 §5.5.3.2): a = 2^(-k/4) ανά περίοδο X, προσαρμοσμένο
+%     στο βήμα: a' = 1 - (1-a)^(Δt/X)· k = 0 -> χωρίς φίλτρο.
 cLight = physconst('LightSpeed');
 if opts.measAveraging
     simParameters.Meas.NAvg = effectiveSamplesClarke( ...
@@ -419,7 +318,7 @@ else
     satParameters.Meas.NAvg = 1;
 end
 if opts.l3FilterK <= 0
-    l3Alpha = 1;                      % NOTE 1: k = 0 -> χωρίς φίλτρο
+    l3Alpha = 1;
 else
     aAtX    = 2^(-opts.l3FilterK/4);
     l3Alpha = 1 - (1 - aAtX)^(opts.dtSeconds*1000/opts.measPeriodMs);
@@ -448,24 +347,15 @@ lonPeakInertialRad = atan2(cosd(inclDeg)*sin(uPeakRad), cos(uPeakRad));
 tPeakS   = uPeakRad / meanMotion;
 raanBase = deg2rad(centerLon) + omegaEarth*tPeakS - lonPeakInertialRad;
 
-% Κάθε διέλευση μετατοπίζει το ίχνος εγκάρσια, ώστε να καλυφθεί το φάσμα από
-% οριακή έως ζενιθιακή διέλευση. Το μέγιστο χρήσιμο εύρος βρίσκεται αριθμητικά
-% ως η μετατόπιση όπου η μέγιστη ανύψωση πέφτει στη μάσκα ορατότητας.
+% Εγκάρσια μετατόπιση ίχνους ανά διέλευση, από ζενιθιακή έως οριακή (μέγιστη
+% ανύψωση = μάσκα).
 raanSpanRad = findMaxRaanOffset(raanBase, uPeakRad, meanMotion, inclDeg, a, ...
     omegaEarth, tPeakS, opts.passWindowS, centerLat, centerLon, wgs84, ...
     satParameters.MinElevationDeg);
 
-% Διαδοχικοί δορυφόροι στο ίδιο τροχιακό επίπεδο, σε ίσες αποστάσεις στο
-% όρισμα πλάτους. Ο μεσαίος περνά από τη μέγιστη προσέγγιση στο μέσο του
-% παραθύρου· ο SAT-1 προηγείται, άρα περνά πρώτος. Η απόσταση επιλέγεται ώστε
-% οι numSats δορυφόροι να είναι ΑΚΡΙΒΩΣ όσοι μπορούν να φανούν μέσα στο
-% παράθυρο: ο επόμενος του επιπέδου, που δεν προσομοιώνεται, ανατέλλει τη
-% στιγμή που κλείνει το παράθυρο ακόμη και σε ζενιθιακή διέλευση, όπου η
-% ορατότητα διαρκεί περισσότερο. Έτσι δεν λείπει από το σενάριο κανένας
-% δορυφόρος που θα ήταν ορατός:
-%     ((N+1)/2)*Δt - Tvis/2 = W/2   ->   Δt = (W/2 + Tvis/2) / ((N+1)/2)
-% Όσο Δt < Tvis, διαδοχικοί δορυφόροι επικαλύπτονται στις ψηλές διελεύσεις
-% (δορυφορικό handover χωρίς κενό), ενώ στις χαμηλές μένει κενό κάλυψης.
+% numSats διαδοχικοί δορυφόροι στο ίδιο επίπεδο· ο μεσαίος στη μέγιστη
+% προσέγγιση. Απόσταση ώστε ο επόμενος (μη προσομοιωμένος) να ανατέλλει όταν
+% κλείνει το παράθυρο: Δt = (W/2 + Tvis/2) / ((N+1)/2).
 halfVisS = zenithHalfVisibilityS(raanBase, uPeakRad, meanMotion, inclDeg, a, ...
     omegaEarth, tPeakS, opts.passWindowS, centerLat, centerLon, wgs84, ...
     satParameters.MinElevationDeg);
@@ -476,41 +366,25 @@ else
 end
 satUOffsetRad = ((opts.numSats+1)/2 - (1:opts.numSats)') * meanMotion*satSpacingS;
 
-% Στρωματοποίηση της μετατόπισης: το [-1, 1] χωρίζεται σε numPasses ίσα
-% διαστήματα και κάθε διέλευση παίρνει το μέσο ενός από αυτά. Η κατανομή-στόχος
-% είναι η ίδια ομοιόμορφη με το rand(), αλλά με σταθερό πλήθος είναι εγγυημένο
-% ότι κάθε περιοχή γεωμετριών, από οριακή ως ζενιθιακή, καλύπτεται ισόποσα.
-% Η σειρά ανακατεύεται με δική της γεννήτρια, ώστε η καμπύλη σύγκλισης να μη
-% σαρώνει τη γεωμετρία μονότονα και η τυχαιότητα κάθε διέλευσης να μην αλλάζει.
+% Στρωματοποιημένη μετατόπιση: τα μέσα numPasses ίσων διαστημάτων του [-1, 1],
+% σε τυχαία σειρά (δική της γεννήτρια).
 if opts.geometryGrid
     gridStream = RandStream('mt19937ar', 'Seed', opts.rngSeed);
     raanOffsetFrac = -1 + (2*randperm(gridStream, opts.numPasses) - 1) / opts.numPasses;
 end
 
 %% ------------------ Δείκτες σύγκλισης ------------------
-% Παρακολουθούνται ανά διέλευση (η διέλευση είναι η ανεξάρτητη μονάδα: οι
-% χρήστες μέσα στην ίδια διέλευση αλληλεξαρτώνται μέσω της κατανομής πόρων).
+% Ανά διέλευση (η ανεξάρτητη μονάδα). Το μέσο SINR καταγράφεται χωρίς στόχο.
 kpiNames = {'MeanCapacity_Mbps','MeanSinr_dB','FracServed','FracSatellite','MeanBitPerJouleRf'};
 kpiIsFraction = [false false true true false];
-% Ο στόχος ακρίβειας δεν περιλαμβάνει το μέσο SINR: είναι μέσος όρος
-% λογαριθμικού μεγέθους πάνω σε ανάμεικτο πληθυσμό επίγειων και δορυφορικών
-% χρηστών, με εύρος δεκάδων dB, και η εργασία δεν τον αναφέρει ως δείκτη (το
-% SINR παρουσιάζεται ως κατανομή). Το διάστημα εμπιστοσύνης του καταγράφεται
-% κανονικά στην καμπύλη σύγκλισης.
 kpiHasTarget = [true false true true true];
 numKpi = numel(kpiNames);
 passKpi = nan(opts.numPasses, numKpi);
 
-%% ------------------ Σύγκριση πολιτικών (ITU-R M.2412-0 §7.1) ------------------
-% Κάθε βήμα αποτιμάται με όλες τις πολιτικές πάνω στην ΙΔΙΑ πραγματοποίηση
-% καναλιού: τα υποψήφια SINR είναι κοινά, αλλάζει μόνο ποιος επιλέγεται και
-% άρα ο φόρτος κάθε κόμβου. Οι πολιτικές *MLB είναι οι Actual/TerrestrialOnly
-% με εξισορρόπηση φόρτου (TS 38.300 §15.5.1) πάνω στον ίδιο A3. Η σύγκριση είναι επομένως κατά ζεύγη και όχι μεταξύ
-% ανεξάρτητων εκτελέσεων, οπότε η διακύμανση της τοπολογίας και του καναλιού
-% απαλείφεται από τη διαφορά.
+%% ------------------ Πολιτικές ------------------
+% Όλες οι πολιτικές στην ίδια πραγματοποίηση καναλιού: οι διαφορές τους είναι
+% κατά ζεύγη. *MLB = με MLB, *ML = με την απόφαση ML (ίδια σειρά με τη simulateScenario).
 policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly','ActualMLB','TerrestrialOnlyMLB'};
-% Με μοντέλο: η μεικτή χωρίς και με MLB, με την απόφαση του σταθμού από ML.
-% Ίδια σειρά με τη simulateScenario.
 if hasMlGate
     policyNames = [policyNames, {'ActualML','ActualMLBML'}];
 end
@@ -530,7 +404,7 @@ policyPassKpi   = nan(opts.numPasses, numPolicy, numPolicyMetric);
 
 convRows = cell(opts.numPasses,1);
 checksRun = 0;
-gateChecksRun = 0;   % handovers των *ML με ελεγμένα χαρακτηριστικά (logHandoverEvents)
+gateChecksRun = 0;   % handovers *ML με ελεγμένα χαρακτηριστικά
 totalRows = 0;
 
 fprintf('Ενιαία προσομοίωση ISTN\n');
@@ -561,48 +435,33 @@ passIdx = 0;
 refPassTable = table();
 refSnapshot = struct();
 
-% Καταγραφή handovers σε πλήρη ανάλυση (βλ. logHandoverEvents): ένα κελί
-% ανά διέλευση, για τις πολιτικές που ενδιαφέρουν το ML.
+% Καταγραφή handovers (logHandoverEvents). Εκπαίδευση μόνο από Actual/ActualMLB·
+% οι *ML καταγράφονται για τον έλεγχο ότι το μοντέλο βλέπει τα ίδια χαρακτηριστικά.
 hoLogPolicies = {'Actual','ActualMLB'};
-% Και οι πολιτικές με ML: τα handovers τους δείχνουν τι άφησε να περάσει το
-% μοντέλο, και η καταγραφή τους ελέγχει ότι τα χαρακτηριστικά που είδε είναι
-% τα ίδια με αυτά της εκπαίδευσης. Το μοντέλο εκπαιδεύεται μόνο από τις δύο
-% πρώτες (train_handover_gate.py).
 if hasMlGate
     hoLogPolicies = [hoLogPolicies, {'ActualML','ActualMLBML'}];
 end
-% Ιστορικό μέτρησης 2 s πίσω από το τρέχον βήμα, ώστε να υπάρχουν τα δείγματα
-% t, t-1 s, t-2 s των χαρακτηριστικών 1 s / 3 s (Aggarwal et al.).
+% Ιστορικό μέτρησης 2 s (δείγματα t, t-1 s, t-2 s· Aggarwal et al.).
 hoHistW       = 2*round(1/opts.dtSeconds) + 1;
 hoEventCells  = cell(opts.numPasses,1);
 
 if ~isempty(resumeState)
     passIdx     = resumeState.passIdx;
     passKpi(1:passIdx,:) = resumeState.passKpi;
-    if isfield(resumeState, 'policyPassKpi') && ~isempty(resumeState.policyPassKpi)
-        policyPassKpi(1:passIdx,:,:) = resumeState.policyPassKpi;
-    end
+    policyPassKpi(1:passIdx,:,:) = resumeState.policyPassKpi;
     convRows(1:passIdx)  = resumeState.convRows;
-    totalRows   = resumeState.totalRows;
-    checksRun   = resumeState.checksRun;
-    if isfield(resumeState, 'gateChecksRun')
-        gateChecksRun = resumeState.gateChecksRun;
-    end
-    refSnapshot = resumeState.refSnapshot;
-    if isfield(resumeState, 'refPassTable')
-        refPassTable = resumeState.refPassTable;
-    end
-    if isfield(resumeState, 'hoEventCells')
-        hoEventCells(1:passIdx) = resumeState.hoEventCells;
-    end
+    totalRows     = resumeState.totalRows;
+    checksRun     = resumeState.checksRun;
+    gateChecksRun = resumeState.gateChecksRun;
+    refSnapshot   = resumeState.refSnapshot;
+    refPassTable  = resumeState.refPassTable;
+    hoEventCells(1:passIdx) = resumeState.hoEventCells;
 end
 
 %% ------------------ Παράλληλη εκτέλεση διελεύσεων ------------------
-% Οι διελεύσεις είναι ανεξάρτητες (δικός τους σπόρος, κανάλι και απόφαση
-% μηδενίζονται στην αρχή καθεμιάς), οπότε τρέχουν σε ομάδες των numWorkers
-% με parfor. Η εγγραφή στο αρχείο, η καμπύλη σύγκλισης και το σημείο ελέγχου
-% γίνονται μετά, με τη σειρά των διελεύσεων: τα αρχεία βγαίνουν ίδια με τη
-% σειριακή εκτέλεση. numWorkers = 0 -> σειριακά.
+% Οι διελεύσεις είναι ανεξάρτητες (δικός τους σπόρος): τρέχουν σε ομάδες με
+% parfor και γράφονται με τη σειρά τους, οπότε τα αρχεία είναι ίδια με τη
+% σειριακή εκτέλεση.
 if ~opts.geometryGrid
     raanOffsetFrac = [];
 end
@@ -655,36 +514,9 @@ end
 fprintf('  Εκτέλεση διελεύσεων: %s\n\n', ternary(numWorkers > 0, ...
     sprintf('παράλληλα, %d workers', numWorkers), 'σειριακά'));
 
-% Διελεύσεις σε ξεχωριστές διεργασίες MATLAB, για μηχάνημα χωρίς Parallel
-% Computing Toolbox: κάθε διεργασία τρέχει με passSubset ένα μέρος τους και
-% γράφει το αποτέλεσμα καθεμιάς στο passCacheDir· μια τελευταία εκτέλεση με
-% τον ίδιο φάκελο τα διαβάζει αντί να τα ξαναϋπολογίσει και κάνει τη σύνοψη.
-% Κάθε διέλευση εξαρτάται μόνο από το passIdx και το passCtx (runOnePass),
-% οπότε τα αρχεία βγαίνουν ίδια με τη σειριακή εκτέλεση. Κάθε αρχείο κρατά
-% τις επιλογές και το μοντέλο που το παρήγαγαν και χρησιμοποιείται μόνο αν
-% ταιριάζουν (checkpointMatches + SHA-256 του μοντέλου).
-cacheKey = struct('opts', opts, 'mlGateSha256', '');
+mlGateSha256 = '';
 if hasMlGate
-    cacheKey.mlGateSha256 = mlGateInfo.Sha256;
-end
-if ~isempty(opts.passCacheDir) && ~isfolder(opts.passCacheDir)
-    mkdir(opts.passCacheDir);
-end
-if ~isempty(opts.passSubset)
-    if isempty(opts.passCacheDir)
-        error('runSimulation:NoPassCache', 'Το passSubset χρειάζεται passCacheDir.');
-    end
-    for p = opts.passSubset(:)'
-        if ~isempty(loadCachedPass(opts.passCacheDir, p, cacheKey))
-            continue;
-        end
-        tP = tic;
-        saveCachedPass(opts.passCacheDir, p, cacheKey, runOnePass(p, passCtx));
-        fprintf('  Διέλευση %3d/%d -> %s (%.0f s)\n', p, opts.numPasses, opts.passCacheDir, toc(tP));
-    end
-    convTable = table();
-    summary = struct('passSubset', opts.passSubset, 'passCacheDir', opts.passCacheDir);
-    return;
+    mlGateSha256 = mlGateInfo.Sha256;
 end
 
 while passIdx < opts.numPasses
@@ -692,11 +524,11 @@ while passIdx < opts.numPasses
     res = cell(numel(batch), 1);
     if numWorkers > 0
         parfor jB = 1:numel(batch)
-            res{jB} = runOrLoadPass(batch(jB), passCtx, cacheKey);
+            res{jB} = runOnePass(batch(jB), passCtx);
         end
     else
         for jB = 1:numel(batch)
-            res{jB} = runOrLoadPass(batch(jB), passCtx, cacheKey);
+            res{jB} = runOnePass(batch(jB), passCtx);
         end
     end
 
@@ -717,8 +549,6 @@ while passIdx < opts.numPasses
         passTable = R.passTable;
         if passIdx == 1
             writetable(passTable, opts.datasetPath);
-            % Η διέλευση αναφοράς σε πλήρη ανάλυση ταξιδεύει μέσα στο σημείο
-            % ελέγχου, ώστε να επιβιώνει μιας διακοπής.
             refPassTable = R.refPassTable;
         else
             writetable(passTable, opts.datasetPath, 'WriteMode', 'append');
@@ -726,9 +556,7 @@ while passIdx < opts.numPasses
         totalRows = totalRows + height(passTable);
         clear passTable R;
 
-        % -- Ακρίβεια: 95% CI του μέσου όρου πάνω στις διελεύσεις ως τώρα --
-        % Καταγράφεται σε κάθε διέλευση για την καμπύλη σύγκλισης· δεν σταματά
-        % την εκτέλεση.
+        % -- 95% CI του μέσου όρου ως τώρα (καμπύλη σύγκλισης) --
         relHw = nan(1,numKpi);
         for k = 1:numKpi
             x = passKpi(1:passIdx,k);
@@ -755,14 +583,13 @@ while passIdx < opts.numPasses
                 matlabMemoryGb());
         end
 
-        % Σημείο ελέγχου μετά από κάθε διέλευση: λίγα KB, ώστε μια διακοπή να
-        % κοστίζει το πολύ μία διέλευση αντί για ολόκληρη την εκτέλεση.
+        % Σημείο ελέγχου μετά από κάθε διέλευση.
         ckpt = struct('passIdx', passIdx, 'passKpi', passKpi(1:passIdx,:), ...
             'policyPassKpi', policyPassKpi(1:passIdx,:,:), ...
             'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
             'checksRun', checksRun, 'gateChecksRun', gateChecksRun, 'refSnapshot', refSnapshot, ...
             'refPassTable', refPassTable, 'hoEventCells', {hoEventCells(1:passIdx)}, ...
-            'opts', opts, 'mlGateSha256', cacheKey.mlGateSha256);
+            'opts', opts, 'mlGateSha256', mlGateSha256);
         save(checkpointPath, 'ckpt');
     end
 end
@@ -770,16 +597,12 @@ end
 numPasses = passIdx;
 
 %% ------------------ Σύγκριση πολιτικών κατά ζεύγη ------------------
-% Κάθε διέλευση δίνει τρεις τιμές για τον ίδιο δείκτη, μία ανά πολιτική, πάνω
-% στο ίδιο κανάλι και την ίδια τοπολογία. Η στατιστική γίνεται στη ΔΙΑΦΟΡΑ ανά
-% διέλευση, όχι στους δύο μέσους όρους χωριστά.
+% Η στατιστική γίνεται στη διαφορά ανά διέλευση (ίδιο κανάλι, ίδια τοπολογία).
 pol = policyPassKpi(1:numPasses,:,:);
 
-% Φασματική απόδοση: παράγωγο μέγεθος, υπολογισμένο σε επίπεδο ΔΙΕΛΕΥΣΗΣ ως
-% λόγος των δύο μέσων και όχι ως μέσος των λόγων. Ο λόγος είναι ότι στα βήματα
-% χωρίς ορατό δορυφόρο το φάσμα της αποκλειστικά δορυφορικής πολιτικής είναι
-% μηδέν, οπότε ο ανά βήμα λόγος θα ήταν 0/0. Απομονώνει τη συνεισφορά της
-% απόφασης από τη συνεισφορά του διαθέσιμου φάσματος (βλ. αξιολόγηση #3).
+% Παράγωγοι λόγοι ανά διέλευση (λόγος μέσων, όχι μέσος λόγων, για να
+% αποφεύγεται το 0/0 ανά βήμα): φασματική απόδοση, ποσοστό ping-pong,
+% ποσοστό αποτυχίας HO (TR 36.839 Ορισμός 4).
 iRate = find(strcmp(policyMetrics, 'TotalRate_Mbps'), 1);
 iSpec = find(strcmp(policyMetrics, 'Spectrum_MHz'), 1);
 specEff = pol(:,:,iRate) ./ pol(:,:,iSpec);
@@ -787,9 +610,6 @@ specEff(~isfinite(specEff)) = NaN;
 pol(:,:,end+1) = specEff;
 policyMetrics{end+1} = 'SpectralEff_bpsHz';
 
-% Ποσοστό ping-pong επί των handovers, με την ίδια λογική: λόγος των δύο ρυθμών
-% της διέλευσης, αφού το πλήθος χρηστών είναι σταθερό μέσα σε αυτήν. Ανά βήμα
-% θα ήταν 0/0 σε κάθε βήμα χωρίς handover. NaN σε διέλευση χωρίς handovers.
 iHo = find(strcmp(policyMetrics, 'HoRate_perUserMin'), 1);
 iPp = find(strcmp(policyMetrics, 'PingPongRate_perUserMin'), 1);
 ppFrac = pol(:,:,iPp) ./ pol(:,:,iHo);
@@ -797,8 +617,6 @@ ppFrac(~isfinite(ppFrac)) = NaN;
 pol(:,:,end+1) = ppFrac;
 policyMetrics{end+1} = 'PingPongFrac';
 
-% Ποσοστό αποτυχίας handover (TR 36.839 Ορισμός 4): αποτυχίες / (αποτυχίες +
-% επιτυχή handovers), με τον ίδιο λόγο ρυθμών της διέλευσης.
 iHof = find(strcmp(policyMetrics, 'HoFailRate_perUserMin'), 1);
 hofFrac = pol(:,:,iHof) ./ (pol(:,:,iHof) + pol(:,:,iHo));
 hofFrac(~isfinite(hofFrac)) = NaN;
@@ -820,14 +638,11 @@ policyTable = array2table(polVals, 'VariableNames', policyMetrics);
 policyTable = addvars(policyTable, polPassID, polName, 'Before', 1, ...
     'NewVariableNames', {'PassID','Policy'});
 
-% Οι συγκρίσεις κατά ζεύγη (πολιτική, βάση): η υπό εξέταση πολιτική έναντι
-% καθεμιάς από τις δύο αποκλειστικές, και τι προσθέτει το MLB στη μεικτή και
-% στην επίγεια, καθώς και η μεικτή έναντι της επίγειας όταν έχουν και οι δύο MLB.
+% Ζεύγη (πολιτική, βάση): μεικτή έναντι αποκλειστικών, συνεισφορά MLB,
+% συνεισφορά ML.
 compNames = {'Actual','TerrestrialOnly'; 'Actual','SatelliteOnly'; ...
              'ActualMLB','Actual'; 'TerrestrialOnlyMLB','TerrestrialOnly'; ...
              'ActualMLB','TerrestrialOnlyMLB'};
-% Τι προσθέτει η απόφαση με ML, στον ίδιο A3 με και χωρίς MLB, και η πλήρης
-% (MLB + ML) έναντι του σκέτου A3.
 if hasMlGate
     compNames = [compNames; {'ActualML','Actual'; 'ActualMLBML','ActualMLB'; ...
                              'ActualMLBML','Actual'}];
@@ -849,8 +664,6 @@ pairWinFrac  = nan(nComp*numPolicyMetric,1);
 q = 0;
 for c = 1:nComp
     for mI = 1:numPolicyMetric
-        % Όχι a/b: το a είναι ο μεγάλος ημιάξονας της τροχιάς και καταγράφεται
-        % παρακάτω στο runParams.
         valPol  = pol(:,compIdx(c,1),mI);
         valBase = pol(:,compIdx(c,2),mI);
         d = valPol - valBase;
@@ -920,7 +733,6 @@ if hasMlGate
         gateChecksRun);
 end
 
-
 %% ------------------ Καμπύλη σύγκλισης ------------------
 convMat = vertcat(convRows{1:numPasses});
 convVarNames = [{'PassID','CumulativeRows'}, ...
@@ -928,9 +740,7 @@ convVarNames = [{'PassID','CumulativeRows'}, ...
 convTable = array2table(convMat, 'VariableNames', convVarNames);
 
 %% ------------------ Ακρίβεια στο τέλος της εκτέλεσης ------------------
-% Το πλήθος διελεύσεων είναι σταθερό· εδώ ελέγχεται αν ήταν αρκετό. Η
-% διέλευση από την οποία ο στόχος ισχύει ΑΔΙΑΛΕΙΠΤΑ ως το τέλος δείχνει πόσο
-% περιθώριο αφήνει το numPasses (NaN: ο στόχος δεν πιάστηκε).
+% Αν ο στόχος CI πιάστηκε, και από ποια διέλευση ισχύει αδιάλειπτα.
 tolVec = opts.ciTolerance * ones(1,numKpi);
 tolVec(kpiIsFraction) = opts.ciToleranceFrac;
 hwMat = convMat(:, end-numKpi+1:end);
@@ -982,22 +792,18 @@ fprintf('  Έλεγχοι κατάστασης χρηστών: %d βήματα, 
 %% ------------------ Πίνακας και γράφημα της διέλευσης αναφοράς ------------------
 if ~isempty(fieldnames(refSnapshot))
     fprintf('\n--- Διέλευση αναφοράς, στιγμή μέγιστης ανύψωσης ---\n');
-    array(size(refSnapshot.user_geo,1), refSnapshot.bestNodeVec, refSnapshot.bestNodeTypeVec, ...
+    printUserTable(size(refSnapshot.user_geo,1), refSnapshot.bestNodeVec, refSnapshot.bestNodeTypeVec, ...
         refSnapshot.bestDistanceVec, refSnapshot.bestPathLossVec, refSnapshot.bestSinrDbVec, ...
         refSnapshot.capacityMbpsVec, refSnapshot.bestElevationDegVec, ...
         refSnapshot.nodePowerWattsVec, refSnapshot.energyPerBitUJVec);
-    visual(cell_geo, refSnapshot.user_geo, refSnapshot.sat_geo, wgs84, numCells, ...
+    plotNetworkSnapshot(cell_geo, refSnapshot.user_geo, refSnapshot.sat_geo, wgs84, numCells, ...
         size(refSnapshot.user_geo,1), refSnapshot.bestNodeTypeVec, refSnapshot.bestNodeVec, ...
         opts.bsIsdM, simParameters.CellBoresightDeg);
     saveas(gcf, fullfile(opts.outputDir, 'network_3d.png'));
     close(gcf);
 end
 
-% Το dataset ΔΕΝ αντιγράφεται στον versioned φάκελο: είναι δεκάδες MB και το
-% Results/runs/ παρακολουθείται από το git. Αντ' αυτού καταγράφεται το άθροισμα
-% ελέγχου SHA-256 του, που το συνδέει με τη συγκεκριμένη εκτέλεση και το commit.
-% Το μόνο csv είναι το dataset· οι αριθμοί πίσω από τα γραφήματα κρατούνται σε
-% ένα .mat, ώστε κάθε γράφημα να μπορεί να ξαναφτιαχτεί χωρίς νέα εκτέλεση.
+% Οι αριθμοί πίσω από τα γραφήματα· το dataset καταγράφεται μόνο με SHA-256.
 save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'summary');
 outFiles = {resultsMat, polPng, mlbPng, hoPng, fullfile(opts.outputDir,'network_3d.png')};
 if ~isempty(mlPng)
@@ -1026,9 +832,7 @@ for k = 1:numel(kpiList)
     outFiles{end+1} = f; %#ok<AGROW>
 end
 
-% Καμπύλη σύγκλισης. Γραμμές χωρίς σημάδια (300 σημεία ανά καμπύλη) και άξονας
-% περιορισμένος στην περιοχή των στόχων: τα πρώτα σημεία φτάνουν το ~0.9 και
-% συμπίεζαν την περιοχή που ενδιαφέρει.
+% Καμπύλη σύγκλισης.
 fig = figure('Visible','off','Position',[100 100 900 520]);
 try
     theme(fig, 'light');
@@ -1151,7 +955,7 @@ runParams.terrestrial      = struct('CarrierFrequency_Hz', simParameters.Carrier
 runParams.terrestrial.Power = simParameters.Power;
 runParams.satellite        = satParameters;
 runParams.sources          = struct( ...
-    'timeStep',   'ITU-R M.2412-0 Παρ.1 §5.3.2 (<1 m/βήμα) + TR 38.821 §7.3.2.1.4 Πίν. 7.3.2.1.4-1 (6.61 s)', ...
+    'timeStep',   'περίοδος L1->L3 200 ms (TR 36.839 Πίν. 5.3.2.1, TS 38.133 Πίν. 9.2.5.2-1)', ...
     'duration',   'ITU-R M.2412-0 §7.1 (επαρκές πλήθος drops + αναφορά εύρους διαστημάτων εμπιστοσύνης)· ITU-R M.2514-0 §8.2.4', ...
     'passWindow', 'TR 38.821 Πίν. 4.2-3 NOTE 1 (visibility time of the satellite)', ...
     'ueMobility', 'ITU-R M.2412-0 §8.4 ΠΙΝΑΚΑΣ 5 b)/c) (3 km/h, τυχαία ομοιόμορφη κατεύθυνση)', ...
@@ -1163,13 +967,12 @@ runParams.sources          = struct( ...
     'measAvg',    'Clarke 1968, αυτοσυσχέτιση ισχύος J0(2*pi*fD*tau)^2 -> ισοδύναμο πλήθος ανεξάρτητων δειγμάτων ανά βήμα', ...
     'bsLayout',   'TR 38.901 §7.8 Πίν. 7.8-1 (UMa: εξαγωνικό πλέγμα, ISD 500 m, h_BS 25 m)', ...
     'satReuse',   'TR 38.821 §6.1.1.1 Πίν. 6.1.1.1-5 (FRF Option 1 = 1 / Option 2 = 3, εύρος ανά δέσμη προσαρμοσμένο στο FRF) + Σχ. 6.1.1.1-2 (ομοδιαυλικές δέσμες = παρεμβολή)', ...
-    'satSpacing', 'σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο (βλ. σχόλιο satSpacingS)', ...
+    'satSpacing', 'σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο', ...
     'mlGate',     'TS 38.300 §9.2.3.2.1 βήμα 3 (απόφαση HO στον σταθμό) + TR 37.817 §5.3 (AI/ML βελτιστοποίηση κινητικότητας) + Aggarwal et al. ICSigSys 2026 (πρόβλεψη ασταθών HO)· ετικέτα ping-pong TR 36.839 Ορισμός 5', ...
     'mlReport',   'TS 38.331 ReportConfigNR reportInterval (ms120, ms240, ...): επανάληψη της αναφοράς όσο ισχύει η συνθήκη εισόδου');
 
 saveRunVersion('runSimulation', runParams, outFiles, opts.label);
 
-% Η εκτέλεση ολοκληρώθηκε: το σημείο ελέγχου δεν χρειάζεται πια.
 if isfile(checkpointPath)
     delete(checkpointPath);
 end
@@ -1177,25 +980,13 @@ end
 end
 
 % =====================================================================
+% Τοπικές συναρτήσεις
+% =====================================================================
 
 function nEff = effectiveSamplesClarke(fDopplerHz, tStepS)
-% Ισοδύναμο πλήθος ανεξάρτητων δειγμάτων διαλείψεων μέσα σε ένα βήμα.
-%
-% Η μέτρηση που βλέπει ο μηχανισμός απόφασης είναι μέση τιμή πάνω σε ένα
-% χρονικό διάστημα, όχι στιγμιαίο δείγμα (TS 38.133 Πίν. 9.2.5.2-1). Πόσο
-% μειώνεται η διασπορά από αυτή τη μεσοποίηση το καθορίζει η αυτοσυσχέτιση
-% του καναλιού. Για διαλείψεις Rayleigh με ομοιόμορφη γωνιακή κατανομή
-% σκεδαστών, το μοντέλο του Clarke (Bell Syst. Tech. J. 47(6), 1968) δίνει
-% για την ΙΣΧΥ rho(tau) = J0(2*pi*fD*tau)^2. Η διασπορά της μέσης τιμής σε
-% διάστημα T είναι τότε
-%
-%     Var[μ.ό.] / Var[δείγμα] = (2/T^2) * Int_0^T (T - tau) * rho(tau) dtau
-%
-% και το αντίστροφο αυτού είναι το ισοδύναμο πλήθος ανεξάρτητων δειγμάτων.
-%
-% Προτιμάται από τον συνήθη τύπο T_c ~ 0.423/fD, που είναι κατασκευή
-% εγχειριδίου και όχι αποτέλεσμα του ίδιου του μοντέλου· δίνει επίσης
-% μικρότερο πλήθος, δηλαδή πιο συντηρητική εκτίμηση της μεσοποίησης.
+% Ισοδύναμο πλήθος ανεξάρτητων δειγμάτων διαλείψεων σε διάστημα T (Clarke,
+% Bell Syst. Tech. J. 1968): ρ(τ) = J0(2π fD τ)^2 για την ισχύ και
+%     1/nEff = (2/T^2) ∫_0^T (T - τ) ρ(τ) dτ.
 if ~isfinite(fDopplerHz) || fDopplerHz <= 0 || tStepS <= 0
     nEff = 1;
     return;
@@ -1205,49 +996,16 @@ ratio = 2/tStepS^2 * integral(@(tau) (tStepS - tau).*rho(tau), 0, tStepS, ...
     'AbsTol', 1e-12, 'RelTol', 1e-9);
 nEff = max(1, round(1/ratio));
 end
-% Τοπικές συναρτήσεις
-% =====================================================================
 
 function [evNum, evStr, gateChecks] = logHandoverEvents(pols, prevDec, newDec, H, W, s, dtS, ...
     passIdx, numUsers)
-% Ένα δείγμα ανά handover, με την κατάσταση τη στιγμή της απόφασης. Ο ορισμός
-% του handover είναι ο ίδιος με την καταμέτρηση της simulateScenario: αλλαγή
-% από έναν εξυπηρετούντα κόμβο σε άλλον (όχι πρώτη σύνδεση, όχι επανασύνδεση
-% μετά από outage). Καταγράφονται και τα αναγκαστικά, με σημαία, ώστε η ετικέτα
-% να ορίζεται χωρίς κενά στην ακολουθία.
-%
-% Όλα τα χαρακτηριστικά είναι διαθέσιμα ΤΗ ΣΤΙΓΜΗ της απόφασης· τίποτα από το
-% μέλλον, που μπαίνει μόνο στις ετικέτες (finishHandoverEvents). Κάθε στήλη
-% έχει πηγή:
-%  - Μέτρηση εξυπηρετούντος και υποψηφίου, διαφορά τους (gap), μεταβολή στο
-%    τελευταίο 1 s, μέσος όρος και κλίση στα τελευταία 3 s, απόσταση:
-%    Aggarwal, Shyamsundar, Saxena, "Predicting Unstable Handovers Using
-%    Machine Learning in LTE/5G Networks", IEEE ICSigSys 2026, §IV-A/C
-%    (pre_sinr_db, rssi, gap_db, delta_*_1s, avg_*_last3, *_slope_last3,
-%    distance_ue). Η μέτρηση εδώ είναι το φιλτραρισμένο SINR (TS 38.331
-%    §5.5.3.2) που χρησιμοποιεί ο A3. Η κλίση στα 3 s είναι η κλίση ελαχίστων
-%    τετραγώνων στα 3 δείγματα (t-2, t-1, t), δηλαδή (x_t - x_{t-2})/(2 dt).
-%  - Χρόνος παραμονής στον κόμβο που αφήνει και αν ο στόχος είναι ο
-%    προηγούμενος κόμβος: UE History Information, "Time UE Stayed in Cell"
-%    και Last Visited Cell (TS 38.413 §9.3.1.97).
-%  - Φόρτος και πλήθος ενεργών χρηστών των δύο κόμβων, όπως αναφέρθηκαν στο
-%    προηγούμενο βήμα: Resource Status Update (TS 38.423 §9.1.3.21, "Number
-%    of Active UEs" §9.2.2.62)· είσοδος του TR 37.817 §5.3.2.4.
-%  - Ανύψωση δορυφόρου: θέση/γεωμετρία (TR 37.817 §5.3.2.4), το ανάλογο της
-%    απόστασης για δορυφορικό κόμβο.
-%  - Μετατόπιση MLB (Ocn): παράμετρος του A3, όπως η υστέρηση στους
-%    Aggarwal et al. (pre_hysteresis).
-%
-% Ένα δείγμα ανά ΕΝΤΟΛΗ handover, όχι μόνο ανά επιτυχές handover: η
-% επιτυχία κρίνεται μετά την απόφαση (πραγματικό SINR του στόχου, T310),
-% άρα είναι αποτέλεσμα και όχι κάτι που ξέρει ο σταθμός. Ένα σύνολο μόνο με
-% επιτυχείς θα διάλεγε τα δείγματα με βάση το αποτέλεσμα, ενώ η απόφαση με
-% ML ρωτιέται για κάθε εντολή. Το αποτέλεσμα κρατείται στη στήλη Outcome
-% (TR 36.839 Ορισμός 3):
-%   "HO"         επιτυχές handover (Ορισμός 6)
-%   "HOF_T310"   η εντολή έφτασε ενώ έτρεχε ο T310: ο χρήστης μένει (κατάσταση 2)
-%   "HOF_TARGET" ο στόχος δεν ήταν προσβάσιμος: επανεγκατάσταση (κατάσταση 3)
-% Σε πολιτική με ML καταγράφονται οι εντολές που άφησε να σταλούν το μοντέλο.
+% Ένα δείγμα ανά εντολή handover (όχι μόνο τις επιτυχείς: η επιτυχία είναι
+% αποτέλεσμα), με χαρακτηριστικά διαθέσιμα μόνο τη στιγμή της απόφασης
+% (handoverFeatures). Το αποτέλεσμα στη στήλη Outcome (TR 36.839 Ορισμός 3):
+%   "HO"         επιτυχές handover
+%   "HOF_T310"   η εντολή έφτασε ενώ έτρεχε ο T310
+%   "HOF_TARGET" ο στόχος δεν ήταν προσβάσιμος
+% Για τις *ML ελέγχεται ότι το μοντέλο είδε ακριβώς τα ίδια χαρακτηριστικά.
 evNum = zeros(0, numel(handoverEventNumNames()));
 evStr = strings(0, 6);
 gateChecks = 0;
@@ -1274,8 +1032,7 @@ for pI = 1:numel(pols)
             hoType = "TerrSat";
         end
         prevNode = prevDec.(pol).Prev(u);
-        % Μετρήσεις στα δείγματα t, t-1 s, t-2 s: ανά δευτερόλεπτο, όπως το
-        % σύνολο δεδομένων των Aggarwal et al., ανεξάρτητα από το βήμα.
+        % Μετρήσεις στα t, t-1 s, t-2 s (Aggarwal et al.).
         lagStep = (W - 1)/2;
         mF = nan(1, 3);
         mT = nan(1, 3);
@@ -1293,9 +1050,7 @@ for pI = 1:numel(pols)
             'LoadFrom', sum(ldRho(ldNode == f)), 'LoadTo', sum(ldRho(ldNode == g)), ...
             'UsersOnFrom', sum(pN == f), 'UsersOnTo', sum(pN == g), ...
             'MlbOffset', newDec.(pol).AttemptOffset(u)));
-        % Πολιτική με ML: η απόφαση είδε χαρακτηριστικά που υπολογίστηκαν
-        % μέσα στη simulateScenario. Πρέπει να είναι ίδια, bit προς bit, με
-        % αυτά που καταγράφονται εδώ και από τα οποία εκπαιδεύεται το μοντέλο.
+        % *ML: τα χαρακτηριστικά της απόφασης πρέπει να είναι ίδια bit προς bit.
         if isfield(newDec.(pol), 'GateFeat') && any(isfinite(newDec.(pol).GateFeat(u,:)))
             gf = newDec.(pol).GateFeat(u,:);
             if ~isequaln(gf, feat)
@@ -1314,21 +1069,13 @@ end
 end
 
 function ev = finishHandoverEvents(num, str, nodeSeq, causeSeq, dtS)
-% Συμπληρώνει τι ακολούθησε κάθε handover, από την ακολουθία εξυπηρετούντων
-% της διέλευσης σε πλήρη ανάλυση:
-%   StayTo_s   βήματα στον νέο κόμβο από τη στιγμή του handover ως την αποχώρηση,
-%              σε s (ίδια σύμβαση με την παραμονή του ορισμού ping-pong)
-%   NextNode   πού πήγε μετά ("None" = outage, "" = τέλος διέλευσης πρώτα)
-%   NextCause  πώς έφυγε: "HO" handover του A3, "RLF" ή "HOF" επανεγκατάσταση
-%              μετά από RLF ή αποτυχία ("" = τέλος διέλευσης πρώτα)
-%   Censored   η διέλευση τελείωσε πριν φύγει από τον νέο κόμβο
-% Η παραμονή τελειώνει και με RLF που επανεγκαθιστά τον χρήστη στον ίδιο
-% κόμβο (TR 36.839 §5.2.2: μετά από αποτυχία η παραμονή δεν καταγράφεται).
-% Ping-pong: NextNode == FromNode && NextCause == "HO" && StayTo_s <=
-% pingPongMaxStay_s (μεταδεδομένα του αρχείου· 0.8 s για MTS 1 s με Δt = 0.2 s).
-% Έτσι ταυτίζεται με την καταμέτρηση της simulateScenario (TR 36.839 Ορισμός 5).
-% Για εντολή που απέτυχε (Outcome ~= "HO") ο χρήστης δεν βρέθηκε ποτέ στον
-% στόχο: StayTo_s = NaN, NextNode/NextCause = "", Censored = false.
+% Ετικέτες από το τι ακολούθησε κάθε handover (μόνο για την εκπαίδευση):
+%   StayTo_s   παραμονή στον νέο κόμβο (s)
+%   NextNode   επόμενος κόμβος ("None" = outage, "" = τέλος διέλευσης)
+%   NextCause  "HO", "RLF" ή "HOF" ("" = τέλος διέλευσης)
+%   Censored   η διέλευση τελείωσε πριν την αποχώρηση
+% Ping-pong (TR 36.839 Ορισμός 5): NextNode == FromNode, NextCause == "HO",
+% StayTo_s <= pingPongMaxStay_s. Για αποτυχημένη εντολή: NaN / "".
 n = size(num,1);
 stayTo   = nan(n,1);
 toEnd    = nan(n,1);
@@ -1378,8 +1125,7 @@ names = [{'PassID','Step','Time_s','UserID'}, handoverFeatures()];
 end
 
 function saveHandoverEvents(cells, path, meta)
-% Ένα αρχείο .mat (-v7) με μία μεταβλητή ανά στήλη, ώστε να διαβάζεται
-% απευθείας από την Python (scipy.io.loadmat). Τα κείμενα ως cellstr.
+% .mat (-v7), μία μεταβλητή ανά στήλη, για scipy.io.loadmat.
 cells = cells(~cellfun(@isempty, cells));
 out = struct();
 if isempty(cells)
@@ -1446,8 +1192,7 @@ end
 end
 
 function tf = checkpointMatches(a, b)
-% Το σημείο ελέγχου χρησιμοποιείται μόνο αν οι παράμετροι που καθορίζουν τι
-% παράγει η εκτέλεση είναι ίδιες. Οτιδήποτε άλλο (π.χ. label) δεν πειράζει.
+% Ίδιες οι παράμετροι που καθορίζουν τα αποτελέσματα (όχι π.χ. το label).
 keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'numPasses','geometryGrid','datasetPath', ...
         'hysteresisDb','timeToTriggerMs','l3FilterK','measPeriodMs','measAveraging', ...
@@ -1465,9 +1210,7 @@ end
 end
 
 function h = fileSha256(path)
-% SHA-256 ενός αρχείου, ως συμβολοσειρά δεκαεξαδικών. Συνδέει το παραγόμενο
-% σύνολο δεδομένων με τη συγκεκριμένη εκτέλεση και το commit που καταγράφει το
-% saveRunVersion, χωρίς να χρειάζεται αντίγραφο του αρχείου στον φάκελο.
+% SHA-256 ενός αρχείου (δεκαεξαδικό).
 try
     md = java.security.MessageDigest.getInstance('SHA-256');
     fid = fopen(path, 'r');
@@ -1485,9 +1228,7 @@ try
     end
     h = lower(reshape(dec2hex(typecast(md.digest(), 'uint8')).', 1, []));
 catch
-    % MATLAB χωρίς JVM (π.χ. όταν η Java του συστήματος είναι headless): το
-    % εργαλείο του λειτουργικού δίνει το ίδιο άθροισμα.
-    h = systemSha256(path);
+    h = systemSha256(path);   % MATLAB χωρίς JVM
 end
 end
 
@@ -1504,7 +1245,6 @@ end
 if st ~= 0
     return;
 end
-% Το certutil σε παλαιότερα Windows χωρίζει τα bytes με κενά.
 tok = regexp(strrep(out, ' ', ''), '[0-9a-fA-F]{64}', 'match', 'once');
 if ~isempty(tok)
     h = lower(tok);
@@ -1512,9 +1252,7 @@ end
 end
 
 function g = matlabMemoryGb()
-% Μνήμη που κρατά η MATLAB, σε GB. Χρήσιμο σε μεγάλες εκτελέσεις: αν ο
-% αριθμός ανεβαίνει σταθερά ανά διέλευση, κάτι συσσωρεύεται και δεν
-% ελευθερώνεται. Η συνάρτηση memory υπάρχει μόνο σε Windows.
+% Μνήμη της MATLAB σε GB (μόνο Windows).
 try
     m = memory;
     g = m.MemUsedMATLAB / 2^30;
@@ -1528,16 +1266,9 @@ if cond, s = a; else, s = b; end
 end
 
 function plotPolicyGain(pairedTable, numPasses, pngPath)
-% Πόσο καλύτερη είναι η υπό εξέταση πολιτική από καθεμία από τις δύο
-% αποκλειστικές: μέση διαφορά κατά ζεύγη ανά διέλευση, με 95% CI. Θετική τιμή
-% σημαίνει ΠΑΝΤΑ ότι η υπό εξέταση πολιτική είναι καλύτερη· για το ποσοστό
-% εκτός κάλυψης το πρόσημο αντιστρέφεται ώστε να ισχύει το ίδιο.
-% Ρυθμοί και ενέργεια ως σχετική μεταβολή ως προς τη βάση. Τα ποσοστά χρηστών
-% σε ποσοστιαίες μονάδες: η σχετική μεταβολή ενός ποσοστού φουσκώνει όταν η
-% βάση είναι μικρή, όπως το outage της αποκλειστικά επίγειας πολιτικής.
-% Το φάσμα δεν είναι δείκτης απόδοσης αλλά διαθέσιμος πόρος, οπότε δεν
-% σχεδιάζεται ως «βελτίωση»· αναγράφεται στον τίτλο ως πλαίσιο, γιατί χωρίς
-% αυτό η αύξηση της ρυθμαπόδοσης διαβάζεται ως κέρδος της απόφασης.
+% Μεικτή πολιτική έναντι των αποκλειστικών: μέση διαφορά κατά ζεύγη με 95% CI.
+% Θετική τιμή = καλύτερη η μεικτή. Ρυθμοί/ενέργεια σε %, ποσοστά χρηστών σε
+% ποσοστιαίες μονάδες· το διαθέσιμο φάσμα αναγράφεται στον τίτλο.
 baselines = ["TerrestrialOnly","SatelliteOnly"];
 baseLabel = {'έναντι μόνο επίγειας','έναντι μόνο δορυφορικής'};
 relMetric = ["MeanCapacity_Mbps","TotalRate_Mbps","BitPerJouleRf","SpectralEff_bpsHz"];
@@ -1554,20 +1285,22 @@ specVal         = gainMatrix(T, baselines, "Spectrum_MHz", 1, true);
 
 fig = figure('Visible','off','Position',[100 100 1400 520]);
 try
-    theme(fig, 'light');   % λευκό φόντο για το κείμενο της εργασίας (R2025a+)
+    theme(fig, 'light');
 catch
 end
-subplot(1,2,1);
-gainPanel(relVal, relHw, relLabel, baseLabel, '%');
+tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'loose');
+nexttile(tl);
+b = gainPanel(relVal, relHw, relLabel, '%');
 xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
 title('Ρυθμός και ενέργεια');
 
-subplot(1,2,2);
-gainPanel(ppVal, ppHw, ppLabel, baseLabel, ' μον.');
+nexttile(tl);
+gainPanel(ppVal, ppHw, ppLabel, ' μον.');
 xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
 title('Κάλυψη χρηστών');
+gainLegend(b, baseLabel);
 
-sgtitle(sprintf(['Υπό εξέταση πολιτική έναντι των αποκλειστικών: %d διελεύσεις, 95%% CI ' ...
+title(tl, sprintf(['Υπό εξέταση πολιτική έναντι των αποκλειστικών: %d διελεύσεις, 95%% CI ' ...
     '(ns: το CI περιέχει το 0)\nΔιαθέσιμο φάσμα: %+.0f%% έναντι μόνο επίγειας, ' ...
     '%+.0f%% έναντι μόνο δορυφορικής'], numPasses, specVal(1), specVal(2)));
 saveas(fig, pngPath);
@@ -1575,10 +1308,8 @@ close(fig);
 end
 
 function plotMlbGain(pairedTable, numPasses, mlbOffsetDb, pngPath)
-% Τι προσθέτει η εξισορρόπηση φόρτου (MLB): η ίδια πολιτική με και χωρίς MLB,
-% στο ίδιο κανάλι, και η μεικτή έναντι της επίγειας όταν έχουν και οι δύο MLB.
-% Ίδια σύμβαση με το policy_gain: θετική τιμή = καλύτερη η πρώτη πολιτική.
-% Στα handovers και στα ping-pong το πρόσημο αντιστρέφεται (λιγότερα = καλύτερα).
+% Συνεισφορά του MLB. Θετική τιμή = καλύτερη η πρώτη πολιτική (για handovers
+% και ping-pong: λιγότερα).
 pairs = ["ActualMLB","Actual"; "TerrestrialOnlyMLB","TerrestrialOnly"; ...
          "ActualMLB","TerrestrialOnlyMLB"];
 pairLabel = {'μεικτή: με MLB έναντι χωρίς','επίγεια: με MLB έναντι χωρίς', ...
@@ -1605,17 +1336,19 @@ try
     theme(fig, 'light');
 catch
 end
-subplot(1,2,1);
-gainPanel(relVal, relHw, relLabel, pairLabel, '%');
+tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'loose');
+nexttile(tl);
+b = gainPanel(relVal, relHw, relLabel, '%');
 xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
 title('Ρυθμός, ενέργεια, handovers');
 
-subplot(1,2,2);
-gainPanel(ppVal, ppHw, ppLabel, pairLabel, ' μον.');
+nexttile(tl);
+gainPanel(ppVal, ppHw, ppLabel, ' μον.');
 xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
 title('Κάλυψη χρηστών και ping-pong');
+gainLegend(b, pairLabel);
 
-sgtitle(sprintf(['Εξισορρόπηση φόρτου (MLB, TS 38.300 §15.5.1): %d διελεύσεις, 95%% CI ' ...
+title(tl, sprintf(['Εξισορρόπηση φόρτου (MLB, TS 38.300 §15.5.1): %d διελεύσεις, 95%% CI ' ...
     '(ns: το CI περιέχει το 0)\nμετατόπιση A3 = %g dB \\times διαφορά εικονικού φόρτου ' ...
     '(Nasri & Altman), φόρτος κατά Awada et al.'], numPasses, mlbOffsetDb));
 saveas(fig, pngPath);
@@ -1623,11 +1356,8 @@ close(fig);
 end
 
 function plotMlGain(pairedTable, numPasses, info, reportMs, pngPath)
-% Τι προσθέτει η απόφαση handover με ML στον ίδιο A3, χωρίς και με MLB, και
-% η πλήρης (MLB + ML) έναντι του σκέτου A3. Ίδια σύμβαση με τα policy_gain
-% και mlb_gain: θετική τιμή = καλύτερη η πρώτη πολιτική. Αριστερά οι δείκτες
-% κινητικότητας του TR 36.839 (το πρόβλημα που λύνει το μοντέλο), δεξιά το
-% κόστος του σε κάλυψη και ρυθμό (ό,τι δεν πρέπει να χειροτερέψει).
+% Συνεισφορά της απόφασης ML. Αριστερά οι δείκτες κινητικότητας (TR 36.839),
+% δεξιά handovers, RLF και ρυθμός. Θετική τιμή = καλύτερη η πρώτη πολιτική.
 pairs = ["ActualML","Actual"; "ActualMLBML","ActualMLB"; "ActualMLBML","Actual"];
 pairLabel = {'A3: με ML έναντι χωρίς','A3 + MLB: με ML έναντι χωρίς', ...
              'A3 + MLB + ML έναντι σκέτου A3'};
@@ -1654,17 +1384,19 @@ try
     theme(fig, 'light');
 catch
 end
-subplot(1,2,1);
-gainPanel(mobVal, mobHw, mobLabel, pairLabel, ' μον.');
+tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'loose');
+nexttile(tl);
+b = gainPanel(mobVal, mobHw, mobLabel, ' μον.');
 xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
 title('Ping-pong, αποτυχίες, κάλυψη');
 
-subplot(1,2,2);
-gainPanel(relVal, relHw, relLabel, pairLabel, '%');
+nexttile(tl);
+gainPanel(relVal, relHw, relLabel, '%');
 xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
 title('Handovers, RLF, ρυθμός');
+gainLegend(b, pairLabel);
 
-sgtitle(sprintf(['Απόφαση handover στον σταθμό με ML (TS 38.300 §9.2.3.2.1, TR 37.817 §5.3): ' ...
+title(tl, sprintf(['Απόφαση handover στον σταθμό με ML (TS 38.300 §9.2.3.2.1, TR 37.817 §5.3): ' ...
     '%d διελεύσεις, 95%% CI (ns: το CI περιέχει το 0)\n%d δέντρα, αναμονή αν P(ping-pong) > %.2f, ' ...
     'νέα αναφορά μετά από %d ms (reportInterval)'], numPasses, info.NumTrees, ...
     info.Threshold, reportMs));
@@ -1673,14 +1405,8 @@ close(fig);
 end
 
 function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, pngPath)
-% Ρυθμός handovers ανά πολιτική, σε απόλυτες τιμές και όχι ως «βελτίωση»: η
-% αποκλειστικά δορυφορική πολιτική με έναν δορυφόρο δεν έχει κανένα handover,
-% οπότε η σχετική διαφορά από αυτήν δεν ορίζεται. Στοιβαγμένα ανά τύπο· μόνο
-% επιτυχή handovers του A3 (TR 36.839 Ορισμός 6). Τα RLF και οι αποτυχίες
-% handover δεν είναι handovers και δίνονται στην ετικέτα κάθε στήλης. Το 95% CI
-% αφορά το σύνολο, πάνω στις διελεύσεις.
-% Τύποι που είναι μηδενικοί σε όλες τις πολιτικές παραλείπονται από το υπόμνημα
-% (π.χ. δορυφορικό-δορυφορικό με έναν δορυφόρο).
+% Ρυθμός επιτυχών handovers ανά πολιτική (TR 36.839 Ορισμός 6), στοιβαγμένος
+% ανά τύπο, με 95% CI στο σύνολο· ping-pong, αποτυχίες και RLF στις ετικέτες.
 typeKey   = {'TerrTerr','TerrSat','SatSat'};
 typeLabel = {'επίγειο \leftrightarrow επίγειο','επίγειο \leftrightarrow δορυφορικό', ...
              'δορυφορικό \leftrightarrow δορυφορικό'};
@@ -1758,8 +1484,7 @@ close(fig);
 end
 
 function [val, hw] = gainMatrix(T, baselines, metrics, sgn, relative)
-% Πίνακας (δείκτης x βάση) με τη μέση διαφορά και το ημιεύρος του CI της,
-% είτε σχετικά (%) είτε σε ποσοστιαίες μονάδες.
+% (δείκτης x βάση): μέση διαφορά και ημιεύρος CI, σε % ή ποσοστιαίες μονάδες.
 val = nan(numel(metrics), numel(baselines));
 hw  = nan(numel(metrics), numel(baselines));
 for i = 1:numel(metrics)
@@ -1772,7 +1497,7 @@ for i = 1:numel(metrics)
         if relative
             base = abs(T.BaselineMean(r));
             if ~(base > eps)
-                continue;   % χωρίς βάση η σχετική μεταβολή δεν ορίζεται
+                continue;
             end
             scale = 100 / base;
         end
@@ -1782,8 +1507,8 @@ for i = 1:numel(metrics)
 end
 end
 
-function gainPanel(val, hw, labels, seriesLabels, unit)
-% Οριζόντιες ομαδοποιημένες μπάρες, μία ομάδα ανά δείκτη και μία μπάρα ανά βάση.
+function b = gainPanel(val, hw, labels, unit)
+% Οριζόντιες μπάρες: μία ομάδα ανά δείκτη, μία μπάρα ανά βάση.
 nM   = size(val,1);
 cols = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
 span = max([abs(val(:)) + hw(:); 1], [], 'omitnan');
@@ -1820,54 +1545,18 @@ hi = max([0; val(:) + hw(:)], [], 'omitnan');
 xlim([lo - (lo < 0)*0.35*span - pad, hi + 0.35*span]);
 set(gca, 'YTick', 1:nM, 'YTickLabel', labels, 'YDir', 'reverse');
 grid on;
-legend(seriesLabels, 'Location', 'southoutside', 'Orientation', 'horizontal');
 end
 
-function R = runOrLoadPass(passIdx, C, cacheKey)
-% Αποτέλεσμα της διέλευσης από το passCacheDir, αν υπάρχει και ταιριάζει·
-% αλλιώς υπολογίζεται (και αποθηκεύεται, αν υπάρχει φάκελος).
-cacheDir = C.opts.passCacheDir;
-R = [];
-if ~isempty(cacheDir)
-    R = loadCachedPass(cacheDir, passIdx, cacheKey);
-end
-if isempty(R)
-    R = runOnePass(passIdx, C);
-    if ~isempty(cacheDir)
-        saveCachedPass(cacheDir, passIdx, cacheKey, R);
-    end
-end
-end
-
-function R = loadCachedPass(cacheDir, passIdx, cacheKey)
-R = [];
-f = fullfile(cacheDir, sprintf('pass_%04d.mat', passIdx));
-if ~isfile(f)
-    return;
-end
-S = load(f, 'R', 'cacheKey');
-if checkpointMatches(S.cacheKey.opts, cacheKey.opts) && ...
-        strcmp(S.cacheKey.mlGateSha256, cacheKey.mlGateSha256)
-    R = S.R;
-end
-end
-
-function saveCachedPass(cacheDir, passIdx, cacheKey, R) %#ok<INUSD> αποθηκεύονται με το όνομά τους
-% Πρώτα σε προσωρινό αρχείο και μετά μετονομασία, ώστε μια διακοπή να μην
-% αφήνει μισό αρχείο που θα διαβαζόταν ως έγκυρο.
-f = fullfile(cacheDir, sprintf('pass_%04d.mat', passIdx));
-tmp = [f '.tmp.mat'];
-save(tmp, 'R', 'cacheKey', '-v7.3');
-movefile(tmp, f, 'f');
+function gainLegend(b, seriesLabels)
+% Ένα κοινό υπόμνημα κάτω από τα δύο panels.
+lgd = legend(b, seriesLabels, 'Orientation', 'horizontal');
+lgd.Layout.Tile = 'south';
 end
 
 function [G, info] = loadHandoverGate(path, reportSteps)
-% Φορτώνει το μοντέλο που έγραψε το Model/train_handover_gate.py και ελέγχει,
-% πριν χρησιμοποιηθεί:
-%   - ότι οι στήλες που περιμένει υπάρχουν με αυτό το όνομα στα
-%     χαρακτηριστικά της προσομοίωσης (handoverFeatures + FromSat, ToSat)·
-%   - ότι η handoverGatePredict δίνει τις ίδιες πιθανότητες με το
-%     scikit-learn στα δείγματα ελέγχου του αρχείου.
+% Φορτώνει το μοντέλο του Model/train_handover_gate.py και ελέγχει ότι τα
+% χαρακτηριστικά υπάρχουν και ότι η handoverGatePredict δίνει τις ίδιες
+% πιθανότητες με το scikit-learn στα δείγματα ελέγχου.
 S = load(path);
 allNames = [handoverFeatures(), {'FromSat','ToSat'}];
 featNames = cellstr(S.FeatureNames);
@@ -1910,11 +1599,9 @@ fprintf('    ίδιες πιθανότητες με το scikit-learn σε %d δ
 end
 
 function R = runOnePass(passIdx, C)
-% Μία διέλευση, από την αρχικοποίηση της γεννήτριας ως τα handovers και τις
-% γραμμές του αρχείου. Εξαρτάται μόνο από το passIdx και το σταθερό πλαίσιο C
-% (rng(rngSeed + passIdx) στην αρχή), οπότε δίνει τα ίδια ακριβώς αποτελέσματα
-% είτε τρέχει σειριακά είτε σε worker, και με οποιαδήποτε σειρά.
-a                = C.a;
+% Μία διέλευση. Εξαρτάται μόνο από το passIdx και το πλαίσιο C, οπότε δίνει
+% τα ίδια αποτελέσματα σειριακά ή σε worker.
+a              = C.a;
 bsCenterGeo      = C.bsCenterGeo;
 bsClusterRadiusM = C.bsClusterRadiusM;
 bsImageGeo       = C.bsImageGeo;
@@ -1956,17 +1643,10 @@ gateChecks  = 0;
 refSnapshot = struct();
 passKpi     = nan(1, numKpi);
 
-% Ένας σπόρος ανά διέλευση: η τυχαιότητα μέσα στη διέλευση (τοπολογία,
-% κατευθύνσεις, κανάλι) εξελίσσεται συνεχόμενα, ώστε να μη σπάει η
-% χωρική συσχέτιση από επαναρχικοποίηση της γεννήτριας ανά βήμα.
-rng(opts.rngSeed + passIdx, 'twister');   % ρητά: οι workers έχουν άλλη προεπιλογή
+% Ένας σπόρος ανά διέλευση (ρητά twister: οι workers έχουν άλλη προεπιλογή).
+rng(opts.rngSeed + passIdx, 'twister');
 
-% -- Θέσεις και κατευθύνσεις χρηστών στην αρχή της διέλευσης --
-% Θέση ομοιόμορφη ως προς το εμβαδόν μέσα στις κυψέλες· σταθερή ταχύτητα,
-% τυχαία ομοιόμορφη κατεύθυνση (ITU-R M.2412-0 §8.4, ΠΙΝΑΚΑΣ 5 b)/c)).
-% Δειγματοληπτούνται μαζί, ώστε η διαδρομή να μην περνά ποτέ σε λιγότερο
-% από userRMinM από σταθμό. Ισχύει και για τη διέλευση αναφοράς, ώστε να
-% μην αποτελεί ειδική περίπτωση.
+% -- Χρήστες: θέση ομοιόμορφη στις κυψέλες, τυχαία κατεύθυνση (M.2412-0 §8.4) --
 nU = randi(numUsersRange);
 user_geo = zeros(nU,3);
 walkAzimuthDeg = zeros(nU,1);
@@ -1986,22 +1666,19 @@ end
 tStart  = tPeakS - opts.passWindowS/2;
 numSteps = floor(opts.passWindowS/opts.dtSeconds) + 1;
 
-% Προδέσμευση σε απλούς πίνακες αντί για συσσώρευση αντικειμένων table:
-% ένα table ανά βήμα σήμαινε ~900 αντικείμενα ανά διέλευση και εξαντλούσε
-% τη μνήμη σε μεγάλες εκτελέσεις. Ο πίνακας φτιάχνεται μία φορά, στο τέλος.
+% Προδεσμευμένοι πίνακες· ο table φτιάχνεται μία φορά στο τέλος.
 nRowsPass = numSteps * numUsers;
 numBuf = zeros(nRowsPass, 25);
 strBuf = strings(nRowsPass, 6);
 rowPtr = 0;
 
 prevServingNode = strings(numUsers,1);
-channelState = [];   % πρώτο βήμα της διέλευσης: ανεξάρτητο δείγμα
-decisionState = [];  % καμία προϊστορία απόφασης στην αρχή της διέλευσης
+channelState = [];
+decisionState = [];
 stepBitPerJouleRf = nan(numSteps,1);
 policyStepBuf = nan(numSteps, numPolicy, numPolicyMetric);
 
-% Ιστορικό μετρήσεων και ακολουθία εξυπηρετούντων ανά πολιτική, για την
-% καταγραφή των handovers. Κυκλικός buffer hoHistW βημάτων.
+% Κυκλικό ιστορικό μετρήσεων και ακολουθία εξυπηρετούντων, για τα handovers.
 hoHist = struct('Bs', nan(hoHistW, numUsers, numCells), ...
     'Sat', nan(hoHistW, numUsers, opts.numSats), ...
     'Elev', nan(hoHistW, numUsers, opts.numSats), 'Dist', nan(numUsers, numCells));
@@ -2022,7 +1699,7 @@ for s = 1:numSteps
             satUOffsetRad(k), inclDeg, raanRad, a, omegaEarth, t);
     end
 
-    % --- Έλεγχος κατάστασης χρηστών πριν τον υπολογισμό ζεύξης ---
+    % --- Έλεγχος κατάστασης χρηστών ---
     checksRun = checksRun + 1;
     validateUserState(user_geo, bsImageGeo, wgs84, ueHeightM, d2dMinM, d2dMaxM, ...
         userRMinM, passIdx, s);
@@ -2056,7 +1733,7 @@ for s = 1:numSteps
         hoPassStr = [hoPassStr; evStr]; %#ok<AGROW>
     end
 
-    % --- Δείκτες των τριών πολιτικών για το βήμα αυτό ---
+    % --- Δείκτες πολιτικών του βήματος ---
     for pI = 1:numPolicy
         ps = policyKpis.(policyNames{pI});
         for mI = 1:numPolicyMetric
@@ -2125,13 +1802,11 @@ for s = 1:numSteps
             repmat(stepM,numUsers,1), walkAzimuthDeg, wgs84);
         user_geo(:,1) = newLat;
         user_geo(:,2) = newLon;
-        % Το ύψος δεν μεταβάλλεται ποτέ: παραμένει το φυσικό ύψος κεραίας.
         user_geo(:,3) = ueHeightM;
     end
 end
 
-% -- Δείκτες της διέλευσης: υπολογίζονται σε ΠΛΗΡΗ ανάλυση 1 s --
-% (η υποδειγματοληψία αφορά μόνο το τι γράφεται στο αρχείο)
+% -- Δείκτες της διέλευσης, σε πλήρη χρονική ανάλυση --
 servedFull = strBuf(:,2) ~= "Outage";
 passKpi(1,1) = mean(numBuf(servedFull,12), 'omitnan');   % Capacity_Mbps
 passKpi(1,2) = mean(numBuf(servedFull,11), 'omitnan');   % SINR_dB
@@ -2139,17 +1814,14 @@ passKpi(1,3) = mean(strBuf(:,3) == "Served");
 passKpi(1,4) = mean(strBuf(:,2) == "Satellite");
 passKpi(1,5) = mean(stepBitPerJouleRf, 'omitnan');
 
-% Οι δείκτες κάθε πολιτικής συναθροίζονται πρώτα μέσα στη διέλευση και
-% μετά η διέλευση μπαίνει ως ΜΙΑ παρατήρηση στη στατιστική: τα βήματα της
-% ίδιας διέλευσης δεν είναι ανεξάρτητα μεταξύ τους.
+% Μία παρατήρηση ανά διέλευση (τα βήματα δεν είναι ανεξάρτητα).
 policyPassRow = mean(policyStepBuf, 1, 'omitnan');
 
 % -- Handovers της διέλευσης: τι ακολούθησε το καθένα --
 hoEvents = finishHandoverEvents(hoPassNum, hoPassStr, ...
     hoNodeSeq, hoCauseSeq, opts.dtSeconds);
 
-% -- Γραμμές του αρχείου: κρατούνται τα βήματα 1, 1+stride, ... --
-% Η διέλευση αναφοράς (1) κρατείται και σε πλήρη ανάλυση, για τις χρονοσειρές.
+% -- Γραμμές του αρχείου: βήματα 1, 1+stride, ...· η διέλευση 1 και πλήρης --
 keep = mod(numBuf(:,2) - 1, opts.datasetStride) == 0;
 R = struct();
 R.passTable    = buildPassTable(numBuf(keep,:), strBuf(keep,:));
@@ -2166,15 +1838,8 @@ R.refSnapshot   = refSnapshot;
 end
 
 function T = buildPassTable(numBuf, strBuf)
-% Φτιάχνει τον πίνακα μιας διέλευσης από τους δύο προδεσμευμένους πίνακες.
-% Οι στήλες του numBuf είναι, με τη σειρά: PassID, Step, Time_s, UserID,
-% NumUsers, UserLat, UserLon, WalkAzimuth_deg, Distance_m, PathLoss_dB,
-% SINR_dB, Capacity_Mbps, SatElevation_deg, NodePower_W, EnergyPerBit_uJ,
-% NodeLoad, Throughput_Mbps, Interruption_ms, CandBS_SINR_dB,
-% CandBS_Distance_m, CandBS_PathLoss_dB, CandSat_SINR_dB,
-% CandSat_Elevation_deg, CandSat_SlantRange_m, CandSat_PathLoss_dB.
-% Του strBuf: ServingNode, ServingType, ServiceState, BsUnavailReason,
-% SatUnavailReason, LinkState.
+% Πίνακας μιας διέλευσης από τους αριθμητικούς (numBuf) και τους κειμενικούς
+% (strBuf) πίνακες.
 T = table(numBuf(:,1), numBuf(:,2), numBuf(:,3), numBuf(:,4), numBuf(:,5), ...
     numBuf(:,6), numBuf(:,7), numBuf(:,8), ...
     strBuf(:,1), strBuf(:,2), ...
@@ -2196,9 +1861,8 @@ T = table(numBuf(:,1), numBuf(:,2), numBuf(:,3), numBuf(:,4), numBuf(:,5), ...
 end
 
 function validateUserState(user_geo, bsImageGeo, wgs84, ueHeightM, d2dMin, d2dMax, minDistBs, passIdx, stepIdx)
-% Ελέγχει ότι σε κάθε βήμα οι μεταβλητές των χρηστών είναι οι αναμενόμενες:
-% ύψος κεραίας αμετάβλητο, πεπερασμένες συντεταγμένες, και τουλάχιστον μία
-% επίγεια ζεύξη εντός του πεδίου ισχύος των UMa/UMi (TR 38.901 Πίν. 7.4.1-1).
+% Έλεγχος χρηστών: σταθερό ύψος, έγκυρες συντεταγμένες, ζεύξεις στο πεδίο
+% ισχύος UMa (TR 38.901 Πίν. 7.4.1-1).
 if any(user_geo(:,3) ~= ueHeightM)
     error('runSimulation:HeightDrift', ...
         'Διέλευση %d, βήμα %d: ύψος χρήστη %.4f m αντί για %.4f m.', ...
@@ -2214,8 +1878,7 @@ if any(abs(user_geo(:,1)) > 90) || any(abs(user_geo(:,2)) > 180)
 end
 
 numUsers = size(user_geo,1);
-% Απόσταση από το πλησιέστερο αντίγραφο κάθε σταθμού, όπως στο κανάλι, για
-% όλους τους χρήστες με μία κλήση.
+% Απόσταση από το πλησιέστερο αντίγραφο κάθε σταθμού, όπως στο κανάλι.
 imgLatRow = reshape(bsImageGeo(:,:,1), 1, []);
 imgLonRow = reshape(bsImageGeo(:,:,2), 1, []);
 nPts = numel(imgLatRow);
@@ -2239,17 +1902,14 @@ end
 end
 
 function validateOutputs(typeVec, capacityVec, throughputVec, nodeLoadVec, sinrVec, passIdx, stepIdx)
-% Ελέγχει τη συνέπεια των εξόδων: outage -> καμία χωρητικότητα και μηδενική
-% ρυθμαπόδοση· εξυπηρετούμενος -> πεπερασμένη χωρητικότητα και φορτίο >= 1.
+% Συνέπεια εξόδων: outage -> χωρίς χωρητικότητα/ρυθμό/φορτίο· συνδεδεμένος ->
+% πεπερασμένη χωρητικότητα (> 0 πάνω από το MCS 0) και φορτίο >= 1.
 isOut = typeVec == "Outage";
 if any(isOut & (~isnan(capacityVec) | throughputVec ~= 0 | nodeLoadVec ~= 0))
     error('runSimulation:OutageInconsistent', ...
         'Διέλευση %d, βήμα %d: χρήστης σε outage με μη μηδενική χωρητικότητα/ρυθμαπόδοση/φορτίο.', ...
         passIdx, stepIdx);
 end
-% Συνδεδεμένος χρήστης: πεπερασμένη, μη αρνητική χωρητικότητα. Μηδενική μόνο
-% όσο τρέχει ο T310 με SINR κάτω από το MCS 0 ή χωρίς ζεύξη στο μοντέλο (NaN),
-% και θετική πάντα πάνω από το MCS 0 (-7.53 dB).
 if any(~isOut & (~isfinite(capacityVec) | capacityVec < 0))
     error('runSimulation:ServedInconsistent', ...
         'Διέλευση %d, βήμα %d: συνδεδεμένος χρήστης χωρίς πεπερασμένη μη αρνητική χωρητικότητα.', ...
@@ -2273,15 +1933,9 @@ end
 end
 
 function [lat, lon, walkAz] = randUserAndHeading(centerGeo, bs_geo, ghost_geo, img_geo, wgs84, rDiskM, dMinM, walkM)
-% Θέση χρήστη ομοιόμορφη ως προς το εμβαδόν μέσα στις κυψέλες των σταθμών, και
-% κατεύθυνση ομοιόμορφη. Δειγματοληψία με απόρριψη από δίσκο ακτίνας rDiskM
-% γύρω από το κέντρο του πλέγματος, που περιέχει όλες τις κυψέλες: το σημείο
-% γίνεται δεκτό αν ο πλησιέστερος σταθμός είναι πιο κοντά από τον πλησιέστερο
-% κόμβο του επόμενου (κενού) δακτυλίου ghost_geo. Απορρίπτεται επίσης κάθε
-% ζεύγος θέσης/κατεύθυνσης του οποίου η ευθεία διαδρομή μήκους walkM περνά σε
-% λιγότερο από dMinM από κάποιον σταθμό ή αντίγραφό του (img_geo, wrap-around). Ο έλεγχος γίνεται στο εφαπτόμενο
-% επίπεδο της αρχικής θέσης· για 750 m το σφάλμα από την καμπυλότητα είναι
-% κάτω από χιλιοστό.
+% Θέση ομοιόμορφη στις κυψέλες και ομοιόμορφη κατεύθυνση, με απόρριψη: δεκτή
+% αν ο πλησιέστερος κόμβος είναι σταθμός (όχι του κενού δακτυλίου) και η
+% διαδρομή walkM δεν περνά πιο κοντά από dMinM σε σταθμό ή αντίγραφό του.
 while true
     rM = rDiskM * sqrt(rand());
     az = 360 * rand();
@@ -2303,9 +1957,7 @@ end
 end
 
 function offsets = hexSiteOffsetsM(numRings, isdM)
-% Θέσεις σταθμών εξαγωνικού πλέγματος [ανατολικά βόρεια] σε m γύρω από το
-% κέντρο: 1 + 3*R*(R+1) σταθμοί για R δακτυλίους (R = 1 -> 7, R = 2 -> 19).
-% Αξονικές συντεταγμένες (q, r) με διανύσματα βάσης απόστασης ίσης με isdM.
+% Θέσεις [ανατολικά βόρεια] (m) εξαγωνικού πλέγματος R δακτυλίων: 1 + 3R(R+1) σταθμοί.
 offsets = zeros(0,2);
 for q = -numRings:numRings
     for r = max(-numRings, -q-numRings):min(numRings, -q+numRings)
@@ -2321,8 +1973,7 @@ end
 
 function spanRad = findMaxRaanOffset(raanBase, uPeakRad, meanMotion, inclDeg, aM, ...
     omegaEarth, tPeakS, windowS, centerLat, centerLon, wgs84, minElevDeg)
-% Βρίσκει αριθμητικά τη μέγιστη εγκάρσια μετατόπιση του ίχνους για την οποία
-% η διέλευση φτάνει ακόμη τη μάσκα ορατότητας. Διχοτόμηση στο [0, hi].
+% Μέγιστη εγκάρσια μετατόπιση ίχνους που φτάνει ακόμη τη μάσκα (διχοτόμηση).
 peak = @(dRaan) maxElevationOfPass(raanBase + dRaan, uPeakRad, meanMotion, ...
     inclDeg, aM, omegaEarth, tPeakS, windowS, centerLat, centerLon, wgs84);
 
@@ -2345,8 +1996,7 @@ end
 
 function e = maxElevationOfPass(raanRad, uPeakRad, meanMotion, inclDeg, aM, ...
     omegaEarth, tPeakS, windowS, centerLat, centerLon, wgs84)
-% Μέγιστη γωνία ανύψωσης του δορυφόρου, όπως τη βλέπει το κέντρο της περιοχής,
-% μέσα στο παράθυρο της διέλευσης.
+% Μέγιστη ανύψωση από το κέντρο της περιοχής μέσα στο παράθυρο.
 ts = linspace(tPeakS - windowS/2, tPeakS + windowS/2, 121);
 e = -Inf;
 for i = 1:numel(ts)
@@ -2359,10 +2009,7 @@ end
 
 function halfS = zenithHalfVisibilityS(raanRad, uPeakRad, meanMotion, inclDeg, aM, ...
     omegaEarth, tPeakS, windowS, centerLat, centerLon, wgs84, minElevDeg)
-% Μισή διάρκεια ορατότητας (πάνω από τη μάσκα) για τη διέλευση που περνά από
-% το κέντρο της περιοχής, μετρημένη από τη μέγιστη προσέγγιση. Διχοτόμηση
-% προς κάθε κατεύθυνση· κρατείται η μεγαλύτερη από τις δύο, που διαφέρουν
-% ελάχιστα λόγω της περιστροφής της Γης.
+% Μισή διάρκεια ορατότητας της ζενιθιακής διέλευσης (διχοτόμηση, μέγιστο των δύο πλευρών).
 elevAt = @(dt) elevationFromCenter(raanRad, uPeakRad + meanMotion*dt, inclDeg, aM, ...
     omegaEarth, tPeakS + dt, centerLat, centerLon, wgs84);
 halfS = 0;
@@ -2387,9 +2034,8 @@ lla = orbitPositionLla(uRad, inclDeg, raanRad, aM, omegaEarth, tS);
 end
 
 function lla = orbitPositionLla(uRad, inclDeg, raanRad, aM, omegaEarth, tS)
-% Θέση δορυφόρου σε κυκλική τροχιά -> γεωδαιτικές συντεταγμένες [lat lon alt].
-% Διάδοση σε αδρανειακό σύστημα και στροφή σε γεωκεντρικό-σταθερό κατά
-% omegaEarth*t, ώστε θέση και ταχύτητα να προκύπτουν από το ίδιο μοντέλο.
+% Θέση σε κυκλική τροχιά -> [lat lon alt]: αδρανειακό σύστημα, στροφή κατά
+% omegaEarth*t σε ECEF.
 rPerifocal = aM * [cos(uRad); sin(uRad); 0];
 
 i = deg2rad(inclDeg);
@@ -2402,4 +2048,15 @@ Rg = [cos(th) sin(th) 0; -sin(th) cos(th) 0; 0 0 1];
 rEcef = Rg * rInertial;
 
 lla = ecef2lla(rEcef');
+end
+
+function printUserTable(numUsers, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
+    bestSinrDbVec, capacityMbpsVec, bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec)
+% Πίνακας χρηστών στη στιγμή μέγιστης ανύψωσης της διέλευσης αναφοράς.
+userID = (1:numUsers)';
+disp(table(userID, bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
+    bestSinrDbVec, capacityMbpsVec, bestElevationDegVec, nodePowerWattsVec, energyPerBitUJVec, ...
+    'VariableNames', {'User','ServingNode','ServingType', ...
+    'Distance_m','PathLoss_dB','SINR_dB','Capacity_Mbps','SatElevation_deg', ...
+    'NodePower_W','EnergyPerBit_uJ'}));
 end

@@ -1,32 +1,12 @@
 function T = linkBudgetValidation(outputDir, label)
-% Συστηματική επαλήθευση του ισοζυγίου ζεύξης και της κατανομής πόρων.
-%
-% Οι δύο υπάρχοντες έλεγχοι καλύπτουν τη γεωμετρία (geometryValidation.m) και
-% την εξάρτηση της ενέργειας από το φορτίο (energyModelValidation.m). Εδώ
-% ελέγχονται τα ενδιάμεσα μεγέθη, δηλαδή ό,τι μεσολαβεί ανάμεσα στη γεωμετρία
-% και στο τελικό αποτέλεσμα:
-%
-%   Α. Μετατροπές μονάδων ισχύος (dBm, dBW, W) και τα δύο EIRP.
-%   Β. Απώλειες ελεύθερου χώρου και η γνωστή κλίση των 6,02 dB ανά οκτάβα.
-%   Γ. Ισχύς θορύβου kTB και η εξάρτησή της από το εύρος ζώνης.
-%   Δ. Ταυτότητα SINR = EIRP - απώλειες - θόρυβος, πάνω στα μεγέθη που
-%      επιστρέφει η ίδια η simulateScenario.
-%   Ε. Γνωστή συμπεριφορά ισχύος: +-3 dB δίνουν +-3 dB χωρίς παρεμβολή και
-%      αυστηρά λιγότερο με παρεμβολή.
-%   ΣΤ. Διατήρηση εύρους ζώνης: το άθροισμα των μεριδίων ισούται με το
-%      διαθέσιμο εύρος του κόμβου.
-%   Ζ. Ισοζύγιο ισχύος δικτύου χωρίς διπλή καταμέτρηση.
-%   Η. Οριακές περιπτώσεις με προκαθορισμένη συμπεριφορά: κανένας διαθέσιμος
-%      κόμβος, ένας χρήστης, ισοπαλία υποψηφίων, ανύψωση ακριβώς στη μάσκα.
-%   Θ. Κεραία τομέα (TR 36.873 Πίν. 7.1-1, TR 38.901 Πίν. 7.3-1 και 7.8-1):
-%      τιμές του μοτίβου σε γνωστές κατευθύνσεις, ο παράγοντας συστοιχίας
-%      από τα μιγαδικά βάρη του πίνακα, και το SINR ενός site 3 τομέων μέσα
-%      από τη simulateScenario.
-%
-% Κάθε έλεγχος συγκρίνει μια αναμενόμενη τιμή, υπολογισμένη ανεξάρτητα από
-% κλειστό τύπο, με την τιμή που παράγει ο κώδικας της προσομοίωσης. Τυπώνει
-% γραμμή ΟΚ/ΑΠΕΤΥΧΕ ανά έλεγχο, γράφει CSV/PNG και τερματίζει με σφάλμα αν
-% έστω ένας αποτύχει.
+%LINKBUDGETVALIDATION Επαλήθευση ισοζυγίου ζεύξης και κατανομής πόρων.
+%   Α. Μονάδες ισχύος και EIRP          ΣΤ. Διατήρηση εύρους ζώνης
+%   Β. Απώλειες ελεύθερου χώρου         Ζ.  Ισοζύγιο ισχύος δικτύου
+%   Γ. Θόρυβος kTB                      Η.  Οριακές περιπτώσεις
+%   Δ. SINR = EIRP - PL - N, παρεμβολή  Θ.  Κεραία τομέα (TR 38.901 Πίν. 7.3-1, 7.8-1)
+%   Ε. Μεταβολή ισχύος εκπομπής         Ι.  Soft LOS και RLF
+% Κάθε έλεγχος συγκρίνει τιμή κλειστού τύπου με την έξοδο της simulateScenario·
+% σφάλμα αν αποτύχει έστω ένας.
 
 if nargin < 1 || isempty(outputDir)
     outputDir = fullfile(fileparts(mfilename('fullpath')), '..', 'Results');
@@ -101,8 +81,6 @@ C = addCheck(C, 'A3 οριο EARTH ανα αλυσιδα (<= 20 W)', 'λογικ
 C = addCheck(C, 'A4 συνθετο EIRP σταθμου', 'dBm', 67, simParameters.EIRP, 1e-12);
 C = addCheck(C, 'A5 ιδιο EIRP σε γραμμικη ισχυ', 'W', 5011.872336272722, ...
              10^((simParameters.EIRP - 30)/10), 1e-6);
-% Επιστροφή στην πυκνότητα EIRP: αν το 34 dBW/MHz είχε διαβαστεί ως ισχύς
-% ενισχυτή, αυτός ο έλεγχος δεν θα έκλεινε (παρατήρηση #4 της αξιολόγησης).
 densityBack = satParameters.EIRP - 30 - 10*log10(satParameters.Bandwidth/1e6);
 C = addCheck(C, 'A6 πυκνοτητα EIRP δορυφορου (επιστροφη)', 'dBW/MHz', 34, densityBack, 1e-12);
 C = addCheck(C, 'A7 EIRP δορυφορου', 'dBm', 78.771212547197, satParameters.EIRP, 1e-9);
@@ -122,9 +100,7 @@ fsplOctave = arrayfun(@(d) fspl(2*d, lambdaSat) - fspl(d, lambdaSat), octaveD);
 C = addCheck(C, 'B3 διπλασιασμος αποστασης -> +6.02 dB', 'dB', 20*log10(2), ...
              max(fsplOctave), 1e-9);
 
-% Το επίγειο μοντέλο δεν είναι ελεύθερος χώρος: ο εκθέτης απωλειών ξεπερνά το
-% 2, οπότε η ίδια οκτάβα κοστίζει περισσότερο από 6,02 dB. Μετριέται χωρίς
-% σκίαση και χωρίς διαλείψεις, απευθείας από τη nrPathLoss.
+% UMa: εκθέτης απωλειών > 2, άρα οκτάβα > 6.02 dB (nrPathLoss χωρίς σκίαση).
 plCfgU = simParameters.PathLoss;
 plU1 = nrPathLoss(plCfgU, simParameters.CarrierFrequency, false, [0;0;25], [500;0;1.5]);
 plU2 = nrPathLoss(plCfgU, simParameters.CarrierFrequency, false, [0;0;25], [1000;0;1.5]);
@@ -136,8 +112,6 @@ C = addCheck(C, 'B4 επιγεια οκταβα > 6.02 dB (εκθετης > 2)',
 C = addCheck(C, 'G1 ευρος ζωνης σταθμου', 'Hz', 18.36e6, bwBsHz, 1e-6);
 C = addCheck(C, 'G2 ισοδυναμη θερμοκρασια θορυβου', 'K', ...
              290 + 290*(10^0.9 - 1), teqK, 1e-9);
-% Δεύτερη, ανεξάρτητη διατύπωση του ίδιου μεγέθους: γινόμενο μέσα στον
-% λογάριθμο έναντι αθροίσματος λογαρίθμων.
 noiseBsSplit = 10*log10(kBoltz) + 10*log10(teqK) + 10*log10(bwBsHz);
 C = addCheck(C, 'G3 kTB: γινομενο == αθροισμα σε dB', 'dB', 0, ...
              abs(noiseBsDbw - noiseBsSplit), 1e-9);
@@ -148,10 +122,8 @@ C = addCheck(C, 'G6 διπλασιο ευρος ζωνης -> +3.01 dB θορυ�
              noiseDouble - noiseBsDbw, 1e-9);
 
 %% ================== Δ. Ταυτότητα SINR ==================
-% Σενάριο αναφοράς: δύο σταθμοί, πέντε χρήστες εντός πεδίου ισχύος, δορυφόρος
-% στο ζενίθ. Η ταυτότητα EIRP - PL - N δίνει πλέον το SINR μόνο όταν δεν
-% υπάρχει παρεμβολέας, οπότε ελέγχεται σε δύο βήματα: με έναν σταθμό πρέπει να
-% ισχύει ακριβώς, με δύο πρέπει να παραβιάζεται προς τη σωστή κατεύθυνση.
+% Δύο σταθμοί, πέντε χρήστες, δορυφόρος στο ζενίθ. Με έναν σταθμό SINR = SNR
+% ακριβώς· με δύο SINR < SNR (παρεμβολή).
 bs2 = [baseLat baseLon 25; baseLat + 1200/111320 baseLon 25];
 bs1 = bs2(1,:);
 nU  = 5;
@@ -169,7 +141,6 @@ rng(7);
  ~, netE] = ...
     simulateScenario(bs2, uGeo, satOverhead, wgs84, simParameters, satParameters);
 
-% Ένας σταθμός: κανένας παρεμβολέας, άρα I = 0 και SINR = C/N ακριβώς.
 rng(21);
 [~,~,~,~,~,~,~,~,~, bsSinr1, ~, bsPl1] = ...
     simulateScenario(bs1, uGeo, satOverhead, wgs84, simParameters, satParameters);
@@ -177,20 +148,14 @@ sinrFromPl1 = (simParameters.EIRP - 30) - bsPl1 - noiseBsDbw;
 C = addCheck(C, 'D1 ενας σταθμος: SINR == EIRP - PL - N', 'dB', 0, ...
              max(abs(bsSinr1 - sinrFromPl1)), 1e-9);
 
-% Δορυφόρος: ο όρος παρεμβολής είναι μηδενικός (2.0 έναντι 3.5 GHz, ένας
-% δορυφόρος), οπότε η ταυτότητα ισχύει ακριβώς και εκεί.
+% Ένας δορυφόρος, άλλη ζώνη από τους σταθμούς: SINR = SNR.
 satSinrFromPl = (satParameters.EIRP - 30) - satPl - noiseSatDbw;
 C = addCheck(C, 'D2 SINR δορυφορικο == EIRP - PL - N', 'dB', 0, ...
              max(abs(satSinr - satSinrFromPl)), 1e-9);
 C = addCheck(C, 'D3 επιλεγμενο SINR == max(επιγειο, δορυφορικο)', 'dB', 0, ...
              max(abs(sinrBest - max(bsSinr, satSinr))), 1e-12);
 
-% Δύο σταθμοί: το SINR πρέπει να είναι ΑΥΣΤΗΡΑ κάτω από την τιμή χωρίς
-% παρεμβολή για κάθε χρήστη που βρίσκεται στο πεδίο ισχύος ΚΑΙ των δύο
-% σταθμών. Αν η παρεμβολή δεν είχε μπει πραγματικά στον υπολογισμό, αυτός ο
-% έλεγχος θα έδειχνε μηδενική διαφορά. Χρήστης εκτός πεδίου ισχύος του
-% δεύτερου σταθμού (εδώ ο 5ος, στα ~5.4 km) δεν έχει παρεμβολέα, οπότε για
-% αυτόν το SINR πρέπει να ισούται ακριβώς με το SNR.
+% Δύο σταθμοί: SINR < SNR όπου ισχύουν και οι δύο ζεύξεις, αλλιώς SINR = SNR.
 sinrNoInterf = (simParameters.EIRP - 30) - bsPl - noiseBsDbw;
 interfDropDb = sinrNoInterf - bsSinr;
 d2dBoth = [distance(bs2(1,1), bs2(1,2), uGeo(:,1), uGeo(:,2), wgs84), ...
@@ -204,11 +169,8 @@ C = addCheck(C, 'D5 η πτωση αντιστοιχει σε θετικη ισ�
              double(all(isfinite(interfDropDb)) && max(interfDropDb) < 60), 0);
 
 %% ================== Ε. Μεταβολή ισχύος εκπομπής ==================
-% Με έναν σταθμό η ζεύξη είναι περιορισμένη από τον θόρυβο: +-3 dB στην ισχύ
-% μετατοπίζουν το SINR κατά ακριβώς +-3 dB. Με δύο σταθμούς η ίδια μεταβολή
-% εφαρμόζεται ΚΑΙ στον παρεμβολέα, οπότε η ωφέλεια είναι μικρότερη: αυτό είναι
-% το χαρακτηριστικό γνώρισμα ενός συστήματος περιορισμένου από παρεμβολή και
-% ελέγχεται ρητά.
+% Ένας σταθμός (θόρυβος): ±3 dB ισχύος -> ±3 dB SINR. Δύο σταθμοί
+% (παρεμβολή): μικρότερη μεταβολή.
 offsets    = [-3 0 3];
 sinrShift1 = nan(numel(offsets),1);   % ένας σταθμός
 sinrShift2 = nan(numel(offsets),1);   % δύο σταθμοί
@@ -216,8 +178,7 @@ for k = 1:numel(offsets)
     sp = simParameters;
     sp.TxPower = simParameters.TxPower + offsets(k);
     sp.EIRP = sp.TxPower + sp.AntennaGain + 10*log10(sp.NumAntennaElements);
-    % Το πλήθος αλυσίδων δεν εισέρχεται στο SINR, μόνο στο ενεργειακό μοντέλο:
-    % διπλασιάζεται στο +3 dB ώστε να μη σπάσει το όριο P_max των 20 W.
+    % Στο +3 dB διπλές αλυσίδες, για το όριο 20 W/αλυσίδα (δεν επηρεάζει το SINR).
     if offsets(k) > 0
         sp.Power.NumTrx = 8;
     end
@@ -240,9 +201,7 @@ C = addCheck(C, 'E5 δυο σταθμοι: -3 dB ισχυος κοστιζει �
              double(sinrShift2(1) < 0 && sinrShift2(1) > -3 + 1e-6), 0);
 
 %% ================== ΣΤ. Διατήρηση εύρους ζώνης ==================
-% Αντίστροφος υπολογισμός του μεριδίου κάθε χρήστη από τη χωρητικότητα:
-% C_u = B_u * SE_u  =>  B_u = C_u / SE_u. Το άθροισμα ανά κόμβο πρέπει να
-% δίνει ακριβώς το εύρος ζώνης του κόμβου, ούτε λιγότερο ούτε περισσότερο.
+% B_u = C_u / SE_u· το άθροισμα ανά κόμβο = εύρος του κόμβου.
 seU = min(log2(1 + 10.^(sinrBest/10)), maxSe);
 bwU = (capMbps*1e6) ./ seU;
 
@@ -279,7 +238,7 @@ C = addCheck(C, 'Z3 ισχυς δορυφορου', 'W', 188.391482363219, satFu
 expTotal = netE.ActiveBs*bsFullW + netE.IdleBs*bsSleepW + netE.SatActive*satFullW;
 C = addCheck(C, 'Z4 συνολικη ισχυς == ενεργοι + αδρανεις + δορυφορος', 'W', 0, ...
              abs(netE.TotalPower_W - expTotal), 1e-9);
-satRfW = pOutSatW / satParameters.Power.EtaPA;   % το τμήμα του ενισχυτή, χωρίς Pfix
+satRfW = pOutSatW / satParameters.Power.EtaPA;
 expRf = netE.ActiveBs*bsRfW + netE.SatActive*satRfW;
 C = addCheck(C, 'Z5 συμμετρικη ισχυς == μονο ενισχυτες', 'W', 0, ...
              abs(netE.TotalPowerRf_W - expRf), 1e-9);
@@ -312,8 +271,6 @@ C = addCheck(C, 'H1 αιτια δορυφορικης μη διαθεσιμοτ�
              double(satRN == "NotVisible"), 0);
 C = addCheck(C, 'H1 η καταναλωση δικτυου δεν μηδενιζεται', 'W', bsSleepW, ...
              netN.TotalPower_W, 1e-9);
-% Η σύγκριση των δύο υποψηφίων γίνεται με -Inf και στις δύο πλευρές. Ο
-% τελεστής είναι αυστηρός (>), οπότε η ισοπαλία δεν αναθέτει κόμβο.
 C = addCheck(C, 'H2 ισοπαλια -Inf: κανενας υποψηφιος δεν κερδιζει', 'λογικο', 1, ...
              double(isnan(bsSinrN) && satSinrN == -Inf && sinrN == -Inf && nodeN == "None"), 0);
 
@@ -329,9 +286,7 @@ C = addCheck(C, 'H3 ενας χρηστης -> επιγεια εξυπηρετη
 C = addCheck(C, 'H3 ενας χρηστης -> ολοκληρο το ευρος ζωνης', 'Hz', bwBsHz, ...
              cap1*1e6/se1, 1e-3);
 
-% --- Η4: ανύψωση ακριβώς στη μάσκα ---
-% Η ανύψωση υπολογίζεται με τον ίδιο τρόπο που τη βρίσκει η simulateScenario,
-% ώστε η μάσκα να τεθεί ακριβώς πάνω της και να φανεί αν το όριο είναι κλειστό.
+% --- Η4: ανύψωση ακριβώς στη μάσκα (κλειστό όριο) ---
 satEdge = [baseLat + 900e3/111320, baseLon, 600e3];
 [~, elevEdge] = geodetic2aer(satEdge(1), satEdge(2), satEdge(3), ...
                              oneUser(1), oneUser(2), oneUser(3), wgs84);
@@ -348,10 +303,7 @@ C = addCheck(C, 'H4 ανυψωση ακριβως στη μασκα -> ορατ�
 C = addCheck(C, 'H4 ενα nanoβαθμο πιο πανω -> μη ορατος', 'λογικο', 1, ...
              double(sinrJust == -Inf && reasonJust == "NotVisible"), 0);
 
-% --- Η5: πεπερασμένες ισοπαλίες είναι γεγονός μηδενικής πιθανότητας ---
-% Ο κανόνας ορίζει ότι σε ισοπαλία κερδίζει ο επίγειος (αυστηρό >). Εδώ
-% μετριέται πόσες φορές εμφανίζεται πεπερασμένη ισοπαλία σε μεγάλο δείγμα
-% συγκρίσεων: αν εμφανιζόταν, ο κανόνας θα χρειαζόταν και αριθμητικό έλεγχο.
+% --- Η5: πεπερασμένες ισοπαλίες SINR δεν εμφανίζονται ---
 tieCount = 0; nCmp = 0;
 for r = 1:40
     rng(100 + r);
@@ -364,12 +316,7 @@ end
 C = addCheck(C, 'H5 πεπερασμενες ισοπαλιες σε δειγμα συγκρισεων', 'πληθος', 0, tieCount, 0);
 
 % --- D6-D8: παρεμβολή μεταξύ δορυφόρων ---
-% Δεύτερος δορυφόρος 200 km βόρεια, ορατός από όλους τους χρήστες. Με FRF = 1
-% οι δύο δέσμες είναι στην ίδια ζώνη, οπότε το SINR του καλύτερου πρέπει να
-% είναι ΑΥΣΤΗΡΑ κάτω από το SNR του. Με FRF = 3 είναι σε διαφορετικές ζώνες
-% και το SINR πρέπει να ισούται ακριβώς με το SNR, στο εύρος της δέσμης.
-% Ένας δορυφόρος κάτω από τη μάσκα δεν φωτίζει την περιοχή και δεν
-% παρεμβάλλει: η ταυτότητα SINR == SNR ισχύει ακριβώς.
+% FRF 1: SINR < SNR· FRF 3: SINR = SNR· δορυφόρος κάτω από τη μάσκα δεν παρεμβάλλει.
 satPair  = [satOverhead; baseLat + 200e3/111320, baseLon, 600e3];
 satHidden = [satOverhead; baseLat + 3000e3/111320, baseLon, 600e3];
 rng(31);
@@ -397,8 +344,7 @@ C = addCheck(C, 'D8 δορυφορος κατω απο τη μασκα: SINR == 
              max(abs(satSinrHid - ((satParameters.EIRP - 30) - satPlHid - noiseSatDbw))), 1e-9);
 
 %% ================== Θ. Κεραία τομέα ==================
-% Παράμετροι όπως στο runSimulation.m. Οι αναμενόμενες τιμές προκύπτουν από
-% τους τύπους των πινάκων, γραμμένους εδώ ξανά χωρίς τη bsSectorGainDb.
+% Αναμενόμενες τιμές από τους τύπους των πινάκων, ανεξάρτητα από τη bsSectorGainDb.
 ant = struct('ElementGainDbi', 8, 'Theta3dBDeg', 65, 'Phi3dBDeg', 65, 'SlaVDb', 30, ...
     'AmDb', 30, 'NumVertElements', 10, 'VertSpacingLambda', 0.5, 'ElecTiltDeg', 102);
 aVref = @(th) -min(12*((th - 90)/65).^2, 30);
@@ -421,9 +367,7 @@ C = addCheck(C, 'TH5 πλεγμα (θ, φ): ιδιο με τους τυπους 
 C = addCheck(C, 'TH6 συμμετρια φ -> -φ', 'dB', 0, ...
              max(abs(bsSectorGainDb(TH, PH, ant) - bsSectorGainDb(TH, -PH, ant)), [], 'all'), 1e-12);
 
-% Ένα site, 3 τομείς (30°, 150°, 270°), χρήστες σε διάφορες κατευθύνσεις και
-% αποστάσεις. Οι τρεις τομείς έχουν τις ίδιες απώλειες διάδοσης, οπότε:
-%   SINR = max_c S_c / (N + Σ_{c'≠c} S_c'),  S_c = P + G_c(θ, φ - φ_c) - PL.
+% Ένα site, 3 τομείς: SINR = max_c S_c / (N + Σ_{c'≠c} S_c'),  S_c = P + G_c - PL.
 spS = simParameters;
 spS.CellSite = [1; 1; 1];
 spS.CellBoresightDeg = [30; 150; 270];
@@ -455,9 +399,7 @@ C = addCheck(C, 'TH8 χρηστης στον αξονα τομεα -> αυτος
              double(isequal(bestSec([1 3 5])', [1 2 3])), 0);
 
 %% ================== Ι. Soft LOS και RLF ==================
-% Soft LOS (TR 38.901 §7.6.3.3, εξ. 7.6-18): LOS_soft = 1/2 + (1/π) arctan(
-% sqrt(d_LOS/λ)(G + F(d))). Όρια: P_LOS = 1 -> F = +Inf -> LOS_soft = 1, και
-% το πρόσημο του G + F είναι η σκληρή απόφαση (LOS_soft > 1/2 <=> LOS).
+% Soft LOS (TR 38.901 εξ. 7.6-18): P_LOS = 1 -> LOS_soft = 1· LOS_soft > 1/2 <=> LOS.
 spSoft = simParameters; spSoft.SoftLos = true;
 satNoS = satParameters; satNoS.MinElevationDeg = 95;
 rng(17);
@@ -479,9 +421,8 @@ C = addCheck(C, 'I2 LOS_soft στο [0, 1]', 'λογικο', 1, ...
 C = addCheck(C, 'I2 LOS_soft > 1/2 <=> σκληρη αποφαση LOS', 'λογικο', 1, ...
              double(isequal(chMany.LosSoft(okS,1) > 0.5, chMany.IsLOS(okS,1))), 0);
 
-% RLF (TS 38.331 §5.3.10, TR 36.839 Πίν. 5.2.1.3.1), με Δt = 1 s ώστε T310 =
-% 1 βήμα. Ένας χρήστης, ένας σταθμός, δορυφόρος απρόσιτος: το SINR είναι το
-% SNR, και με πτώση ισχύος 60 dB πέφτει κάτω από το Qout = -8 dB.
+% RLF (TS 38.331 §5.3.10) με Δt = 1 s (T310 = 1 βήμα)· πτώση ισχύος 60 dB
+% φέρνει το SINR κάτω από το Qout.
 spR = simParameters;
 spR.Mobility = struct('HysteresisDb', 3, 'TimeToTriggerMs', 480, 'DtSeconds', 1, ...
     'PingPongMtsS', 1, 'MlbMaxOffsetDb', 6, ...
@@ -578,7 +519,6 @@ runParams = struct('rngSeeds', [7 11 13 17], 'scenario', 'UMa', ...
     'tieComparisons', nCmp, 'finiteTies', tieCount);
 runParams.terrestrialPower = simParameters.Power;
 runParams.satellitePower   = satParameters.Power;
-% Οι αριθμοί του γραφήματος κρατούνται στο params.mat της εκτέλεσης, όχι σε csv.
 runParams.results = T;
 saveRunVersion('linkBudgetValidation', runParams, {pngPath}, label);
 
@@ -601,9 +541,7 @@ C(k).pass     = double(abs(actual - expected) <= tol);
 end
 
 function af = afFromWeights(thetaDeg, K, dVLambda, tiltDeg)
-% Παράγοντας συστοιχίας από τα βάρη του TR 36.873 Πίν. 7.1-1:
-% w_m = exp(-j2π(m-1)(d_V/λ)cos θ_etilt)/sqrt(K), m = 1..K, και απόκριση
-% στοιχείου exp(j2π(m-1)(d_V/λ)cos θ). Βρόχος, όχι διανυσματικός τύπος.
+% Παράγοντας συστοιχίας από τα βάρη w_m (TR 36.873 Πίν. 7.1-1), με βρόχο.
 af = zeros(size(thetaDeg));
 for i = 1:numel(thetaDeg)
     acc = 0;

@@ -1,71 +1,44 @@
 """
 Model/train_handover_gate.py
 
-ML-assisted handover decision (Part 2): at the moment an A3 measurement report
-reaches the serving station, predict whether executing the handover would end
-in a ping-pong, so that the station can wait for the next report instead.
+Απόφαση handover με ML: όταν η αναφορά A3 φτάνει στον σταθμό, προβλέπεται αν
+το handover θα καταλήξει σε ping-pong, ώστε ο σταθμός να περιμένει την επόμενη
+αναφορά (TS 38.300 §9.2.3.2.1 βήμα 3· TR 37.817 §5.3).
 
-Why this is the decision point
-    TS 38.300 §9.2.3.2.1 step 3: "The source gNB decides to handover the UE,
-    based on MeasurementReport and RRM information". The A3 event only
-    triggers a report; the decision is left to the station, and TR 37.817 §5.3
-    studies AI/ML-based mobility optimisation exactly for reducing ping-pong
-    and handover failures, with the inputs listed in §5.3.2.4.
+Ετικέτα (TR 36.839 Ορισμός 5)
+    Outcome == "HO", NextNode == FromNode, NextCause == "HO",
+    StayTo_s <= pingPongMaxStay_s (0.8 s για MTS 1 s και Δt = 0.2 s).
 
-Label (TR 36.839 Definition 5, the simulation's own count)
-    ping-pong = the user returns to the source node with a handover after
-    staying on the target less than the MTS (1 s):
-        Outcome == "HO" and NextNode == FromNode and NextCause == "HO"
-        and StayTo_s <= pingPongMaxStay_s
-    (pingPongMaxStay_s is read from the events file: 0.8 s at dt = 0.2 s).
+Χωρίς διαρροή
+    Ένα δείγμα ανά εντολή handover (επιτυχή ή όχι). Ό,τι συνέβη μετά την
+    απόφαση χρησιμοποιείται μόνο για την ετικέτα· τα αναγνωριστικά δεν είναι
+    είσοδοι (assert). Διαχωρισμός και CV ανά διέλευση· οι σπόροι εκπαίδευσης
+    δεν επικαλύπτονται με την αξιολόγηση (seed 42)· το κατώφλι επιλέγεται μόνο
+    στις διελεύσεις εκπαίδευσης.
 
-No outcome information in the inputs
-    One sample per handover COMMAND, successful or not: success is decided
-    after the command (true SINR of the target, T310), so keeping only the
-    successful ones would select samples by the outcome. Everything that
-    happened after the decision (Outcome, StayTo_s, NextNode, NextCause,
-    Censored, TimeToPassEnd_s) is used only to build the label; identifiers
-    (pass, step, user, seed) are never inputs. Both are checked by an assert.
-    Train/test split and CV are by pass; the evaluation run (seed 42) shares
-    no pass with the training seeds, and the threshold is chosen on the
-    training passes only (out-of-fold), never on the test passes or seed 42.
+Δεδομένα
+    Dataset/ml_train/seed*/handover_events.mat (PROD/runSimulation.m), μόνο οι
+    πολιτικές χωρίς ML (Actual, ActualMLB). Χαρακτηριστικά: handoverFeatures.m
+    + FromSat, ToSat.
 
-Data
-    Dataset/ml_train/seed*/handover_events.mat, written by PROD/runSimulation.m
-    with rngSeed values that do not overlap the evaluation run (seed 42:
-    passes use rng(seed + passIdx)). Only the policies WITHOUT the ML decision
-    (Actual, ActualMLB) are used, so the model learns what the plain A3 does.
-    Features are the ones logged at the decision (handoverFeatures.m) plus the
-    node types; their sources are listed in runSimulation.m, logHandoverEvents.
+Μοντέλο
+    RandomForest (300 δέντρα, βάθος 12)· min_samples_leaf με group CV
+    (average precision). Οι τιμές που δεν ορίζονται παίρνουν SENTINEL, όπως
+    και στο PROD/handoverGatePredict.m.
 
-Model
-    RandomForestClassifier, as in the Part 2 proof of concept (300 trees,
-    depth 12). min_samples_leaf is chosen by grouped cross-validation on the
-    training passes (average precision, the summary of the precision-recall
-    curve that suits a rare positive class). Missing values (elevation of a
-    base station, history before the pass started) get a sentinel below any
-    real value, identically in PROD/handoverGatePredict.m.
+Κανόνας
+    αναμονή αν P(ping-pong) > κατώφλι, με κατώφλι μέγιστου F1 στις out-of-fold
+    προβλέψεις (Lipton, Elkan & Naryanaswamy, ECML PKDD 2014). Το 0.5 δεν
+    ενεργοποιείται ποτέ, αφού το ping-pong είναι ~1% των εντολών.
 
-Decision rule
-    wait if P(ping-pong) > threshold. Ping-pong is rare (~1% of commands), so
-    the minimum-error rule (0.5) never fires: no prediction reaches it and the
-    gate would do nothing. The threshold is the one that maximises F1 on the
-    out-of-fold predictions of the training passes (Lipton, Elkan &
-    Naryanaswamy, "Optimal Thresholding of Classifiers to Maximize F1
-    Measure", ECML PKDD 2014): the usual choice for a rare positive class.
-    It is chosen with the hyperparameters, before the test passes are touched,
-    and never on the evaluation run.
+Έξοδοι: Model/results_handover_gate/
+    handover_gate.mat   δέντρα, κατώφλι, δείγματα αυτοελέγχου (loadHandoverGate)
+    metrics.json        μετρικές σε διελεύσεις ελέγχου, CV, SHA-256 εισόδων
+    *.png               precision-recall, βαθμονόμηση, σημασία χαρακτηριστικών
 
-Output: Model/results_handover_gate/
-    handover_gate.mat   trees + threshold + self-test samples, read by
-                        runSimulation.m (loadHandoverGate)
-    metrics.json        offline metrics on held-out passes, CV results, data
-                        provenance (SHA-256 of every input file)
-    *.png               precision-recall, reliability, feature importance
-
-Usage:
+Χρήση:
     python train_handover_gate.py
-    python train_handover_gate.py --events path/a.mat path/b.mat
+    python train_handover_gate.py --events a.mat b.mat
 """
 
 import argparse
@@ -118,27 +91,23 @@ FEATURES = [
     "LoadFrom", "LoadTo", "UsersOnFrom", "UsersOnTo", "MlbOffset_dB",
     "FromSat", "ToSat",
 ]
-# Ό,τι συνέβη ΜΕΤΑ την απόφαση: μόνο για την ετικέτα, ποτέ ως είσοδος. Το
-# μοντέλο ξέρει μόνο ό,τι ξέρει ο σταθμός τη στιγμή της αναφοράς.
+# Ό,τι συνέβη μετά την απόφαση: μόνο για την ετικέτα.
 OUTCOME_COLUMNS = {"Outcome", "StayTo_s", "NextNode", "NextCause", "Censored",
                    "TimeToPassEnd_s", "PingPong"}
-# Αναγνωριστικά (διέλευση, βήμα, χρήστης, σπόρος): όχι είσοδοι, θα έδιναν
-# στο μοντέλο ταυτότητα δείγματος αντί για κατάσταση.
+# Αναγνωριστικά: ποτέ είσοδοι.
 ID_COLUMNS = {"PassID", "Step", "Time_s", "UserID", "Seed", "Group", "Policy",
               "FromNode", "ToNode", "PrevNode"}
 assert not (set(FEATURES) & (OUTCOME_COLUMNS | ID_COLUMNS)), "διαρροή στήλης στις εισόδους"
 
-# Κάτω από κάθε πραγματική τιμή (SINR > -300 dB, ανύψωση >= 0, απόσταση > 0,
-# φόρτος >= 0, μετατόπιση >= -24 dB): ένας κόμβος του δέντρου τη στέλνει πάντα
-# αριστερά, δηλαδή «δεν ορίζεται» είναι μια ξεχωριστή κατηγορία.
+# Τιμή για «δεν ορίζεται», κάτω από κάθε πραγματική τιμή.
 SENTINEL = -1000.0
 
-N_TREES = 300            # όπως το Part 2 (train_model.py)
-MAX_DEPTH = 12           # όπως το Part 2 (train_model.py)
+N_TREES = 300
+MAX_DEPTH = 12
 LEAF_GRID = [1, 5, 20, 50]
-CV_TREES = 100           # αρκεί για τη σύγκριση των ρυθμίσεων
+CV_TREES = 100           # για τη σύγκριση ρυθμίσεων
 CV_FOLDS = 3
-TEST_SIZE = 0.25         # ανά διέλευση, όπως το Part 2
+TEST_SIZE = 0.25         # μερίδιο διελεύσεων ελέγχου
 SELF_TEST_SAMPLES = 2000
 RANDOM_STATE = 42
 
@@ -152,7 +121,7 @@ def file_sha256(path: Path) -> str:
 
 
 def load_events(path: Path) -> tuple[pd.DataFrame, dict]:
-    """One handover_events.mat -> DataFrame (one row per handover) + metadata."""
+    """handover_events.mat -> DataFrame (μία γραμμή ανά handover) + μεταδεδομένα."""
     m = scipy.io.loadmat(path, squeeze_me=True, chars_as_strings=True)
     meta = {k[len("Meta_"):]: m[k] for k in m if k.startswith("Meta_")}
     cols = {}
@@ -197,18 +166,11 @@ def label_and_filter(df: pd.DataFrame, max_stay: float) -> pd.DataFrame:
     df["FromSat"] = df["FromNode"].str.startswith("SAT").astype(float)
     df["ToSat"] = df["ToNode"].str.startswith("SAT").astype(float)
     df["ReturnToPrev"] = df["ReturnToPrev"].astype(float)
-    # Μία γραμμή ανά εντολή handover, επιτυχή ή όχι (runSimulation,
-    # logHandoverEvents): το μοντέλο ρωτιέται πριν φανεί η έκβαση, οπότε
-    # μαθαίνει από όλες. Αρχεία πριν τη στήλη Outcome είχαν μόνο επιτυχείς.
-    if "Outcome" not in df:
-        df["Outcome"] = "HO"
     ho = (df["Outcome"] == "HO").to_numpy()
-    # Η διέλευση τελείωσε πριν φανεί αν ο χρήστης επιστρέφει μέσα στο MTS:
-    # η ετικέτα δεν είναι γνωστή, οπότε το handover δεν χρησιμοποιείται.
+    # Η διέλευση τελείωσε πριν κριθεί η ετικέτα: εκτός.
     unknown = ho & df["Censored"].astype(bool).to_numpy() & (df["StayTo_s"] <= max_stay + 1e-9).to_numpy()
     df = df[~unknown].copy()
-    # Αποτυχημένη εντολή: ο χρήστης δεν έφτασε στον στόχο, άρα δεν υπάρχει
-    # επιστροφή από αυτόν - όχι ping-pong.
+    # Αποτυχημένη εντολή: όχι ping-pong.
     df["PingPong"] = ((df["Outcome"] == "HO") & (df["NextNode"] == df["FromNode"])
                       & (df["NextCause"] == "HO")
                       & (df["StayTo_s"] <= max_stay + 1e-9)).astype(int)
@@ -256,7 +218,7 @@ def choose_threshold(X, y, groups, leaf) -> tuple[float, dict]:
 
 
 def export_forest(rf: RandomForestClassifier) -> dict:
-    """Trees in flat arrays, 1-based, as read by PROD/handoverGatePredict.m."""
+    """Δέντρα σε επίπεδους πίνακες (δείκτες από 1) για το PROD/handoverGatePredict.m."""
     feat, thr, left, right, val, roots = [], [], [], [], [], []
     offset, max_depth = 0, 0
     for est in rf.estimators_:
@@ -403,9 +365,7 @@ def main():
         importance = {f: {"mean": float(m), "std": float(s)} for f, m, s in
                       zip(FEATURES, imp.importances_mean, imp.importances_std)}
 
-    # Δείγματα αυτοελέγχου: η handoverGatePredict πρέπει να δώσει τις ίδιες
-    # πιθανότητες. Όλα τα θετικά του ελέγχου και τυχαία από τα υπόλοιπα, με
-    # τις τιμές NaN όπως έρχονται από την προσομοίωση.
+    # Δείγματα αυτοελέγχου για τη handoverGatePredict (όλα τα θετικά + τυχαία).
     rng = np.random.default_rng(RANDOM_STATE)
     pos = np.flatnonzero(yte == 1)
     neg = rng.choice(np.flatnonzero(yte == 0), size=max(0, SELF_TEST_SAMPLES - len(pos)), replace=False)

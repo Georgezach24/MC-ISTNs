@@ -1,3 +1,0 @@
-Σύγκριση vs 20260906_164529_monteCarloDriver_sm
-
-  ~ terrestrial.Power.NumTrx : 1  ->  4

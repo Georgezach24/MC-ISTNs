@@ -1,4 +1,0 @@
-Σύγκριση vs 20260906_171249_monteCarloDriver_svc
-
-  ~ numScenarios : 200  ->  8
-  ~ numUserRows : 1267  ->  53

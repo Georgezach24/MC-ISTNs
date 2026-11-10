@@ -1,20 +1,8 @@
 function runDir = saveRunVersion(scriptName, params, outputFiles, label)
-%SAVERUNVERSION Αποθηκεύει τα αποτελέσματα ενός run σε versioned φάκελο μαζί
-% με πλήρες snapshot παραμέτρων και diff vs την προηγούμενη εκτέλεση.
-%
-%   runDir = saveRunVersion(scriptName, params, outputFiles, label)
-%
-% scriptName  : char, π.χ. 'runSimulation'
-% params      : struct με τις παραμέτρους του run που θέλουμε να καταγραφούν
-% outputFiles : cellstr με πλήρεις διαδρομές αρχείων που παρήγαγε το run
-%               (αντιγράφονται στον φάκελο)· {} ή [] αν κανένα
-% label       : char, προαιρετικό tag στο όνομα φακέλου· '' αν κανένα
-%
-% Δομή: Results/runs/<YYYYMMDD_HHMMSS>_<script>[_<label>]/
-%   params.mat   ακριβές restore
-%   params.txt   αναγνώσιμο snapshot (key = value)
-%   changed.txt  diff παραμέτρων vs την προηγούμενη εκτέλεση του ίδιου script
-%   <CSV/PNG του run>
+%SAVERUNVERSION Αρχειοθέτηση μιας εκτέλεσης στο Results/runs/<ημερομηνία>_<script>[_<label>]/:
+%   params.mat / params.txt   παράμετροι (και commit του git)
+%   changed.txt               διαφορές από την προηγούμενη εκτέλεση του ίδιου script
+%   + αντίγραφα των outputFiles
 
 if nargin < 3 || isempty(outputFiles), outputFiles = {}; end
 if nargin < 4, label = ''; end

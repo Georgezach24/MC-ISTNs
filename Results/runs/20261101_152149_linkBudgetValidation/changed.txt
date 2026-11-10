@@ -1,5 +1,0 @@
-Σύγκριση vs 20261004_135442_linkBudgetValidation
-
-  ~ numChecks : 52  ->  75
-  ~ numPassed : 52  ->  75
-  + results = <table>

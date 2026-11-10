@@ -1,16 +1,9 @@
 function T = geometryValidation(outputDir, label)
-% Έλεγχος της γεωμετρίας που τροφοδοτεί τα μοντέλα UMa/UMi.
-%
-% Σαρώνει την οριζόντια απόσταση κρατώντας σταθερό το ύψος του χρήστη και
-% επαληθεύει τρία πράγματα:
-%   1. Το ύψος που φτάνει στη nrPathLoss παραμένει 1.5 m σε κάθε απόσταση.
-%   2. Η τρισδιάστατη απόσταση προκύπτει από sqrt(d2D^2 + (hBS-hUT)^2).
-%   3. Ο έλεγχος πεδίου ισχύος αποκλείει τις ζεύξεις πέραν των 5 km.
-%
-% Συγκρίνει επίσης με τη γεωμετρία ENU που χρησιμοποιούνταν παλαιότερα, ώστε
-% να ποσοτικοποιηθεί το σφάλμα ύψους λόγω καμπυλότητας της Γης.
-%
-% Επιστρέφει πίνακα με ένα σημείο ανά απόσταση και γράφει CSV/PNG.
+%GEOMETRYVALIDATION Έλεγχος της γεωμετρίας των μοντέλων UMa/UMi σε σάρωση d2D:
+%   1. ύψος χρήστη σταθερό 1.5 m στη nrPathLoss,
+%   2. d3D = sqrt(d2D^2 + (hBS - hUT)^2),
+%   3. πεδίο ισχύος 10 m - 5 km (TR 38.901 Πίν. 7.4.1-1).
+% Συγκρίνει με επίπεδη γεωμετρία ENU για το σφάλμα λόγω καμπυλότητας της Γης.
 
 if nargin < 1 || isempty(outputDir)
     outputDir = fullfile(fileparts(mfilename('fullpath')), '..', 'Results');
@@ -61,7 +54,7 @@ for k = 1:n
     txCorrect  = [0; 0; hBs];
     rxCorrect  = [d2dActual(k); 0; hUt];
 
-    % --- Παλιά γεωμετρία ENU, για σύγκριση ---
+    % --- Γεωμετρία ENU, για σύγκριση ---
     [~, ~, zBs] = geodetic2enu(baseLat, baseLon, hBs, baseLat, baseLon, 0, wgs84);
     [xUe, yUe, zUe] = geodetic2enu(userLat, baseLon, hUt, baseLat, baseLon, 0, wgs84);
     hUtEnu(k) = zUe;
@@ -134,7 +127,6 @@ runParams = struct('rngSeed', 42, 'scenario', 'UMa', 'hBS_m', hBs, 'hUT_m', hUt,
     'CarrierFrequency_Hz', fcHz, 'd2D_targets_m', d2dTargets, ...
     'validity_d2D_min_m', 10, 'validity_d2D_max_m', 5000, ...
     'validity_hUT_min_m', 1.5, 'validity_hUT_max_m', 22.5);
-% Οι αριθμοί του γραφήματος κρατούνται στο params.mat της εκτέλεσης, όχι σε csv.
 runParams.results = T;
 saveRunVersion('geometryValidation', runParams, {pngPath}, label);
 
