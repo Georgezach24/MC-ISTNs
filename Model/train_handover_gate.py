@@ -27,7 +27,8 @@ No outcome information in the inputs
     Censored, TimeToPassEnd_s) is used only to build the label; identifiers
     (pass, step, user, seed) are never inputs. Both are checked by an assert.
     Train/test split and CV are by pass; the evaluation run (seed 42) shares
-    no pass with the training seeds, and the threshold is fixed, not tuned.
+    no pass with the training seeds, and the threshold is chosen on the
+    training passes only (out-of-fold), never on the test passes or seed 42.
 
 Data
     Dataset/ml_train/seed*/handover_events.mat, written by PROD/runSimulation.m
@@ -46,9 +47,14 @@ Model
     real value, identically in PROD/handoverGatePredict.m.
 
 Decision rule
-    wait if P(ping-pong) > 0.5: the minimum-error Bayes rule with equal costs,
-    i.e. the station declines only handovers that are more likely than not to
-    bounce back. No threshold is tuned on the evaluation run.
+    wait if P(ping-pong) > threshold. Ping-pong is rare (~1% of commands), so
+    the minimum-error rule (0.5) never fires: no prediction reaches it and the
+    gate would do nothing. The threshold is the one that maximises F1 on the
+    out-of-fold predictions of the training passes (Lipton, Elkan &
+    Naryanaswamy, "Optimal Thresholding of Classifiers to Maximize F1
+    Measure", ECML PKDD 2014): the usual choice for a rare positive class.
+    It is chosen with the hyperparameters, before the test passes are touched,
+    and never on the evaluation run.
 
 Output: Model/results_handover_gate/
     handover_gate.mat   trees + threshold + self-test samples, read by
@@ -133,7 +139,6 @@ LEAF_GRID = [1, 5, 20, 50]
 CV_TREES = 100           # αρκεί για τη σύγκριση των ρυθμίσεων
 CV_FOLDS = 3
 TEST_SIZE = 0.25         # ανά διέλευση, όπως το Part 2
-THRESHOLD = 0.5          # κανόνας Bayes ελάχιστου σφάλματος, ίσα κόστη
 SELF_TEST_SAMPLES = 2000
 RANDOM_STATE = 42
 
@@ -236,6 +241,20 @@ def choose_leaf(X, y, groups) -> tuple[int, dict]:
     return best, scores
 
 
+def choose_threshold(X, y, groups, leaf) -> tuple[float, dict]:
+    """Κατώφλι μέγιστου F1 στις out-of-fold προβλέψεις των διελεύσεων εκπαίδευσης."""
+    oof = np.zeros(len(y))
+    for tr, va in GroupKFold(n_splits=CV_FOLDS).split(X, y, groups):
+        oof[va] = make_forest(CV_TREES, leaf).fit(X[tr], y[tr]).predict_proba(X[va])[:, 1]
+    prec, rec, thr = precision_recall_curve(y, oof)
+    f1 = 2 * prec[:-1] * rec[:-1] / np.maximum(prec[:-1] + rec[:-1], 1e-12)
+    i = int(np.argmax(f1))
+    info = {"rule": "max F1, out-of-fold (training passes)", "threshold": float(thr[i]),
+            "f1": float(f1[i]), "precision": float(prec[i]), "recall": float(rec[i])}
+    print(f"  κατώφλι = {thr[i]:.4f} (F1 {f1[i]:.3f}, precision {prec[i]:.3f}, recall {rec[i]:.3f})")
+    return float(thr[i]), info
+
+
 def export_forest(rf: RandomForestClassifier) -> dict:
     """Trees in flat arrays, 1-based, as read by PROD/handoverGatePredict.m."""
     feat, thr, left, right, val, roots = [], [], [], [], [], []
@@ -265,14 +284,14 @@ def export_forest(rf: RandomForestClassifier) -> dict:
     }
 
 
-def plot_pr(y, p, ap, path):
+def plot_pr(y, p, ap, threshold, path):
     prec, rec, _ = precision_recall_curve(y, p)
     fig, ax = plt.subplots(figsize=(6, 5))
     ax.plot(rec, prec, lw=1.5, label=f"RandomForest (AP = {ap:.3f})")
     ax.axhline(y.mean(), color="k", ls=":", label=f"τυχαίο (= ποσοστό ping-pong {100*y.mean():.2f}%)")
-    pt_p = precision_score(y, p > THRESHOLD, zero_division=0)
-    pt_r = recall_score(y, p > THRESHOLD)
-    ax.plot(pt_r, pt_p, "o", color="C3", label=f"κατώφλι {THRESHOLD}")
+    pt_p = precision_score(y, p > threshold, zero_division=0)
+    pt_r = recall_score(y, p > threshold)
+    ax.plot(pt_r, pt_p, "o", color="C3", label=f"κατώφλι {threshold:.3f}")
     ax.set_xlabel("Recall (ping-pong που προλαμβάνονται)")
     ax.set_ylabel("Precision (αναμονές που ήταν όντως ping-pong)")
     ax.set_title("Πρόβλεψη ping-pong σε διελεύσεις εκτός εκπαίδευσης")
@@ -283,12 +302,12 @@ def plot_pr(y, p, ap, path):
     plt.close(fig)
 
 
-def plot_reliability(y, p, path):
+def plot_reliability(y, p, threshold, path):
     frac, mean_p = calibration_curve(y, p, n_bins=10, strategy="quantile")
     fig, ax = plt.subplots(figsize=(5.5, 5))
     ax.plot([0, 1], [0, 1], "k:", label="τέλεια βαθμονόμηση")
     ax.plot(mean_p, frac, "o-", label="RandomForest")
-    ax.axvline(THRESHOLD, color="C3", ls="--", lw=1, label=f"κατώφλι {THRESHOLD}")
+    ax.axvline(threshold, color="C3", ls="--", lw=1, label=f"κατώφλι {threshold:.3f}")
     ax.set_xlabel("Προβλεπόμενη πιθανότητα ping-pong")
     ax.set_ylabel("Παρατηρούμενο ποσοστό ping-pong")
     ax.set_title("Βαθμονόμηση (δεκατημόρια πρόβλεψης)")
@@ -344,17 +363,18 @@ def main():
     else:
         leaf, cv_scores = 1, {}
     print(f"  -> min_samples_leaf = {leaf}")
+    threshold, thr_info = choose_threshold(Xtr, ytr, gtr, leaf)
 
     rf = make_forest(N_TREES, leaf).fit(Xtr, ytr)
     p = rf.predict_proba(Xte)[:, 1]
-    yhat = (p > THRESHOLD).astype(int)
+    yhat = (p > threshold).astype(int)
     tn, fp, fn, tp = confusion_matrix(yte, yhat, labels=[0, 1]).ravel()
     metrics_test = {
         "n": int(len(yte)), "positives": int(yte.sum()),
         "roc_auc": float(roc_auc_score(yte, p)),
         "average_precision": float(average_precision_score(yte, p)),
         "brier": float(brier_score_loss(yte, p)),
-        "threshold": THRESHOLD,
+        "threshold": threshold,
         "precision": float(precision_score(yte, yhat, zero_division=0)),
         "recall": float(recall_score(yte, yhat)),
         "confusion": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
@@ -373,8 +393,8 @@ def main():
     metrics_test["by_policy"] = by_pol
     print(json.dumps(metrics_test, indent=2, ensure_ascii=False))
 
-    plot_pr(yte, p, metrics_test["average_precision"], args.out / "precision_recall.png")
-    plot_reliability(yte, p, args.out / "reliability.png")
+    plot_pr(yte, p, metrics_test["average_precision"], threshold, args.out / "precision_recall.png")
+    plot_reliability(yte, p, threshold, args.out / "reliability.png")
     importance = None
     if args.importance:
         imp = permutation_importance(rf, Xte, yte, scoring="average_precision",
@@ -411,7 +431,7 @@ def main():
     scipy.io.savemat(gate_path, {
         **forest,
         "FeatureNames": np.array(FEATURES, dtype=object),
-        "Threshold_p": THRESHOLD,
+        "Threshold_p": threshold,
         "TestX": test_x_raw, "TestP": test_p,
         "Meta": meta,
     }, do_compression=True)
@@ -429,6 +449,7 @@ def main():
                   "sentinel": SENTINEL, "features": FEATURES,
                   "nodes": int(len(forest["Feature"]))},
         "cv": {str(k): v for k, v in cv_scores.items()},
+        "threshold": thr_info,
         "test": metrics_test,
         "permutation_importance": importance,
         "export": {"path": str(gate_path.relative_to(ROOT)), "sha256": file_sha256(gate_path),

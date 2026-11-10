@@ -125,9 +125,16 @@ checkpointPath = fullfile(opts.outputDir, 'runSimulation_checkpoint.mat');
 resumeState = [];
 if opts.resume && isempty(opts.passSubset) && isfile(checkpointPath) && isfile(opts.datasetPath)
     S = load(checkpointPath);
+    % Το ίδιο mlGatePath μπορεί να δείχνει σε άλλο μοντέλο (ή σε κανένα) μετά
+    % από νέα εκπαίδευση· οι διελεύσεις δύο μοντέλων δεν ανακατεύονται.
+    gateSha = '';
+    if ~isempty(opts.mlGatePath) && isfile(opts.mlGatePath)
+        gateSha = fileSha256(opts.mlGatePath);
+    end
     % Σημεία ελέγχου παλαιότερης μορφής δεν κρατούν τη διέλευση αναφοράς (τότε
     % ζούσε σε csv), οπότε δεν μπορούν να συνεχιστούν.
     if isfield(S,'ckpt') && isfield(S.ckpt,'refPassTable') && ...
+            isfield(S.ckpt,'mlGateSha256') && strcmp(S.ckpt.mlGateSha256, gateSha) && ...
             checkpointMatches(S.ckpt.opts, opts)
         % Το σημείο ελέγχου γράφεται αμέσως μετά την εγγραφή της διέλευσης στο
         % CSV. Αν η διακοπή έπεσε ακριβώς ανάμεσα στα δύο, το CSV έχει μία
@@ -755,7 +762,7 @@ while passIdx < opts.numPasses
             'convRows', {convRows(1:passIdx)}, 'totalRows', totalRows, ...
             'checksRun', checksRun, 'gateChecksRun', gateChecksRun, 'refSnapshot', refSnapshot, ...
             'refPassTable', refPassTable, 'hoEventCells', {hoEventCells(1:passIdx)}, ...
-            'opts', opts);
+            'opts', opts, 'mlGateSha256', cacheKey.mlGateSha256);
         save(checkpointPath, 'ckpt');
     end
 end
