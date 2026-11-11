@@ -1,6 +1,5 @@
 function fig = thesisFigure(widthCm, heightCm)
-%THESISFIGURE Κοινό στυλ γραφημάτων: λευκό φόντο, Arial 9 pt, μέγεθος σε cm
-% (πλάτος σελίδας ~16-17 cm), ώστε τα κείμενα να έχουν ίδιο μέγεθος σε όλα.
+%THESISFIGURE Κοινό στυλ γραφημάτων (Arial 9 pt, μέγεθος σε cm).
 %   fig = thesisFigure(17, 9)
 fig = figure('Visible', 'off', 'Color', 'w', 'Units', 'centimeters', ...
     'Position', [2 2 widthCm heightCm], 'PaperUnits', 'centimeters', ...

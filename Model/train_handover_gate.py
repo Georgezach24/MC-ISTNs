@@ -1,45 +1,18 @@
 """
 Model/train_handover_gate.py
 
-Απόφαση handover με ML: όταν η αναφορά A3 φτάνει στον σταθμό, προβλέπεται αν
-το handover θα καταλήξει σε ping-pong, ώστε ο σταθμός να περιμένει την επόμενη
-αναφορά (TS 38.300 §9.2.3.2.1 βήμα 3· TR 37.817 §5.3).
+Προβλέπει αν ένα handover θα γίνει ping-pong· αν ναι, ο σταθμός περιμένει
+την επόμενη αναφορά A3 (TS 38.300 §9.2.3.2.1· TR 37.817 §5.3).
 
-Ετικέτα (TR 36.839 Ορισμός 5)
-    Outcome == "HO", NextNode == FromNode, NextCause == "HO",
-    StayTo_s <= pingPongMaxStay_s (0.8 s για MTS 1 s και Δt = 0.2 s).
-
-Χωρίς διαρροή
-    Ένα δείγμα ανά εντολή handover (επιτυχή ή όχι). Ό,τι συνέβη μετά την
-    απόφαση χρησιμοποιείται μόνο για την ετικέτα· τα αναγνωριστικά δεν είναι
-    είσοδοι (assert). Διαχωρισμός και CV ανά διέλευση· οι σπόροι εκπαίδευσης
-    δεν επικαλύπτονται με την αξιολόγηση (seed 42)· το κατώφλι επιλέγεται μόνο
-    στις διελεύσεις εκπαίδευσης.
-
-Δεδομένα
-    Dataset/ml_train/seed*/handover_events.mat (PROD/runSimulation.m), μόνο οι
-    πολιτικές χωρίς ML (Actual, ActualMLB). Χαρακτηριστικά: handoverFeatures.m
-    + FromSat, ToSat.
-
-Μοντέλο
-    RandomForest (300 δέντρα, βάθος 12)· min_samples_leaf με group CV
-    (average precision). Οι τιμές που δεν ορίζονται παίρνουν SENTINEL, όπως
-    και στο PROD/handoverGatePredict.m.
-
-Κανόνας
-    αναμονή αν P(ping-pong) > κατώφλι, με κατώφλι μέγιστου F1 στις out-of-fold
-    προβλέψεις (Lipton, Elkan & Naryanaswamy, ECML PKDD 2014). Το 0.5 δεν
-    ενεργοποιείται ποτέ, αφού το ping-pong είναι ~1% των εντολών.
-
-Έξοδοι: Model/results_handover_gate/
-    handover_gate.mat   δέντρα, κατώφλι, δείγματα αυτοελέγχου (loadHandoverGate)
-    metrics.json        μετρικές σε διελεύσεις ελέγχου, CV, SHA-256 εισόδων
-    *.png               precision-recall, βαθμονόμηση, σημασία χαρακτηριστικών
+Ετικέτα: επιστροφή στον FromNode με HO εντός 0.8 s (TR 36.839 Ορισμός 5).
+Δεδομένα: Dataset/ml_train/seed*/handover_events.mat, πολιτικές Actual/ActualMLB.
+Μοντέλο: Random Forest· κατώφλι μέγιστου F1 στα out-of-fold
+(Lipton, Elkan & Narayanaswamy, ECML PKDD 2014).
+Διαχωρισμός ανά διέλευση· το seed 42 μένει για την αξιολόγηση.
+Έξοδοι: Model/results_handover_gate/ (handover_gate.mat, metrics.json, *.png)
 
 Χρήση:
-    python train_handover_gate.py
-    python train_handover_gate.py --events a.mat b.mat
-    python train_handover_gate.py --plots-only   # μόνο τα PNG, χωρίς εγγραφή μοντέλου
+    python train_handover_gate.py [--events a.mat b.mat] [--plots-only]
 """
 
 import argparse
@@ -80,10 +53,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EVENTS = sorted((ROOT / "Dataset" / "ml_train").glob("seed*/handover_events.mat"))
 RESULTS_DIR = Path(__file__).resolve().parent / "results_handover_gate"
 
-# Οι πολιτικές χωρίς απόφαση ML: από αυτές μαθαίνει το μοντέλο.
 TRAIN_POLICIES = ("Actual", "ActualMLB")
 
-# Ίδια σειρά και ονόματα με το handoverFeatures.m (+ FromSat, ToSat).
+# Ίδια σειρά με το handoverFeatures.m.
 FEATURES = [
     "NumUsers", "ReturnToPrev", "StayFrom_s",
     "SinrServ_dB", "SinrCand_dB", "Gap_dB", "DeltaSinr1s_dB", "DeltaGap1s_dB",
@@ -92,16 +64,14 @@ FEATURES = [
     "LoadFrom", "LoadTo", "UsersOnFrom", "UsersOnTo", "MlbOffset_dB",
     "FromSat", "ToSat",
 ]
-# Ό,τι συνέβη μετά την απόφαση: μόνο για την ετικέτα.
+# Στήλες που δεν επιτρέπεται να γίνουν είσοδοι (αποτέλεσμα / αναγνωριστικά).
 OUTCOME_COLUMNS = {"Outcome", "StayTo_s", "NextNode", "NextCause", "Censored",
                    "TimeToPassEnd_s", "PingPong"}
-# Αναγνωριστικά: ποτέ είσοδοι.
 ID_COLUMNS = {"PassID", "Step", "Time_s", "UserID", "Seed", "Group", "Policy",
               "FromNode", "ToNode", "PrevNode"}
 assert not (set(FEATURES) & (OUTCOME_COLUMNS | ID_COLUMNS)), "leakage: an outcome or ID column is used as a feature"
 
-# Τιμή για «δεν ορίζεται», κάτω από κάθε πραγματική τιμή.
-SENTINEL = -1000.0
+SENTINEL = -1000.0       # αντικαθιστά NaN/Inf
 
 N_TREES = 300
 MAX_DEPTH = 12
@@ -168,10 +138,9 @@ def label_and_filter(df: pd.DataFrame, max_stay: float) -> pd.DataFrame:
     df["ToSat"] = df["ToNode"].str.startswith("SAT").astype(float)
     df["ReturnToPrev"] = df["ReturnToPrev"].astype(float)
     ho = (df["Outcome"] == "HO").to_numpy()
-    # Η διέλευση τελείωσε πριν κριθεί η ετικέτα: εκτός.
+    # Η διέλευση τελείωσε πριν κριθεί η ετικέτα.
     unknown = ho & df["Censored"].astype(bool).to_numpy() & (df["StayTo_s"] <= max_stay + 1e-9).to_numpy()
     df = df[~unknown].copy()
-    # Αποτυχημένη εντολή: όχι ping-pong.
     df["PingPong"] = ((df["Outcome"] == "HO") & (df["NextNode"] == df["FromNode"])
                       & (df["NextCause"] == "HO")
                       & (df["StayTo_s"] <= max_stay + 1e-9)).astype(int)
@@ -247,7 +216,7 @@ def export_forest(rf: RandomForestClassifier) -> dict:
     }
 
 
-# Ύφος ίδιο με τα σχήματα του MATLAB (thesisColors.m, thesisFigure.m).
+# Στυλ ίδιο με τα σχήματα MATLAB.
 BLUE, ORANGE, NEUTRAL, TEXT, MUTED = "#2a78d6", "#eb6834", "#8a8984", "#1f1f1f", "#52514e"
 CM = 1 / 2.54
 plt.rcParams.update({
@@ -353,7 +322,7 @@ def main():
     ap_.add_argument("--importance", action=argparse.BooleanOptionalAction, default=True)
     args = ap_.parse_args()
     if args.plots_only and args.events == DEFAULT_EVENTS:
-        # Τα ίδια αρχεία με το αποθηκευμένο μοντέλο (provenance του metrics.json).
+        # Ίδια αρχεία με το αποθηκευμένο μοντέλο.
         with open(args.out / "metrics.json", encoding="utf-8") as f:
             args.events = [ROOT / Path(d["path"].replace("\\", "/")) for d in json.load(f)["data"]["files"]]
     if not args.events:
@@ -423,7 +392,7 @@ def main():
         importance = {f: {"mean": float(m), "std": float(s)} for f, m, s in
                       zip(FEATURES, imp.importances_mean, imp.importances_std)}
 
-    # Δείγματα αυτοελέγχου για τη handoverGatePredict (όλα τα θετικά + τυχαία).
+    # Δείγματα για έλεγχο ότι το MATLAB δίνει ίδιες πιθανότητες.
     rng = np.random.default_rng(RANDOM_STATE)
     pos = np.flatnonzero(yte == 1)
     neg = rng.choice(np.flatnonzero(yte == 0), size=max(0, SELF_TEST_SAMPLES - len(pos)), replace=False)

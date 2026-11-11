@@ -1,17 +1,7 @@
 function p = handoverGatePredict(M, x)
-%HANDOVERGATEPREDICT Πιθανότητα ping-pong από το Random Forest του
-% Model/train_handover_gate.py, για διάνυσμα χαρακτηριστικών x.
-%
-% Ίδιος κανόνας με το scikit-learn: NaN -> M.Sentinel, σύγκριση σε float32,
-% αριστερά αν x(f) <= κατώφλι, πιθανότητα = μέσος όρος των φύλλων.
-%
-% M (από loadHandoverGate), διανύσματα στήλη:
-%   Roots      κόμβος-ρίζα κάθε δέντρου (δείκτης στους πίνακες κόμβων)
-%   Feature    στήλη του x που ελέγχει ο κόμβος (0 = φύλλο)
-%   Threshold  κατώφλι του κόμβου
-%   Left/Right παιδιά του κόμβου (0 = φύλλο)
-%   Value      πιθανότητα ping-pong στο φύλλο
-%   MaxDepth   μέγιστο βάθος των δέντρων
+%HANDOVERGATEPREDICT P(ping-pong) από το Random Forest του train_handover_gate.py.
+% Ίδιο με το scikit-learn: NaN -> Sentinel, float32, αριστερά αν x <= κατώφλι,
+% μέσος όρος φύλλων. M από loadHandoverGate (Feature/Left/Right = 0 στα φύλλα).
 x = x(:);
 x(isnan(x)) = M.Sentinel;
 x = double(single(x));

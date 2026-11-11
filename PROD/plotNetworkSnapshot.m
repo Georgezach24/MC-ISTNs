@@ -1,10 +1,8 @@
 function plotNetworkSnapshot(snap, P, pngPath)
 %PLOTNETWORKSNAPSHOT Στιγμιότυπο της διέλευσης αναφοράς στη μέγιστη ανύψωση:
-% αριστερά ο ουρανός από το κέντρο του πλέγματος (αζιμούθιο/ανύψωση των
-% δορυφόρων, μάσκα), δεξιά κάτοψη σε km με κυψέλες, τομείς και ζεύξεις.
-%   snap  refSnapshot της runSimulation (user_geo, sat_geo, bestNodeVec, bestNodeTypeVec)
-%   P     plotInfo: cellGeo (ένα κελί "BSc" ανά γραμμή), numCells, bsIsdM,
-%         cellBoresightDeg ([] = χωρίς τομείς), satMinElevationDeg
+% (a) ουρανός από το κέντρο, (b) κάτοψη με κυψέλες και ζεύξεις.
+%   snap  refSnapshot της runSimulation
+%   P     plotInfo
 C = thesisColors();
 wgs84 = wgs84Ellipsoid;
 cellGeo = P.cellGeo;
