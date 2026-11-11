@@ -62,12 +62,20 @@ d = fullfile(pwd,'Dataset','ml_train','seed1000');
 runSimulation(struct('rngSeed',1000,'numPasses',150,'mlGatePath','', ...
     'outputDir',d,'datasetPath',fullfile(d,'dataset.csv'), ...
     'handoverEventsPath',fullfile(d,'handover_events.mat'),'label','mltrain_seed1000'));
-% 2) Εκπαίδευση
-system('python Model/train_handover_gate.py');
+% 2) Εκπαίδευση (ρητά το seed 1000: έτσι εκπαιδεύτηκε το μοντέλο της v1)
+system('python Model/train_handover_gate.py --events Dataset/ml_train/seed1000/handover_events.mat');
 % 3) Αξιολόγηση όλων των πολιτικών
 runSimulation();
 % Επαληθεύσεις
 linkBudgetValidation(); geometryValidation(); energyModelValidation();
+% Μόνο τα γραφήματα, από τα αποθηκευμένα αποτελέσματα (χωρίς νέα εκτέλεση)
+plotResults('Results/simulation_results.mat', 'Results');
+```
+
+```bash
+# Μόνο τα γραφήματα του μοντέλου ML: επανεκπαίδευση στη μνήμη, έλεγχος ότι
+# δίνει ακριβώς τις πιθανότητες του handover_gate.mat, χωρίς εγγραφή μοντέλου
+python Model/train_handover_gate.py --plots-only
 ```
 
 - **Διάρκεια** σε laptop με 6 workers: ~1.5 h για το βήμα 1, ~2 λεπτά για το
@@ -76,17 +84,40 @@ linkBudgetValidation(); geometryValidation(); energyModelValidation();
 - **Αναπαραγωγιμότητα.** Κάθε διέλευση έχει δικό της σπόρο
   (`rngSeed + passIdx`), οπότε η παράλληλη εκτέλεση δίνει τα ίδια αρχεία με
   τη σειριακή.
+- **Μηνύματα.** Όλα τα μηνύματα της κονσόλας και τα γραφήματα είναι στα
+  αγγλικά, με την ορολογία της 3GPP (TN/NTN, HO, RLF, A3, TTT, MLB).
+
+## Γραφήματα
+
+| Αρχείο | Περιεχόμενο |
+|---|---|
+| `policy_gain.png` | Υβριδικό δίκτυο έναντι TN only / NTN only: σχετική μεταβολή ρυθμού, ενέργειας, φασματικής απόδοσης, και μεταβολή σε ποσοστιαίες μονάδες |
+| `mlb_gain.png` | MLB: κέρδος σε ρυθμό/ενέργεια και κόστος σε HO, RLF, ping-pong |
+| `ml_gain.png` | ML handover gate: μεταβολή κινητικότητας, ρυθμού, λόγων και δραστηριότητα του gate |
+| `handover_rates.png` | HO ανά τύπο, ping-pong, RLF και λόγος αποτυχίας HO ανά πολιτική |
+| `convergence.png` | Σύγκλιση των 95% CI με το πλήθος διελεύσεων |
+| `reference_pass.png` | Χρονοσειρές της διέλευσης αναφοράς: ανύψωση, χρήστες ανά στρώμα, SINR, ρυθμός |
+| `network_snapshot.png` | Ουρανός (αζιμούθιο/ανύψωση) και κάτοψη δικτύου στη μέγιστη ανύψωση |
+| `*_validation.png` | Επαληθεύσεις ισοζυγίου ζεύξης, γεωμετρίας, ενεργειακού μοντέλου |
+| `Model/results_handover_gate/*.png` | Precision-recall, βαθμονόμηση, σημασία χαρακτηριστικών |
+
+Τα συγκριτικά γραφήματα είναι forest plots της διαφοράς κατά ζεύγη ανά
+διέλευση (μέση τιμή, 95% CI). Γεμάτο σημάδι: το CI δεν περιέχει το 0. Όπου η
+βάση σύγκρισης είναι κοντά στο 0 (π.χ. ping-pong), δίνεται απόλυτη μεταβολή με
+τον λόγο (×r) αντί για ποσοστό.
 
 ## Δομή
 
 ```
 PROD/
-  runSimulation.m          κύρια εκτέλεση: διελεύσεις, πολιτικές, στατιστική, γραφήματα
+  runSimulation.m          κύρια εκτέλεση: διελεύσεις, πολιτικές, στατιστική
   simulateScenario.m       ένα βήμα: κανάλι, SINR, A3/RLF/MLB/ML, κατανομή πόρων, ενέργεια
   handoverFeatures.m       χαρακτηριστικά της απόφασης handover (κοινά για εκπαίδευση και εφαρμογή)
   handoverGatePredict.m    πρόβλεψη του Random Forest μέσα στο MATLAB
   bsSectorGainDb.m         κέρδος κεραίας τομέα (TR 38.901 Πίν. 7.3-1)
-  plotNetworkSnapshot.m    γράφημα τοπολογίας και ζεύξεων
+  plotResults.m            όλα τα γραφήματα από το simulation_results.mat
+  plotNetworkSnapshot.m    ουρανός και κάτοψη δικτύου στη μέγιστη ανύψωση
+  thesisFigure.m, saveThesisFigure.m, thesisColors.m   κοινό ύφος γραφημάτων (Arial 9, 17 cm, 300 dpi)
   saveRunVersion.m         αρχειοθέτηση εκτέλεσης στο Results/runs/
   *Validation.m            επαληθεύσεις: ισοζύγιο ζεύξης, γεωμετρία, ενεργειακό μοντέλο
 Model/

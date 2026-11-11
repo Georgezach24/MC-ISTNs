@@ -31,12 +31,12 @@ writeLines(fullfile(runDir, 'params.txt'), paramLines);
 prev = findPreviousRun(rootDir, scriptName, runDir);
 if isempty(prev)
     writeLines(fullfile(runDir, 'changed.txt'), ...
-        {sprintf('Καμία προηγούμενη εκτέλεση του %s - baseline run.', scriptName)});
+        {sprintf('No previous run of %s: baseline run.', scriptName)});
 else
     d = diffKeyValue(readLines(fullfile(prev, 'params.txt')), paramLines);
     [~, prevName] = fileparts(prev);
-    header = {sprintf('Σύγκριση vs %s', prevName), ''};
-    if isempty(d), d = {'(καμία αλλαγή παραμέτρων)'}; end
+    header = {sprintf('Compared with %s', prevName), ''};
+    if isempty(d), d = {'(no parameter changes)'}; end
     writeLines(fullfile(runDir, 'changed.txt'), [header, d]);
 end
 
@@ -104,7 +104,7 @@ end
 
 function writeLines(path, lines)
 fid = fopen(path, 'w', 'n', 'UTF-8');
-if fid == -1, error('saveRunVersion:write', 'Αδυναμία εγγραφής %s', path); end
+if fid == -1, error('saveRunVersion:write', 'Cannot write %s', path); end
 for i = 1:numel(lines)
     fprintf(fid, '%s\n', lines{i});
 end
@@ -138,7 +138,7 @@ for i = 1:numel(keys)
     elseif hasNew
         d{end+1} = sprintf('  + %s = %s', k, newMap(k)); %#ok<AGROW>
     else
-        d{end+1} = sprintf('  - %s  (ήταν: %s)', k, oldMap(k)); %#ok<AGROW>
+        d{end+1} = sprintf('  - %s  (was: %s)', k, oldMap(k)); %#ok<AGROW>
     end
 end
 end

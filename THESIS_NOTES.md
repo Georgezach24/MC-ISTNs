@@ -209,8 +209,8 @@ d = fullfile(pwd,'Dataset','ml_train','seed1000');
 runSimulation(struct('rngSeed',1000,'numPasses',150,'mlGatePath','', ...
     'outputDir',d,'datasetPath',fullfile(d,'dataset.csv'), ...
     'handoverEventsPath',fullfile(d,'handover_events.mat'),'label','mltrain_seed1000'));
-% 2) Εκπαίδευση
-system('python Model/train_handover_gate.py');
+% 2) Εκπαίδευση (μόνο seed 1000· χωρίς --events διαβάζονται όλοι οι φάκελοι seed*)
+system('python Model/train_handover_gate.py --events Dataset/ml_train/seed1000/handover_events.mat');
 % 3) Αξιολόγηση (seed 42, με τις πολιτικές ActualML και ActualMLBML)
 runSimulation();
 ```

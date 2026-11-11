@@ -39,6 +39,7 @@ Model/train_handover_gate.py
 Χρήση:
     python train_handover_gate.py
     python train_handover_gate.py --events a.mat b.mat
+    python train_handover_gate.py --plots-only   # μόνο τα PNG, χωρίς εγγραφή μοντέλου
 """
 
 import argparse
@@ -97,7 +98,7 @@ OUTCOME_COLUMNS = {"Outcome", "StayTo_s", "NextNode", "NextCause", "Censored",
 # Αναγνωριστικά: ποτέ είσοδοι.
 ID_COLUMNS = {"PassID", "Step", "Time_s", "UserID", "Seed", "Group", "Policy",
               "FromNode", "ToNode", "PrevNode"}
-assert not (set(FEATURES) & (OUTCOME_COLUMNS | ID_COLUMNS)), "διαρροή στήλης στις εισόδους"
+assert not (set(FEATURES) & (OUTCOME_COLUMNS | ID_COLUMNS)), "leakage: an outcome or ID column is used as a feature"
 
 # Τιμή για «δεν ορίζεται», κάτω από κάθε πραγματική τιμή.
 SENTINEL = -1000.0
@@ -157,7 +158,7 @@ def build_frame(paths: list[Path]) -> tuple[pd.DataFrame, float, list[dict]]:
     df = pd.concat(frames, ignore_index=True)
     seeds = sorted({d["rngSeed"] for d in provenance})
     if 42 in seeds:
-        raise ValueError("Τα δεδομένα εκπαίδευσης περιέχουν τον σπόρο της αξιολόγησης (42).")
+        raise ValueError("The training data contain the evaluation seed (42).")
     return df, max_stay, provenance
 
 
@@ -213,7 +214,7 @@ def choose_threshold(X, y, groups, leaf) -> tuple[float, dict]:
     i = int(np.argmax(f1))
     info = {"rule": "max F1, out-of-fold (training passes)", "threshold": float(thr[i]),
             "f1": float(f1[i]), "precision": float(prec[i]), "recall": float(rec[i])}
-    print(f"  κατώφλι = {thr[i]:.4f} (F1 {f1[i]:.3f}, precision {prec[i]:.3f}, recall {rec[i]:.3f})")
+    print(f"  threshold = {thr[i]:.4f} (F1 {f1[i]:.3f}, precision {prec[i]:.3f}, recall {rec[i]:.3f})")
     return float(thr[i]), info
 
 
@@ -246,51 +247,99 @@ def export_forest(rf: RandomForestClassifier) -> dict:
     }
 
 
+# Ύφος ίδιο με τα σχήματα του MATLAB (thesisColors.m, thesisFigure.m).
+BLUE, ORANGE, NEUTRAL, TEXT, MUTED = "#2a78d6", "#eb6834", "#8a8984", "#1f1f1f", "#52514e"
+CM = 1 / 2.54
+plt.rcParams.update({
+    "font.family": "Arial", "font.size": 9, "axes.titlesize": 9, "axes.labelsize": 9,
+    "legend.fontsize": 8, "legend.frameon": False, "axes.edgecolor": TEXT,
+    "axes.labelcolor": TEXT, "xtick.color": TEXT, "ytick.color": TEXT,
+    "xtick.direction": "out", "ytick.direction": "out", "axes.spines.top": False,
+    "axes.spines.right": False, "axes.grid": True, "grid.color": "#cccccc",
+    "grid.linewidth": 0.5, "savefig.dpi": 300, "savefig.facecolor": "white",
+})
+
+
 def plot_pr(y, p, ap, threshold, path):
     prec, rec, _ = precision_recall_curve(y, p)
-    fig, ax = plt.subplots(figsize=(6, 5))
-    ax.plot(rec, prec, lw=1.5, label=f"RandomForest (AP = {ap:.3f})")
-    ax.axhline(y.mean(), color="k", ls=":", label=f"τυχαίο (= ποσοστό ping-pong {100*y.mean():.2f}%)")
+    fig, ax = plt.subplots(figsize=(11 * CM, 9 * CM))
+    ax.plot(rec, prec, lw=1.5, color=BLUE, label=f"Random forest (AP = {ap:.3f})")
+    ax.axhline(y.mean(), color=NEUTRAL, ls=":", lw=1.2,
+               label=f"No-skill classifier (ping-pong prevalence {100*y.mean():.2f}%)")
     pt_p = precision_score(y, p > threshold, zero_division=0)
     pt_r = recall_score(y, p > threshold)
-    ax.plot(pt_r, pt_p, "o", color="C3", label=f"κατώφλι {threshold:.3f}")
-    ax.set_xlabel("Recall (ping-pong που προλαμβάνονται)")
-    ax.set_ylabel("Precision (αναμονές που ήταν όντως ping-pong)")
-    ax.set_title("Πρόβλεψη ping-pong σε διελεύσεις εκτός εκπαίδευσης")
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc="upper right", fontsize=8)
+    ax.plot(pt_r, pt_p, "o", color=ORANGE, ms=6,
+            label=f"Operating point, threshold {threshold:.3f}")
+    ax.annotate(f"precision {pt_p:.2f}, recall {pt_r:.2f}", (pt_r, pt_p), xytext=(8, 6),
+                textcoords="offset points", fontsize=7.5, color=TEXT)
+    ax.set_xlabel("Recall (share of ping-pong handovers held)")
+    ax.set_ylabel("Precision (share of held handovers that were ping-pong)")
+    ax.set_title("Ping-pong prediction on held-out passes", fontweight="bold")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.legend(loc="upper right")
     fig.tight_layout()
-    fig.savefig(path, dpi=130)
+    fig.savefig(path)
     plt.close(fig)
 
 
 def plot_reliability(y, p, threshold, path):
     frac, mean_p = calibration_curve(y, p, n_bins=10, strategy="quantile")
-    fig, ax = plt.subplots(figsize=(5.5, 5))
-    ax.plot([0, 1], [0, 1], "k:", label="τέλεια βαθμονόμηση")
-    ax.plot(mean_p, frac, "o-", label="RandomForest")
-    ax.axvline(threshold, color="C3", ls="--", lw=1, label=f"κατώφλι {threshold:.3f}")
-    ax.set_xlabel("Προβλεπόμενη πιθανότητα ping-pong")
-    ax.set_ylabel("Παρατηρούμενο ποσοστό ping-pong")
-    ax.set_title("Βαθμονόμηση (δεκατημόρια πρόβλεψης)")
-    ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=8)
+    fig, ax = plt.subplots(figsize=(11 * CM, 9 * CM))
+    hi = 1.1 * max(mean_p.max(), frac.max())
+    ax.plot([0, hi], [0, hi], ":", color=NEUTRAL, lw=1.2, label="Perfect calibration")
+    ax.plot(mean_p, frac, "o-", color=BLUE, ms=4, lw=1.5, label="Random forest")
+    ax.axvline(threshold, color=ORANGE, ls="--", lw=1, label=f"Decision threshold {threshold:.3f}")
+    ax.set_xlim(0, hi)
+    ax.set_ylim(0, hi)
+    ax.set_xlabel("Predicted ping-pong probability (decile mean)")
+    ax.set_ylabel("Observed ping-pong frequency")
+    ax.set_title("Calibration on held-out passes (prediction deciles)", fontweight="bold")
+    ax.legend(loc="upper left")
     fig.tight_layout()
-    fig.savefig(path, dpi=130)
+    fig.savefig(path)
     plt.close(fig)
 
 
 def plot_importance(imp, path):
     order = np.argsort(imp.importances_mean)
-    fig, ax = plt.subplots(figsize=(7, 7))
+    fig, ax = plt.subplots(figsize=(14 * CM, 13 * CM))
     ax.barh(np.array(FEATURES)[order], imp.importances_mean[order],
-            xerr=imp.importances_std[order], color="C0")
-    ax.set_xlabel("Μείωση average precision όταν ανακατεύεται η στήλη")
-    ax.set_title("Σημασία χαρακτηριστικών (permutation, διελεύσεις ελέγχου)")
-    ax.grid(True, axis="x", alpha=0.3)
+            xerr=imp.importances_std[order], color=BLUE, height=0.7,
+            error_kw={"ecolor": TEXT, "elinewidth": 0.8, "capsize": 2})
+    ax.axvline(0, color=TEXT, lw=0.8)
+    ax.set_xlabel("Decrease of average precision when the feature is permuted")
+    ax.set_title("Permutation feature importance (held-out passes, 5 repeats)", fontweight="bold")
+    ax.grid(True, axis="x")
+    ax.grid(False, axis="y")
     fig.tight_layout()
-    fig.savefig(path, dpi=130)
+    fig.savefig(path)
     plt.close(fig)
+
+
+def plots_only(args, Xtr, ytr, Xte, yte):
+    """Αναπαραγωγή των PNG από το αποθηκευμένο μοντέλο, χωρίς εγγραφή .mat/.json."""
+    with open(args.out / "metrics.json", encoding="utf-8") as f:
+        saved = json.load(f)
+    leaf = int(saved["model"]["min_samples_leaf"])
+    threshold = float(saved["threshold"]["threshold"])
+    gate = scipy.io.loadmat(args.out / "handover_gate.mat", squeeze_me=True)
+    rf = make_forest(N_TREES, leaf).fit(Xtr, ytr)
+    tx = np.array(gate["TestX"], dtype=float)
+    tx[~np.isfinite(tx)] = SENTINEL
+    err = float(np.max(np.abs(rf.predict_proba(tx)[:, 1] - gate["TestP"])))
+    if err > 1e-9:
+        sys.exit(f"The refitted forest differs from handover_gate.mat (max |dP| = {err:.3g}).")
+    print(f"Refitted forest identical to handover_gate.mat (max |dP| = {err:.1e}, "
+          f"min_samples_leaf = {leaf}, threshold = {threshold:.4f})")
+    p = rf.predict_proba(Xte)[:, 1]
+    plot_pr(yte, p, average_precision_score(yte, p), threshold, args.out / "precision_recall.png")
+    plot_reliability(yte, p, threshold, args.out / "reliability.png")
+    if args.importance:
+        imp = permutation_importance(rf, Xte, yte, scoring="average_precision",
+                                     n_repeats=5, random_state=RANDOM_STATE, n_jobs=-1)
+        plot_importance(imp, args.out / "feature_importance.png")
+    print(f"Figures -> {args.out}")
 
 
 def main():
@@ -298,16 +347,22 @@ def main():
     ap_.add_argument("--events", nargs="*", type=Path, default=DEFAULT_EVENTS)
     ap_.add_argument("--out", type=Path, default=RESULTS_DIR)
     ap_.add_argument("--cv", action=argparse.BooleanOptionalAction, default=True,
-                     help="επιλογή min_samples_leaf με group CV (αλλιώς 1)")
+                     help="select min_samples_leaf by group CV (otherwise 1)")
+    ap_.add_argument("--plots-only", action="store_true",
+                     help="refit the saved configuration and write only the figures")
     ap_.add_argument("--importance", action=argparse.BooleanOptionalAction, default=True)
     args = ap_.parse_args()
+    if args.plots_only and args.events == DEFAULT_EVENTS:
+        # Τα ίδια αρχεία με το αποθηκευμένο μοντέλο (provenance του metrics.json).
+        with open(args.out / "metrics.json", encoding="utf-8") as f:
+            args.events = [ROOT / Path(d["path"].replace("\\", "/")) for d in json.load(f)["data"]["files"]]
     if not args.events:
-        sys.exit("Δεν βρέθηκαν αρχεία handover_events.mat (Dataset/ml_train/seed*/).")
+        sys.exit("No handover_events.mat files found (Dataset/ml_train/seed*/).")
     args.out.mkdir(parents=True, exist_ok=True)
 
     raw, max_stay, provenance = build_frame(args.events)
     df = label_and_filter(raw, max_stay)
-    print(f"Εντολές handover (Actual, ActualMLB): {len(df)} από {df['Group'].nunique()} διελεύσεις, "
+    print(f"Handover commands (Actual, ActualMLB): {len(df)} from {df['Group'].nunique()} passes, "
           f"ping-pong {df['PingPong'].sum()} ({100*df['PingPong'].mean():.2f}%)")
     print(df.groupby(["Policy", "Outcome"])["PingPong"].agg(["size", "sum", "mean"]))
 
@@ -316,11 +371,14 @@ def main():
     train, test = df.iloc[tr_idx], df.iloc[te_idx]
     Xtr, ytr, gtr = to_matrix(train), train["PingPong"].to_numpy(), train["Group"].to_numpy()
     Xte, yte = to_matrix(test), test["PingPong"].to_numpy()
-    print(f"Εκπαίδευση: {len(train)} ({train['Group'].nunique()} διελεύσεις, {ytr.sum()} ping-pong) | "
-          f"έλεγχος: {len(test)} ({test['Group'].nunique()} διελεύσεις, {yte.sum()} ping-pong)")
+    print(f"Training: {len(train)} ({train['Group'].nunique()} passes, {ytr.sum()} ping-pong) | "
+          f"test: {len(test)} ({test['Group'].nunique()} passes, {yte.sum()} ping-pong)")
+    if args.plots_only:
+        plots_only(args, Xtr, ytr, Xte, yte)
+        return
 
     if args.cv:
-        print(f"Επιλογή min_samples_leaf ({CV_FOLDS}-fold group CV, {CV_TREES} δέντρα):")
+        print(f"Selecting min_samples_leaf ({CV_FOLDS}-fold group CV, {CV_TREES} trees):")
         leaf, cv_scores = choose_leaf(Xtr, ytr, gtr)
     else:
         leaf, cv_scores = 1, {}
@@ -418,8 +476,8 @@ def main():
     }
     with open(args.out / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2, ensure_ascii=False)
-    print(f"Μοντέλο: {gate_path} ({gate_path.stat().st_size/1e6:.1f} MB, "
-          f"{len(forest['Feature'])} κόμβοι)")
+    print(f"Model: {gate_path} ({gate_path.stat().st_size/1e6:.1f} MB, "
+          f"{len(forest['Feature'])} nodes)")
 
 
 if __name__ == "__main__":

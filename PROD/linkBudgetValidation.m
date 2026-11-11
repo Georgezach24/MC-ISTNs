@@ -75,16 +75,16 @@ C = struct('name', {}, 'unit', {}, 'expected', {}, 'actual', {}, ...
 pOutTotalW    = 10^((simParameters.TxPower - 30)/10);
 pOutPerChainW = pOutTotalW / simParameters.Power.NumTrx;
 
-C = addCheck(C, 'A1 ισχυς εκπομπης σταθμου', 'W', 79.432823472428, pOutTotalW, 1e-9);
-C = addCheck(C, 'A2 ισχυς ανα αλυσιδα πομποδεκτη', 'W', 19.858205868107, pOutPerChainW, 1e-9);
-C = addCheck(C, 'A3 οριο EARTH ανα αλυσιδα (<= 20 W)', 'λογικο', 1, double(pOutPerChainW <= 20), 0);
-C = addCheck(C, 'A4 συνθετο EIRP σταθμου', 'dBm', 67, simParameters.EIRP, 1e-12);
-C = addCheck(C, 'A5 ιδιο EIRP σε γραμμικη ισχυ', 'W', 5011.872336272722, ...
+C = addCheck(C, 'A1 gNB transmit power', 'W', 79.432823472428, pOutTotalW, 1e-9);
+C = addCheck(C, 'A2 power per transceiver chain', 'W', 19.858205868107, pOutPerChainW, 1e-9);
+C = addCheck(C, 'A3 EARTH limit per chain (<= 20 W)', 'logical', 1, double(pOutPerChainW <= 20), 0);
+C = addCheck(C, 'A4 composite gNB EIRP', 'dBm', 67, simParameters.EIRP, 1e-12);
+C = addCheck(C, 'A5 same EIRP in linear power', 'W', 5011.872336272722, ...
              10^((simParameters.EIRP - 30)/10), 1e-6);
 densityBack = satParameters.EIRP - 30 - 10*log10(satParameters.Bandwidth/1e6);
-C = addCheck(C, 'A6 πυκνοτητα EIRP δορυφορου (επιστροφη)', 'dBW/MHz', 34, densityBack, 1e-12);
-C = addCheck(C, 'A7 EIRP δορυφορου', 'dBm', 78.771212547197, satParameters.EIRP, 1e-9);
-C = addCheck(C, 'A8 ισχυς στην εισοδο κεραιας δορυφορου', 'dBm', 48.771212547197, ...
+C = addCheck(C, 'A6 satellite EIRP density (round trip)', 'dBW/MHz', 34, densityBack, 1e-12);
+C = addCheck(C, 'A7 satellite EIRP', 'dBm', 78.771212547197, satParameters.EIRP, 1e-9);
+C = addCheck(C, 'A8 power at the satellite antenna input', 'dBm', 48.771212547197, ...
              satParameters.TxPower, 1e-9);
 
 %% ================== Β. Απώλειες ελεύθερου χώρου ==================
@@ -94,10 +94,10 @@ fsplClosed = 20*log10(4*pi*dFspl/lambdaSat);
 fsplCode   = arrayfun(@(d) fspl(d, lambdaSat), dFspl);
 C = addCheck(C, 'B1 fspl == 20log10(4*pi*d/lambda)', 'dB', 0, ...
              max(abs(fsplCode - fsplClosed)), 1e-9);
-C = addCheck(C, 'B2 fspl στα 600 km, 2.0 GHz', 'dB', 154.031408142836, fsplCode(1), 1e-9);
+C = addCheck(C, 'B2 FSPL at 600 km, 2.0 GHz', 'dB', 154.031408142836, fsplCode(1), 1e-9);
 octaveD    = 10.^(2:0.5:6);
 fsplOctave = arrayfun(@(d) fspl(2*d, lambdaSat) - fspl(d, lambdaSat), octaveD);
-C = addCheck(C, 'B3 διπλασιασμος αποστασης -> +6.02 dB', 'dB', 20*log10(2), ...
+C = addCheck(C, 'B3 doubled distance -> +6.02 dB', 'dB', 20*log10(2), ...
              max(fsplOctave), 1e-9);
 
 % UMa: εκθέτης απωλειών > 2, άρα οκτάβα > 6.02 dB (nrPathLoss χωρίς σκίαση).
@@ -105,20 +105,20 @@ plCfgU = simParameters.PathLoss;
 plU1 = nrPathLoss(plCfgU, simParameters.CarrierFrequency, false, [0;0;25], [500;0;1.5]);
 plU2 = nrPathLoss(plCfgU, simParameters.CarrierFrequency, false, [0;0;25], [1000;0;1.5]);
 umaOctaveDb = plU2 - plU1;
-C = addCheck(C, 'B4 επιγεια οκταβα > 6.02 dB (εκθετης > 2)', 'λογικο', 1, ...
+C = addCheck(C, 'B4 terrestrial octave > 6.02 dB (exponent > 2)', 'logical', 1, ...
              double(umaOctaveDb > 20*log10(2)), 0);
 
 %% ================== Γ. Ισχύς θορύβου ==================
-C = addCheck(C, 'G1 ευρος ζωνης σταθμου', 'Hz', 18.36e6, bwBsHz, 1e-6);
-C = addCheck(C, 'G2 ισοδυναμη θερμοκρασια θορυβου', 'K', ...
+C = addCheck(C, 'G1 gNB bandwidth', 'Hz', 18.36e6, bwBsHz, 1e-6);
+C = addCheck(C, 'G2 equivalent noise temperature', 'K', ...
              290 + 290*(10^0.9 - 1), teqK, 1e-9);
 noiseBsSplit = 10*log10(kBoltz) + 10*log10(teqK) + 10*log10(bwBsHz);
-C = addCheck(C, 'G3 kTB: γινομενο == αθροισμα σε dB', 'dB', 0, ...
+C = addCheck(C, 'G3 kTB: product == sum in dB', 'dB', 0, ...
              abs(noiseBsDbw - noiseBsSplit), 1e-9);
-C = addCheck(C, 'G4 ισχυς θορυβου σταθμου', 'dBW', -122.336460425576, noiseBsDbw, 1e-9);
-C = addCheck(C, 'G5 ισχυς θορυβου δορυφορου', 'dBW', -120.203974647031, noiseSatDbw, 1e-9);
+C = addCheck(C, 'G4 noise power (gNB link)', 'dBW', -122.336460425576, noiseBsDbw, 1e-9);
+C = addCheck(C, 'G5 noise power (satellite link)', 'dBW', -120.203974647031, noiseSatDbw, 1e-9);
 noiseDouble = 10*log10(kBoltz * teqK * 2*bwBsHz);
-C = addCheck(C, 'G6 διπλασιο ευρος ζωνης -> +3.01 dB θορυβου', 'dB', 10*log10(2), ...
+C = addCheck(C, 'G6 doubled bandwidth -> +3.01 dB noise', 'dB', 10*log10(2), ...
              noiseDouble - noiseBsDbw, 1e-9);
 
 %% ================== Δ. Ταυτότητα SINR ==================
@@ -145,14 +145,14 @@ rng(21);
 [~,~,~,~,~,~,~,~,~, bsSinr1, ~, bsPl1] = ...
     simulateScenario(bs1, uGeo, satOverhead, wgs84, simParameters, satParameters);
 sinrFromPl1 = (simParameters.EIRP - 30) - bsPl1 - noiseBsDbw;
-C = addCheck(C, 'D1 ενας σταθμος: SINR == EIRP - PL - N', 'dB', 0, ...
+C = addCheck(C, 'D1 single gNB: SINR == EIRP - PL - N', 'dB', 0, ...
              max(abs(bsSinr1 - sinrFromPl1)), 1e-9);
 
 % Ένας δορυφόρος, άλλη ζώνη από τους σταθμούς: SINR = SNR.
 satSinrFromPl = (satParameters.EIRP - 30) - satPl - noiseSatDbw;
-C = addCheck(C, 'D2 SINR δορυφορικο == EIRP - PL - N', 'dB', 0, ...
+C = addCheck(C, 'D2 satellite SINR == EIRP - PL - N', 'dB', 0, ...
              max(abs(satSinr - satSinrFromPl)), 1e-9);
-C = addCheck(C, 'D3 επιλεγμενο SINR == max(επιγειο, δορυφορικο)', 'dB', 0, ...
+C = addCheck(C, 'D3 selected SINR == max(TN, NTN)', 'dB', 0, ...
              max(abs(sinrBest - max(bsSinr, satSinr))), 1e-12);
 
 % Δύο σταθμοί: SINR < SNR όπου ισχύουν και οι δύο ζεύξεις, αλλιώς SINR = SNR.
@@ -161,11 +161,11 @@ interfDropDb = sinrNoInterf - bsSinr;
 d2dBoth = [distance(bs2(1,1), bs2(1,2), uGeo(:,1), uGeo(:,2), wgs84), ...
            distance(bs2(2,1), bs2(2,2), uGeo(:,1), uGeo(:,2), wgs84)];
 twoValid = all(d2dBoth >= 10 & d2dBoth <= 5000, 2);
-C = addCheck(C, 'D4 δυο εγκυροι σταθμοι: SINR < SNR', 'λογικο', 1, ...
+C = addCheck(C, 'D4 two valid gNBs: SINR < SNR', 'logical', 1, ...
              double(any(twoValid) && all(interfDropDb(twoValid) > 0)), 0);
-C = addCheck(C, 'D4 ενας εγκυρος σταθμος: SINR == SNR', 'dB', 0, ...
+C = addCheck(C, 'D4 one valid gNB: SINR == SNR', 'dB', 0, ...
              max([0; abs(interfDropDb(~twoValid))]), 1e-9);
-C = addCheck(C, 'D5 η πτωση αντιστοιχει σε θετικη ισχυ παρεμβολης', 'λογικο', 1, ...
+C = addCheck(C, 'D5 the drop equals a positive interference power', 'logical', 1, ...
              double(all(isfinite(interfDropDb)) && max(interfDropDb) < 60), 0);
 
 %% ================== Ε. Μεταβολή ισχύος εκπομπής ==================
@@ -192,12 +192,12 @@ for k = 1:numel(offsets)
         simulateScenario(bs2, uGeo, satOverhead, wgs84, sp, satParameters);
     sinrShift2(k) = mean(bsSinrK2 - bsSinr);
 end
-C = addCheck(C, 'E1 ενας σταθμος: -3 dB ισχυος -> -3 dB SINR', 'dB', -3, sinrShift1(1), 1e-9);
-C = addCheck(C, 'E2 ιδια ισχυς -> μηδενικη μετατοπιση', 'dB', 0, sinrShift1(2), 1e-12);
-C = addCheck(C, 'E3 ενας σταθμος: +3 dB ισχυος -> +3 dB SINR', 'dB', 3, sinrShift1(3), 1e-9);
-C = addCheck(C, 'E4 δυο σταθμοι: +3 dB ισχυος δινει ΛΙΓΟΤΕΡΟ απο +3 dB', 'λογικο', 1, ...
+C = addCheck(C, 'E1 single gNB: -3 dB power -> -3 dB SINR', 'dB', -3, sinrShift1(1), 1e-9);
+C = addCheck(C, 'E2 same power -> zero shift', 'dB', 0, sinrShift1(2), 1e-12);
+C = addCheck(C, 'E3 single gNB: +3 dB power -> +3 dB SINR', 'dB', 3, sinrShift1(3), 1e-9);
+C = addCheck(C, 'E4 two gNBs: +3 dB power gives LESS than +3 dB', 'logical', 1, ...
              double(sinrShift2(3) > 0 && sinrShift2(3) < 3 - 1e-6), 0);
-C = addCheck(C, 'E5 δυο σταθμοι: -3 dB ισχυος κοστιζει ΛΙΓΟΤΕΡΟ απο 3 dB', 'λογικο', 1, ...
+C = addCheck(C, 'E5 two gNBs: -3 dB power costs LESS than 3 dB', 'logical', 1, ...
              double(sinrShift2(1) < 0 && sinrShift2(1) > -3 + 1e-6), 0);
 
 %% ================== ΣΤ. Διατήρηση εύρους ζώνης ==================
@@ -219,9 +219,9 @@ for k = 1:numel(activeNodes)
     end
     nodeLabels{k} = char(activeNodes(k));
 end
-C = addCheck(C, 'ST1 αθροισμα μεριδιων == ευρος ζωνης κομβου', 'Hz', 0, ...
+C = addCheck(C, 'ST1 sum of shares == node bandwidth', 'Hz', 0, ...
              max(abs(bwSumPerNode - nodeBwPerNode)), 1e-3);
-C = addCheck(C, 'ST2 κανενας κομβος δεν υπερδιαθετει', 'λογικο', 1, ...
+C = addCheck(C, 'ST2 no node over-allocates', 'logical', 1, ...
              double(all(bwSumPerNode <= nodeBwPerNode + 1e-3)), 0);
 
 %% ================== Ζ. Ισοζύγιο ισχύος δικτύου ==================
@@ -232,19 +232,19 @@ bsSleepW = simParameters.Power.NumTrx * simParameters.Power.Psleep;
 pOutSatW = 10^((satParameters.TxPower - 30)/10);
 satFullW = satParameters.Power.Pfix + pOutSatW/satParameters.Power.EtaPA;
 
-C = addCheck(C, 'Z1 ισχυς ενεργου σταθμου (EARTH)', 'W', 893.334270320412, bsFullW, 1e-9);
-C = addCheck(C, 'Z2 τμημα σταθμου που εξαρταται απο τον ενισχυτη', 'W', 373.334270320412, bsRfW, 1e-9);
-C = addCheck(C, 'Z3 ισχυς δορυφορου', 'W', 188.391482363219, satFullW, 1e-9);
+C = addCheck(C, 'Z1 active gNB power (EARTH)', 'W', 893.334270320412, bsFullW, 1e-9);
+C = addCheck(C, 'Z2 PA-dependent part of the gNB power', 'W', 373.334270320412, bsRfW, 1e-9);
+C = addCheck(C, 'Z3 satellite power', 'W', 188.391482363219, satFullW, 1e-9);
 expTotal = netE.ActiveBs*bsFullW + netE.IdleBs*bsSleepW + netE.SatActive*satFullW;
-C = addCheck(C, 'Z4 συνολικη ισχυς == ενεργοι + αδρανεις + δορυφορος', 'W', 0, ...
+C = addCheck(C, 'Z4 total power == active + idle + satellite', 'W', 0, ...
              abs(netE.TotalPower_W - expTotal), 1e-9);
 satRfW = pOutSatW / satParameters.Power.EtaPA;
 expRf = netE.ActiveBs*bsRfW + netE.SatActive*satRfW;
-C = addCheck(C, 'Z5 συμμετρικη ισχυς == μονο ενισχυτες', 'W', 0, ...
+C = addCheck(C, 'Z5 symmetric (RF) power == PAs only', 'W', 0, ...
              abs(netE.TotalPowerRf_W - expRf), 1e-9);
-C = addCheck(C, 'Z6 συμμετρικη <= πληρης εμβελεια', 'λογικο', 1, ...
+C = addCheck(C, 'Z6 RF scope <= full scope', 'logical', 1, ...
              double(netE.TotalPowerRf_W <= netE.TotalPower_W), 0);
-C = addCheck(C, 'Z7 καθε σταθμος μετριεται μια φορα', 'πληθος', size(bs2,1), ...
+C = addCheck(C, 'Z7 every gNB counted once', 'count', size(bs2,1), ...
              netE.ActiveBs + netE.IdleBs, 0);
 
 %% ================== Η. Οριακές περιπτώσεις ==================
@@ -257,21 +257,21 @@ rng(11);
     simulateScenario([baseLat baseLon 25], farUser, satLow, wgs84, ...
                      simParameters, satParameters);
 
-C = addCheck(C, 'H1 κανενας κομβος -> ServingNode "None"', 'λογικο', 1, ...
+C = addCheck(C, 'H1 no node -> ServingNode "None"', 'logical', 1, ...
              double(nodeN == "None"), 0);
-C = addCheck(C, 'H1 κανενας κομβος -> ServingType "Outage"', 'λογικο', 1, ...
+C = addCheck(C, 'H1 no node -> ServingType "Outage"', 'logical', 1, ...
              double(typeN == "Outage"), 0);
-C = addCheck(C, 'H1 χωρητικοτητα απροσδιοριστη', 'λογικο', 1, double(isnan(capN)), 0);
-C = addCheck(C, 'H1 ρυθμαποδοση μηδενικη', 'Mbps', 0, thrN, 0);
-C = addCheck(C, 'H1 ισχυς κομβου απροσδιοριστη', 'λογικο', 1, double(isnan(powN)), 0);
-C = addCheck(C, 'H1 ενεργεια ανα bit απειρη', 'λογικο', 1, double(isinf(eN) && eN > 0), 0);
-C = addCheck(C, 'H1 αιτια επιγειας μη διαθεσιμοτητας', 'λογικο', 1, ...
+C = addCheck(C, 'H1 capacity undefined', 'logical', 1, double(isnan(capN)), 0);
+C = addCheck(C, 'H1 throughput zero', 'Mbps', 0, thrN, 0);
+C = addCheck(C, 'H1 node power undefined', 'logical', 1, double(isnan(powN)), 0);
+C = addCheck(C, 'H1 energy per bit infinite', 'logical', 1, double(isinf(eN) && eN > 0), 0);
+C = addCheck(C, 'H1 reason for TN unavailability', 'logical', 1, ...
              double(bsRN == "OutOfModelRange"), 0);
-C = addCheck(C, 'H1 αιτια δορυφορικης μη διαθεσιμοτητας', 'λογικο', 1, ...
+C = addCheck(C, 'H1 reason for NTN unavailability', 'logical', 1, ...
              double(satRN == "NotVisible"), 0);
-C = addCheck(C, 'H1 η καταναλωση δικτυου δεν μηδενιζεται', 'W', bsSleepW, ...
+C = addCheck(C, 'H1 network consumption does not vanish', 'W', bsSleepW, ...
              netN.TotalPower_W, 1e-9);
-C = addCheck(C, 'H2 ισοπαλια -Inf: κανενας υποψηφιος δεν κερδιζει', 'λογικο', 1, ...
+C = addCheck(C, 'H2 -Inf tie: no candidate wins', 'logical', 1, ...
              double(isnan(bsSinrN) && satSinrN == -Inf && sinrN == -Inf && nodeN == "None"), 0);
 
 % --- Η3: ένας χρήστης παίρνει ολόκληρο το εύρος ζώνης ---
@@ -281,9 +281,9 @@ rng(13);
 [~, type1, ~, ~, sinr1, cap1] = simulateScenario([baseLat baseLon 25], oneUser, ...
     satOverhead, wgs84, simParameters, satNo);
 se1 = min(log2(1 + 10^(sinr1/10)), maxSe);
-C = addCheck(C, 'H3 ενας χρηστης -> επιγεια εξυπηρετηση', 'λογικο', 1, ...
+C = addCheck(C, 'H3 one UE -> served by TN', 'logical', 1, ...
              double(type1 == "Terrestrial"), 0);
-C = addCheck(C, 'H3 ενας χρηστης -> ολοκληρο το ευρος ζωνης', 'Hz', bwBsHz, ...
+C = addCheck(C, 'H3 one UE -> full bandwidth', 'Hz', bwBsHz, ...
              cap1*1e6/se1, 1e-3);
 
 % --- Η4: ανύψωση ακριβώς στη μάσκα (κλειστό όριο) ---
@@ -298,9 +298,9 @@ rng(17);
 rng(17);
 [~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, sinrJust, ~,~,~,~,~, reasonJust] = ...
     simulateScenario([baseLat baseLon 25], oneUser, satEdge, wgs84, simParameters, satJust);
-C = addCheck(C, 'H4 ανυψωση ακριβως στη μασκα -> ορατος', 'λογικο', 1, ...
+C = addCheck(C, 'H4 elevation exactly at the mask -> visible', 'logical', 1, ...
              double(isfinite(sinrAt) && reasonAt ~= "NotVisible"), 0);
-C = addCheck(C, 'H4 ενα nanoβαθμο πιο πανω -> μη ορατος', 'λογικο', 1, ...
+C = addCheck(C, 'H4 mask raised by 1e-9 deg -> not visible', 'logical', 1, ...
              double(sinrJust == -Inf && reasonJust == "NotVisible"), 0);
 
 % --- Η5: πεπερασμένες ισοπαλίες SINR δεν εμφανίζονται ---
@@ -313,7 +313,7 @@ for r = 1:40
     tieCount = tieCount + sum(bsS(fin) == satS(fin));
     nCmp = nCmp + sum(fin);
 end
-C = addCheck(C, 'H5 πεπερασμενες ισοπαλιες σε δειγμα συγκρισεων', 'πληθος', 0, tieCount, 0);
+C = addCheck(C, 'H5 finite ties in a sample of comparisons', 'count', 0, tieCount, 0);
 
 % --- D6-D8: παρεμβολή μεταξύ δορυφόρων ---
 % FRF 1: SINR < SNR· FRF 3: SINR = SNR· δορυφόρος κάτω από τη μάσκα δεν παρεμβάλλει.
@@ -322,7 +322,7 @@ satHidden = [satOverhead; baseLat + 3000e3/111320, baseLon, 600e3];
 rng(31);
 [~,~,~,~,~,~,~,~,~,~,~,~,~,~, satPlPair, satSinrPair] = ...
     simulateScenario(bs1, uGeo, satPair, wgs84, simParameters, satParameters);
-C = addCheck(C, 'D6 δυο ορατοι δορυφοροι, FRF 1: SINR < SNR', 'λογικο', 1, ...
+C = addCheck(C, 'D6 two visible satellites, FRF 1: SINR < SNR', 'logical', 1, ...
              double(all(satSinrPair < (satParameters.EIRP - 30) - satPlPair - noiseSatDbw)), 0);
 
 sat3 = satParameters;
@@ -334,13 +334,13 @@ noiseSat3Dbw   = 10*log10(kBoltz * teqK * sat3.Bandwidth);
 rng(31);
 [~,~,~,~,~,~,~,~,~,~,~,~,~,~, satPl3, satSinr3] = ...
     simulateScenario(bs1, uGeo, satPair, wgs84, simParameters, sat3);
-C = addCheck(C, 'D7 δυο ορατοι δορυφοροι, FRF 3: SINR == SNR', 'dB', 0, ...
+C = addCheck(C, 'D7 two visible satellites, FRF 3: SINR == SNR', 'dB', 0, ...
              max(abs(satSinr3 - ((sat3.EIRP - 30) - satPl3 - noiseSat3Dbw))), 1e-9);
 
 rng(31);
 [~,~,~,~,~,~,~,~,~,~,~,~,~,~, satPlHid, satSinrHid] = ...
     simulateScenario(bs1, uGeo, satHidden, wgs84, simParameters, satParameters);
-C = addCheck(C, 'D8 δορυφορος κατω απο τη μασκα: SINR == SNR', 'dB', 0, ...
+C = addCheck(C, 'D8 satellite below the mask: SINR == SNR', 'dB', 0, ...
              max(abs(satSinrHid - ((satParameters.EIRP - 30) - satPlHid - noiseSatDbw))), 1e-9);
 
 %% ================== Θ. Κεραία τομέα ==================
@@ -352,19 +352,19 @@ aHref = @(ph) -min(12*(ph/65).^2, 30);
 afRef = @(th) afFromWeights(th, 10, 0.5, 102);
 gRef  = @(th, ph) 8 + (-min(-(aVref(th) + aHref(ph)), 30)) + 10*log10(afRef(th));
 
-C = addCheck(C, 'TH1 μεγιστο συστοιχιας στο θ_etilt = M (10 dB)', 'dB', 10, ...
+C = addCheck(C, 'TH1 array maximum at theta_etilt = M (10 dB)', 'dB', 10, ...
              10*log10(afRef(102)), 1e-9);
-C = addCheck(C, 'TH2 κερδος στο (102°, 0°) = 8 + A_V(102°) + 10', 'dBi', ...
+C = addCheck(C, 'TH2 gain at (102°, 0°) = 8 + A_V(102°) + 10', 'dBi', ...
              18 - 12*(12/65)^2, bsSectorGainDb(102, 0, ant), 1e-9);
-C = addCheck(C, 'TH3 οριζοντιο ημιευρος: φ = 32.5° -> -3 dB', 'dB', -3, ...
+C = addCheck(C, 'TH3 horizontal half-width: phi = 32.5° -> -3 dB', 'dB', -3, ...
              bsSectorGainDb(102, 32.5, ant) - bsSectorGainDb(102, 0, ant), 1e-9);
-C = addCheck(C, 'TH4 πισω λοβος: A = -A_m = -30 dB', 'dBi', 8 - 30 + 10*log10(afRef(102)), ...
+C = addCheck(C, 'TH4 back lobe: A = -A_m = -30 dB', 'dBi', 8 - 30 + 10*log10(afRef(102)), ...
              bsSectorGainDb(102, 180, ant), 1e-9);
 thGrid = 90:0.5:150;  phGrid = -180:5:180;
 [TH, PH] = ndgrid(thGrid, phGrid);
-C = addCheck(C, 'TH5 πλεγμα (θ, φ): ιδιο με τους τυπους του πινακα', 'dB', 0, ...
+C = addCheck(C, 'TH5 (theta, phi) grid: same as the table formulas', 'dB', 0, ...
              max(abs(bsSectorGainDb(TH, PH, ant) - gRef(TH, PH)), [], 'all'), 1e-9);
-C = addCheck(C, 'TH6 συμμετρια φ -> -φ', 'dB', 0, ...
+C = addCheck(C, 'TH6 symmetry phi -> -phi', 'dB', 0, ...
              max(abs(bsSectorGainDb(TH, PH, ant) - bsSectorGainDb(TH, -PH, ant)), [], 'all'), 1e-12);
 
 % Ένα site, 3 τομείς: SINR = max_c S_c / (N + Σ_{c'≠c} S_c'),  S_c = P + G_c - PL.
@@ -392,10 +392,10 @@ for c = 1:3
     sExp(:,c) = 10.^(((simParameters.TxPower - 30) + gRef(thS, phC) - secPl)/10);
 end
 sinrExp = 10*log10(max(sExp, [], 2) ./ (10^(noiseBsDbw/10) + sum(sExp,2) - max(sExp, [], 2)));
-C = addCheck(C, 'TH7 site 3 τομεων: SINR == max S_c/(N + αλλοι τομεις)', 'dB', 0, ...
+C = addCheck(C, 'TH7 3-sector site: SINR == max S_c/(N + other sectors)', 'dB', 0, ...
              max(abs(secSinr - sinrExp)), 1e-9);
 [~, bestSec] = max(sExp, [], 2);
-C = addCheck(C, 'TH8 χρηστης στον αξονα τομεα -> αυτος ο τομεας', 'λογικο', 1, ...
+C = addCheck(C, 'TH8 UE on a sector boresight -> that sector', 'logical', 1, ...
              double(isequal(bestSec([1 3 5])', [1 2 3])), 0);
 
 %% ================== Ι. Soft LOS και RLF ==================
@@ -416,9 +416,9 @@ end
 [~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~, chMany] = simulateScenario([baseLat baseLon 25], ...
     uMany, satOverhead, wgs84, spSoft, satNoS);
 okS = ~isnan(chMany.LosSoft(:,1));
-C = addCheck(C, 'I2 LOS_soft στο [0, 1]', 'λογικο', 1, ...
+C = addCheck(C, 'I2 LOS_soft in [0, 1]', 'logical', 1, ...
              double(all(chMany.LosSoft(okS,1) >= 0 & chMany.LosSoft(okS,1) <= 1)), 0);
-C = addCheck(C, 'I2 LOS_soft > 1/2 <=> σκληρη αποφαση LOS', 'λογικο', 1, ...
+C = addCheck(C, 'I2 LOS_soft > 1/2 <=> hard LOS decision', 'logical', 1, ...
              double(isequal(chMany.LosSoft(okS,1) > 0.5, chMany.IsLOS(okS,1))), 0);
 
 % RLF (TS 38.331 §5.3.10) με Δt = 1 s (T310 = 1 βήμα)· πτώση ισχύος 60 dB
@@ -435,21 +435,21 @@ rng(19);
     satOverhead, wgs84, spR, satNoS);
 [n2,t2,~,~,s2,c2,~,~,~,~,~,~,~,~,~,~, ch2,~,~,thr2,~,~,k2, d2] = simulateScenario(bsR, uR, ...
     satOverhead, wgs84, spLow, satNoS, ch1, d1);
-C = addCheck(C, 'I3 SINR < Qout: ο χρηστης μενει στον σταθμο', 'λογικο', 1, ...
+C = addCheck(C, 'I3 SINR < Qout: the UE stays on the gNB', 'logical', 1, ...
              double(n1 == "BS1" && n2 == "BS1" && t2 == "Terrestrial" && s2 < -8), 0);
-C = addCheck(C, 'I3 ο T310 ξεκινα (0 βηματα)', 'βηματα', 0, d2.Actual.T310, 0);
-C = addCheck(C, 'I3 κατω απο το MCS 0: μηδενικος ρυθμος', 'Mbps', 0, thr2 + c2, 0);
-C = addCheck(C, 'I3 κανενα RLF ακομα', '1/min', 0, k2.Actual.RlfRate_perUserMin, 0);
+C = addCheck(C, 'I3 T310 starts (0 steps)', 'steps', 0, d2.Actual.T310, 0);
+C = addCheck(C, 'I3 below MCS 0: zero rate', 'Mbps', 0, thr2 + c2, 0);
+C = addCheck(C, 'I3 no RLF yet', '1/min', 0, k2.Actual.RlfRate_perUserMin, 0);
 [n3,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,k3] = simulateScenario(bsR, uR, ...
     satOverhead, wgs84, spLow, satNoS, ch2, d2);
-C = addCheck(C, 'I4 ληξη T310 χωρις in-sync -> RLF, outage', 'λογικο', 1, ...
+C = addCheck(C, 'I4 T310 expiry without in-sync -> RLF, no link', 'logical', 1, ...
              double(n3 == "None"), 0);
-C = addCheck(C, 'I4 RLF ανα χρηστη ανα λεπτο (1 σε 1 s)', '1/min', 60, ...
+C = addCheck(C, 'I4 RLF per UE per minute (1 in 1 s)', '1/min', 60, ...
              k3.Actual.RlfRate_perUserMin, 1e-12);
-C = addCheck(C, 'I4 το RLF δεν ειναι handover', '1/min', 0, k3.Actual.HoRate_perUserMin, 0);
+C = addCheck(C, 'I4 an RLF is not a handover', '1/min', 0, k3.Actual.HoRate_perUserMin, 0);
 [n3b,~,~,~,s3b,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,~,k3b, d3b] = simulateScenario(bsR, uR, ...
     satOverhead, wgs84, spR, satNoS, ch2, d2);
-C = addCheck(C, 'I5 SINR > Qin πριν τη ληξη -> μενει, T310 σταματα', 'λογικο', 1, ...
+C = addCheck(C, 'I5 SINR > Qin before expiry -> stays, T310 stops', 'logical', 1, ...
              double(n3b == "BS1" && s3b > -6 && d3b.Actual.T310 == -1 && ...
                     k3b.Actual.RlfRate_perUserMin == 0), 0);
 
@@ -458,53 +458,57 @@ T = table(string({C.name}'), string({C.unit}'), [C.expected]', [C.actual]', ...
     abs([C.actual]' - [C.expected]'), [C.tol]', logical([C.pass]'), ...
     'VariableNames', {'Check','Unit','Expected','Actual','AbsError','Tolerance','Pass'});
 
-fprintf('\n=== Συστηματική επαλήθευση ισοζυγίου ζεύξης ===\n');
-fprintf('Σενάριο αναφοράς: UMa, fc = %.2f GHz, %d σταθμοί, %d χρήστες, δορυφόρος στα %g km\n\n', ...
+fprintf('\n=== Systematic link-budget verification ===\n');
+fprintf('Reference scenario: UMa, fc = %.2f GHz, %d gNBs, %d UEs, satellite at %g km\n\n', ...
     simParameters.CarrierFrequency/1e9, size(bs2,1), nU, satOverhead(3)/1e3);
-fprintf('%-50s %14s %14s   %s\n', 'Έλεγχος', 'Αναμενόμενο', 'Μετρημένο', 'Αποτέλεσμα');
+fprintf('%-52s %14s %14s   %s\n', 'Check', 'Expected', 'Measured', 'Result');
 for k = 1:height(T)
-    fprintf('%-50s %14.6g %14.6g   %s\n', T.Check(k), T.Expected(k), T.Actual(k), ...
+    fprintf('%-52s %14.6g %14.6g   %s\n', T.Check(k), T.Expected(k), T.Actual(k), ...
         boolText(T.Pass(k)));
 end
 
 nPass = sum(T.Pass); nAll = height(T);
-fprintf('\nΣύνολο: %d/%d έλεγχοι πέρασαν.\n', nPass, nAll);
-fprintf('Συγκρίσεις υποψηφίων για ισοπαλία: %d, πεπερασμένες ισοπαλίες: %d\n', nCmp, tieCount);
-fprintf('Επίγεια οκτάβα 500->1000 m: %.2f dB (ελεύθερος χώρος: %.2f dB)\n\n', ...
+fprintf('\nTotal: %d/%d checks passed.\n', nPass, nAll);
+fprintf('Candidate comparisons checked for ties: %d, finite ties: %d\n', nCmp, tieCount);
+fprintf('Terrestrial octave 500->1000 m: %.2f dB (free space: %.2f dB)\n\n', ...
     umaOctaveDb, 20*log10(2));
 
 %% ------------------ Γράφημα ------------------
-fig = figure('Visible','off','Position',[100 100 1000 340]);
+Cc = thesisColors();
+fig = thesisFigure(17, 6.8);
+tl = tiledlayout(fig, 1, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 
-subplot(1,3,1);
+ax = nexttile(tl);
 dPlot = logspace(2,6,60);
-semilogx(dPlot, arrayfun(@(d) fspl(d, lambdaSat), dPlot), 'LineWidth', 1.4); hold on;
-semilogx(dPlot, fspl(dPlot(1), lambdaSat) + 20*log10(dPlot/dPlot(1)), '--', 'LineWidth', 1.2);
-grid on; xlabel('Απόσταση [m]'); ylabel('Απώλειες [dB]');
-legend({'fspl','20 dB ανά δεκάδα'}, 'Location','southeast');
-title('Ελεύθερος χώρος: +6,02 dB ανά οκτάβα');
+semilogx(ax, dPlot, arrayfun(@(d) fspl(d, lambdaSat), dPlot), '-', 'Color', Cc.cat(1,:)); hold(ax, 'on');
+semilogx(ax, dPlot, fspl(dPlot(1), lambdaSat) + 20*log10(dPlot/dPlot(1)), '--', 'Color', Cc.cat(2,:));
+grid(ax, 'on'); xlabel(ax, 'Distance [m]'); ylabel(ax, 'Path loss [dB]');
+legend(ax, {'FSPL (model)','20 dB per decade'}, 'Location','southeast');
+title(ax, '(a) Free space: +6.02 dB per octave', 'FontWeight', 'normal');
 
-subplot(1,3,2);
-plot(offsets, sinrShift1, '-o', 'LineWidth', 1.4); hold on;
-plot(offsets, sinrShift2, '-s', 'LineWidth', 1.4);
-plot(offsets, offsets, '--', 'LineWidth', 1.2);
-grid on; xlabel('Μεταβολή ισχύος εκπομπής [dB]'); ylabel('Μεταβολή SINR [dB]');
-legend({'ένας σταθμός','δύο σταθμοί','κλίση 1'}, 'Location','southeast');
-title('Ισχύς εκπομπής προς SINR');
+ax = nexttile(tl);
+plot(ax, offsets, sinrShift1, '-o', 'Color', Cc.cat(1,:), 'MarkerFaceColor', Cc.cat(1,:), 'MarkerSize', 4); hold(ax, 'on');
+plot(ax, offsets, sinrShift2, '-s', 'Color', Cc.cat(2,:), 'MarkerFaceColor', Cc.cat(2,:), 'MarkerSize', 4);
+plot(ax, offsets, offsets, '--', 'Color', Cc.text, 'LineWidth', 0.9);
+grid(ax, 'on'); xlabel(ax, 'Change of transmit power [dB]'); ylabel(ax, 'Change of SINR [dB]');
+legend(ax, {'single gNB (noise-limited)','two gNBs (interference)','slope 1'}, 'Location','northwest');
+title(ax, '(b) Transmit power vs SINR', 'FontWeight', 'normal');
 
-subplot(1,3,3);
-bar([nodeBwPerNode(:)/1e6, bwSumPerNode(:)/1e6]);
-grid on; ylabel('Εύρος ζώνης [MHz]');
-set(gca, 'XTick', 1:numel(nodeLabels), 'XTickLabel', nodeLabels);
-legend({'διαθέσιμο','άθροισμα μεριδίων'}, 'Location','northoutside', ...
-    'Orientation','horizontal');
-title('Διατήρηση εύρους ζώνης');
+ax = nexttile(tl);
+b = bar(ax, [nodeBwPerNode(:)/1e6, bwSumPerNode(:)/1e6], 'EdgeColor', 'w');
+b(1).FaceColor = Cc.cat(1,:); b(2).FaceColor = Cc.cat(2,:);
+grid(ax, 'on'); ylabel(ax, 'Bandwidth [MHz]');
+set(ax, 'XTick', 1:numel(nodeLabels), 'XTickLabel', nodeLabels);
+ylim(ax, [0 1.3*max(nodeBwPerNode(:)/1e6)]);
+legend(ax, {'available','sum of user shares'}, 'Location','north', 'Orientation','horizontal');
+title(ax, '(c) Bandwidth conservation', 'FontWeight', 'normal');
+title(tl, sprintf('Link-budget verification: %d/%d checks passed', nPass, nAll), ...
+    'FontWeight', 'bold', 'FontSize', 10);
 
 pngPath = fullfile(outputDir, 'link_budget_validation.png');
-saveas(fig, pngPath);
-close(fig);
+saveThesisFigure(fig, pngPath);
 
-fprintf('Αποτελέσματα -> %s\n', pngPath);
+fprintf('Figure -> %s\n', pngPath);
 
 %% ------------------ Versioning ------------------
 runParams = struct('rngSeeds', [7 11 13 17], 'scenario', 'UMa', ...
@@ -524,7 +528,7 @@ saveRunVersion('linkBudgetValidation', runParams, {pngPath}, label);
 
 if nPass < nAll
     error('linkBudgetValidation:Failed', ...
-        'Απέτυχαν %d από %d έλεγχοι ισοζυγίου ζεύξης.', nAll - nPass, nAll);
+        '%d of %d link-budget checks failed.', nAll - nPass, nAll);
 end
 
 end
@@ -555,8 +559,8 @@ end
 
 function s = boolText(tf)
 if tf
-    s = 'ΟΚ';
+    s = 'PASS';
 else
-    s = 'ΑΠΕΤΥΧΕ';
+    s = 'FAIL';
 end
 end

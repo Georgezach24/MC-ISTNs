@@ -118,53 +118,61 @@ T = table(userCounts(:), capA, eA, bitPerJouleA, capB, eB, bitPerJouleB, ...
 scaleOk  = all(capErrA < 1e-9);
 energyOk = all(eErrA < 1e-9);
 
-fprintf('\n=== Ενεργειακό μοντέλο: εξάρτηση από το πλήθος χρηστών ===\n\n');
-fprintf('Α. Πανομοιότυποι χρήστες σε %d m\n', dRefM);
-fprintf('%8s %14s %14s %16s\n','L','C_u [Mbps]','E_u [uJ/bit]','δίκτυο [Mbit/J]');
+fprintf('\n=== Energy model: dependence on the number of users ===\n\n');
+fprintf('A. Identical users at %d m\n', dRefM);
+fprintf('%8s %14s %14s %16s\n','L','C_u [Mbps]','E_u [uJ/bit]','network [Mbit/J]');
 for k = 1:nA
     fprintf('%8d %14.3f %14.4f %16.4f\n', T.NumUsers(k), T.CapA_Mbps(k), ...
         T.EnergyA_uJ(k), T.BitPerJouleA(k)/1e6);
 end
-fprintf('\nΒ. Χρήστες σε αυξανόμενες αποστάσεις (300 m + %d m ανά χρήστη)\n', distStepM);
-fprintf('%8s %14s %14s %16s\n','L','C_u [Mbps]','E_u [uJ/bit]','δίκτυο [Mbit/J]');
+fprintf('\nB. Users at increasing distances (300 m + %d m per user)\n', distStepM);
+fprintf('%8s %14s %14s %16s\n','L','C_u [Mbps]','E_u [uJ/bit]','network [Mbit/J]');
 for k = 1:nA
     fprintf('%8d %14.3f %14.4f %16.4f\n', T.NumUsers(k), T.CapB_Mbps(k), ...
         T.EnergyB_uJ(k), T.BitPerJouleB(k)/1e6);
 end
 
-fprintf('\n1. Χωρητικότητα ανά χρήστη ~ 1/L                 : %s\n', boolText(scaleOk));
-fprintf('2. Ενέργεια ανά bit ανεξάρτητη του L             : %s\n', boolText(energyOk));
-fprintf('   (το L απλοποιείται: E = P/(B*SE))\n');
-fprintf('3. Μεταβολή bit/J δικτύου στο πείραμα Β          : %.1f%%\n\n', ...
+fprintf('\n1. Capacity per user ~ 1/L                       : %s\n', boolText(scaleOk));
+fprintf('2. Energy per bit independent of L               : %s\n', boolText(energyOk));
+fprintf('   (L cancels out: E = P/(B*SE))\n');
+fprintf('3. Change of network bit/J in experiment B       : %.1f%%\n\n', ...
     100*(T.BitPerJouleB(end)-T.BitPerJouleB(1))/T.BitPerJouleB(1));
 
 if ~(scaleOk && energyOk)
-    error('energyModelValidation:Failed', 'Ο έλεγχος του ενεργειακού μοντέλου απέτυχε.');
+    error('energyModelValidation:Failed', 'Energy model check failed.');
 end
 
 %% ------------------ Γράφημα ------------------
-fig = figure('Visible','off','Position',[100 100 950 340]);
+C = thesisColors();
+fig = thesisFigure(17, 6.5);
+tl = tiledlayout(fig, 1, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
+mk = {'MarkerSize', 4};
 
-subplot(1,3,1);
-plot(T.NumUsers, T.CapA_Mbps, '-o', 'LineWidth', 1.4); grid on;
-xlabel('Πλήθος χρηστών L'); ylabel('C_u [Mbps]'); title('Χωρητικότητα ανά χρήστη');
+ax = nexttile(tl);
+plot(ax, T.NumUsers, T.CapA_Mbps, '-o', 'Color', C.cat(1,:), 'MarkerFaceColor', C.cat(1,:), mk{:});
+grid(ax, 'on'); xlabel(ax, 'Users per cell L'); ylabel(ax, 'C_u [Mbps]');
+title(ax, '(a) Capacity per user (A)', 'FontWeight', 'normal');
 
-subplot(1,3,2);
-plot(T.NumUsers, T.EnergyA_uJ, '-o', 'LineWidth', 1.4); grid on;
-xlabel('Πλήθος χρηστών L'); ylabel('E_u [\muJ/bit]'); title('Ενέργεια ανά bit');
-ylim([0 max(T.EnergyA_uJ)*1.5]);
+ax = nexttile(tl);
+plot(ax, T.NumUsers, T.EnergyA_uJ, '-o', 'Color', C.cat(1,:), 'MarkerFaceColor', C.cat(1,:), mk{:});
+grid(ax, 'on'); xlabel(ax, 'Users per cell L'); ylabel(ax, 'E_u [\muJ/bit]');
+title(ax, '(b) Energy per bit (A)', 'FontWeight', 'normal');
+ylim(ax, [0 max(T.EnergyA_uJ)*1.5]);
 
-subplot(1,3,3);
-plot(T.NumUsers, T.BitPerJouleA/1e6, '-o', 'LineWidth', 1.4); hold on;
-plot(T.NumUsers, T.BitPerJouleB/1e6, '-s', 'LineWidth', 1.4); grid on;
-xlabel('Πλήθος χρηστών L'); ylabel('Mbit/J'); title('Απόδοση δικτύου');
-legend({'ίδια απόσταση','αυξανόμενη απόσταση'}, 'Location','best');
+ax = nexttile(tl);
+plot(ax, T.NumUsers, T.BitPerJouleA/1e6, '-o', 'Color', C.cat(1,:), 'MarkerFaceColor', C.cat(1,:), mk{:});
+hold(ax, 'on');
+plot(ax, T.NumUsers, T.BitPerJouleB/1e6, '-s', 'Color', C.cat(2,:), 'MarkerFaceColor', C.cat(2,:), mk{:});
+grid(ax, 'on'); xlabel(ax, 'Users per cell L'); ylabel(ax, 'Network efficiency [Mbit/J]');
+title(ax, '(c) Network energy efficiency', 'FontWeight', 'normal');
+legend(ax, {'A: same distance','B: increasing distance'}, 'Location', 'southwest');
+title(tl, 'Energy model check (EARTH power model, Auer et al. 2011; equal resource sharing)', ...
+    'FontWeight', 'bold', 'FontSize', 10);
 
 pngPath = fullfile(outputDir, 'energy_model_validation.png');
-saveas(fig, pngPath);
-close(fig);
+saveThesisFigure(fig, pngPath);
 
-fprintf('Αποτελέσματα -> %s\n', pngPath);
+fprintf('Figure -> %s\n', pngPath);
 
 runParams = struct('rngSeed', 1, 'scenario', 'UMa', 'userCounts', userCounts, ...
     'refDistance_m', dRefM, 'distStep_m', distStepM, ...
@@ -179,8 +187,8 @@ end
 
 function s = boolText(tf)
 if tf
-    s = 'ΟΚ';
+    s = 'PASS';
 else
-    s = 'ΑΠΕΤΥΧΕ';
+    s = 'FAIL';
 end
 end

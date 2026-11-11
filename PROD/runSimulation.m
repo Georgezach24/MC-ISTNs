@@ -17,8 +17,9 @@ function [convTable, summary] = runSimulation(opts)
 %   Dataset/dataset.csv            μία γραμμή ανά (διέλευση, δείγμα, χρήστη),
 %                                  κάθε datasetStride βήματα
 %   Dataset/handover_events.mat    ένα γεγονός ανά handover (εκπαίδευση ML)
-%   Results/*.png                  διέλευση αναφοράς, σύγκλιση, κέρδη πολιτικών
-%   Results/simulation_results.mat οι αριθμοί πίσω από τα γραφήματα
+%   Results/*.png                  γραφήματα της plotResults (κέρδη πολιτικών, κινητικότητα,
+%                                  σύγκλιση, διέλευση αναφοράς, τοπολογία)
+%   Results/simulation_results.mat οι αριθμοί πίσω από τα γραφήματα και το plotInfo
 
 %% ------------------ Επιλογές ------------------
 if nargin < 1 || isempty(opts)
@@ -98,17 +99,17 @@ if opts.resume && isfile(checkpointPath) && isfile(opts.datasetPath)
             'NumHeaderLines', 1));
         if lastInCsv ~= S.ckpt.passIdx
             error('runSimulation:CheckpointMismatch', ...
-                ['Το CSV φτάνει ως τη διέλευση %d ενώ το σημείο ελέγχου ως τη %d. ' ...
-                 'Η προηγούμενη εκτέλεση διακόπηκε σε ακατάλληλη στιγμή. Σβήσε τα ' ...
-                 '%s και %s και ξεκίνα από την αρχή.'], ...
+                ['The dataset reaches pass %d but the checkpoint pass %d: the previous ' ...
+                 'run was interrupted between the two writes. Delete %s and %s and ' ...
+                 'start again.'], ...
                 lastInCsv, S.ckpt.passIdx, opts.datasetPath, checkpointPath);
         end
         resumeState = S.ckpt;
-        fprintf('Συνέχιση από σημείο ελέγχου: %d διελεύσεις ήδη ολοκληρωμένες.\n', ...
+        fprintf('Resuming from checkpoint: %d passes already completed.\n', ...
             resumeState.passIdx);
     else
-        fprintf(['Βρέθηκε σημείο ελέγχου με διαφορετικές παραμέτρους - ' ...
-                 'αγνοείται και η εκτέλεση ξεκινά από την αρχή.\n']);
+        fprintf(['Checkpoint found with different parameters: ignored, ' ...
+                 'the run starts from pass 1.\n']);
     end
 end
 
@@ -171,13 +172,13 @@ if opts.wrapAround
     allImg = reshape(reshape(hexOffsets, numBs, 1, 2) + reshape(wrapShiftM, 1, numImg, 2), [], 2);
     for g = 1:size(ringOffsets,1)
         if min(hypot(allImg(:,1) - ringOffsets(g,1), allImg(:,2) - ringOffsets(g,2))) > 1e-6
-            error('runSimulation:WrapAround', 'Η θέση %d του επόμενου δακτυλίου δεν είναι αντίγραφο σταθμού.', g);
+            error('runSimulation:WrapAround', 'Wrap-around: position %d of the next ring is not an image of a site.', g);
         end
     end
     dPair = hypot(allImg(:,1) - allImg(:,1)', allImg(:,2) - allImg(:,2)');
     dPair(1:size(dPair,1)+1:end) = Inf;
     if min(dPair(:)) < opts.bsIsdM - 1e-6
-        error('runSimulation:WrapAround', 'Επικαλυπτόμενα αντίγραφα σταθμών.');
+        error('runSimulation:WrapAround', 'Wrap-around: overlapping site images.');
     end
     p0 = [123.4 56.7];
     dRef = [];
@@ -187,7 +188,7 @@ if opts.wrapAround
         if isempty(dRef)
             dRef = sort(dW);
         elseif max(abs(sort(dW) - dRef)) > 1e-6
-            error('runSimulation:WrapAround', 'Ο περίγυρος του σταθμού %d διαφέρει από του κεντρικού.', b);
+            error('runSimulation:WrapAround', 'Wrap-around: the surroundings of site %d differ from those of the central site.', b);
         end
     end
 end
@@ -223,7 +224,7 @@ switch opts.bsSectors
     case 1
         sectorBoresightDeg = [];
     otherwise
-        error('runSimulation:Sectors', 'bsSectors: 1 ή 3.');
+        error('runSimulation:Sectors', 'bsSectors must be 1 or 3.');
 end
 numSec   = opts.bsSectors;
 numCells = numBs * numSec;
@@ -296,9 +297,9 @@ userRMinM    = 35;
 userRMaxM    = cellRadiusM + maxWalkM;
 if userRMinM >= userRMaxM || 2*bsClusterRadiusM + cellRadiusM + maxWalkM > d2dMaxM
     error('runSimulation:WindowTooLong', ...
-        ['Με ταχύτητα %.2f m/s και παράθυρο %.0f s ο χρήστης διανύει %.0f m, ' ...
-         'οπότε σε πλέγμα %d δακτυλίων με ISD %g m κάποια ζεύξη θα έβγαινε από ' ...
-         'το πεδίο ισχύος [%d, %d] m. Μείωσε το passWindowS ή το bsRings.'], ...
+        ['At %.2f m/s over a %.0f s window a UE moves %.0f m, so with %d rings ' ...
+         'and ISD %g m some link would leave the UMa validity range [%d, %d] m ' ...
+         '(TR 38.901 Table 7.4.1-1). Reduce passWindowS or bsRings.'], ...
         ueSpeedMps, opts.passWindowS, maxWalkM, opts.bsRings, opts.bsIsdM, d2dMinM, d2dMaxM);
 end
 
@@ -407,28 +408,28 @@ checksRun = 0;
 gateChecksRun = 0;   % handovers *ML με ελεγμένα χαρακτηριστικά
 totalRows = 0;
 
-fprintf('Ενιαία προσομοίωση ISTN\n');
-fprintf('  Δt = %g s | ταχύτητα χρήστη = %g km/h (%.3f m/s) | παράθυρο διέλευσης = %g s\n', ...
+fprintf('ISTN system-level simulation: 5G NR UMa (TN) + LEO-600 (NTN)\n');
+fprintf('  Time step = %g s | UE speed = %g km/h (%.3f m/s) | pass window = %g s\n', ...
     opts.dtSeconds, opts.ueSpeedKmh, ueSpeedMps, opts.passWindowS);
-fprintf('  Μετατόπιση ανά βήμα = %.3f m (όριο M.2412 Παρ.1 §5.3.2: 1 m)\n', ueSpeedMps*opts.dtSeconds);
-fprintf('  Τροχιακή περίοδος = %.0f s | ταχύτητα ίχνους = %.0f m/s\n', orbitalPeriodS, groundSpeedMps);
-fprintf('  Εύρος εγκάρσιας μετατόπισης ίχνους = ±%.2f°\n', rad2deg(raanSpanRad));
-fprintf('  Σταθμοί βάσης: %d sites x %d τομείς = %d κελιά (εξαγωνικό πλέγμα, ISD %g m) | χρήστες ανά διέλευση: %d-%d, ομοιόμορφα στις κυψέλες, διαδρομή >= %.0f m από κάθε σταθμό\n', ...
+fprintf('  UE displacement per step = %.3f m (ITU-R M.2412-0 Annex 1 §5.3.2 limit: 1 m)\n', ueSpeedMps*opts.dtSeconds);
+fprintf('  Orbital period = %.0f s | ground-track speed = %.0f m/s\n', orbitalPeriodS, groundSpeedMps);
+fprintf('  Cross-track offset range of the ground track = ±%.2f°\n', rad2deg(raanSpanRad));
+fprintf('  TN: %d sites x %d sectors = %d cells (hexagonal layout, ISD %g m) | UEs per pass: %d-%d, uniform over the cells, path >= %.0f m from every site\n', ...
     numBs, numSec, numCells, opts.bsIsdM, numUsersRange(1), numUsersRange(2), userRMinM);
-fprintf('  Δορυφόροι: %d στο ίδιο επίπεδο, ανά %.1f s (%.2f°, ισοδύναμο %.1f ανά επίπεδο) | ζενιθιακή ορατότητα %.0f s | FRF = %d (%.0f MHz ανά δέσμη)\n', ...
+fprintf('  NTN: %d satellites in one orbital plane, spaced %.1f s (%.2f°, i.e. %.1f per plane) | zenith-pass visibility %.0f s | FRF = %d (%.0f MHz per beam)\n', ...
     opts.numSats, satSpacingS, rad2deg(meanMotion*satSpacingS), ...
     ternary(satSpacingS > 0, orbitalPeriodS/max(satSpacingS,eps), NaN), 2*halfVisS, ...
     opts.satFreqReuse, satParameters.Bandwidth/1e6);
-fprintf('  Διελεύσεις: %d (σταθερό πλήθος) | γεωμετρία: %s\n', opts.numPasses, ...
-    ternary(opts.geometryGrid, 'στρωματοποιημένη', 'τυχαία'));
-fprintf('  Στόχος ακρίβειας (ITU-R M.2412-0 §7.1, μόνο αναφορά): 95%% CI < %.0f%% σχετικό / %.0f ποσοστιαίες μονάδες\n', ...
+fprintf('  Passes: %d (fixed number) | ground-track offsets: %s\n', opts.numPasses, ...
+    ternary(opts.geometryGrid, 'stratified', 'random'));
+fprintf('  Precision target (ITU-R M.2412-0 §7.1, reported only): 95%% CI half-width < %.0f%% relative / %.0f percentage points\n', ...
     100*opts.ciTolerance, 100*opts.ciToleranceFrac);
-fprintf('  Υστέρηση = %.1f dB | χρόνος επιβεβαίωσης = %d ms (%d βήματα)\n', ...
+fprintf('  Event A3: hysteresis = %.1f dB | time-to-trigger = %d ms (%d steps)\n', ...
     opts.hysteresisDb, opts.timeToTriggerMs, ...
     max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000))));
-fprintf('  Μέτρηση: μέσος όρος %d (επίγ.) / %d (δορυφ.) δειγμάτων ανά βήμα | φίλτρο L3 k = %d -> a = %.3f\n', ...
+fprintf('  Measurement: mean of %d (TN) / %d (NTN) independent samples per step | L3 filter k = %d -> a = %.3f\n', ...
     simParameters.Meas.NAvg, satParameters.Meas.NAvg, opts.l3FilterK, l3Alpha);
-fprintf('  Δείκτες με στόχο ακρίβειας: %s\n\n', strjoin(kpiNames(kpiHasTarget), ', '));
+fprintf('  KPIs with a precision target: %s\n\n', strjoin(kpiNames(kpiHasTarget), ', '));
 
 %% ------------------ Βρόχος διελεύσεων ------------------
 passIdx = 0;
@@ -511,8 +512,8 @@ if opts.numWorkers > 0 && ~isempty(ver('parallel')) && license('test', 'Distrib_
     end
     numWorkers = pool.NumWorkers;
 end
-fprintf('  Εκτέλεση διελεύσεων: %s\n\n', ternary(numWorkers > 0, ...
-    sprintf('παράλληλα, %d workers', numWorkers), 'σειριακά'));
+fprintf('  Pass execution: %s\n\n', ternary(numWorkers > 0, ...
+    sprintf('parallel, %d workers', numWorkers), 'serial'));
 
 mlGateSha256 = '';
 if hasMlGate
@@ -576,7 +577,7 @@ while passIdx < opts.numPasses
         convRows{passIdx} = [passIdx, totalRows, mean(passKpi(1:passIdx,:),1,'omitnan'), relHw];
 
         if mod(passIdx,10) == 0 || passIdx <= 3 || passIdx == opts.numPasses
-            fprintf('  Διέλευση %3d/%d | γραμμές %8d | χωρητ. %6.2f Mbps | served %5.1f%% | sat %5.1f%% | max rel.CI %.4f | μνήμη %5.2f GB\n', ...
+            fprintf('  Pass %3d/%d | rows %8d | mean UE rate %6.2f Mbps | SE target met %5.1f%% | on NTN %5.1f%% | max CI half-width %.4f | memory %5.2f GB\n', ...
                 passIdx, opts.numPasses, totalRows, mean(passKpi(1:passIdx,1),'omitnan'), ...
                 100*mean(passKpi(1:passIdx,3),'omitnan'), ...
                 100*mean(passKpi(1:passIdx,4),'omitnan'), max(relHw(kpiHasTarget)), ...
@@ -691,45 +692,34 @@ pairedTable = table(pairPolicy, pairBaseline, pairMetric, pairN, pairMean, pairH
     'VariableNames', {'Policy','Baseline','Metric','NumPasses','MeanDiff','CI95HalfWidth', ...
                       'CI95Low','CI95High','BaselineMean','RelDiffPct','FracPassesPositive'});
 
-fprintf('\n  Σύγκριση πολιτικών στην ίδια διέλευση (%d διελεύσεις)\n', numPasses);
+fprintf('\n  Policies on the same passes (%d passes, mean over passes)\n', numPasses);
 iPpFrac = find(strcmp(policyMetrics, 'PingPongFrac'), 1);
 iRlf = find(strcmp(policyMetrics, 'RlfRate_perUserMin'), 1);
 iHofFrac = find(strcmp(policyMetrics, 'HoFailFrac'), 1);
 iSatFrac = find(strcmp(policyMetrics, 'FracSatellite'), 1);
-fprintf('    %-18s %12s %12s %12s %10s %14s %10s %14s %10s\n', 'πολιτική', 'ρυθμ.[Mbps]', 'εξυπηρ.', 'εκτός', ...
-    'δορυφ.', 'HO/χρήστη/min', 'ping-pong', 'RLF/χρήστη/min', 'αποτ. HO');
+fprintf('    %-18s %12s %12s %12s %10s %14s %10s %14s %10s\n', 'Policy', 'Thr. [Mbps]', 'SE target', 'No link', ...
+    'On NTN', 'HO/UE/min', 'Ping-pong', 'RLF/UE/min', 'HOF ratio');
 for pI = 1:numPolicy
     hoM = mean(pol(:,pI,iHo),'omitnan');
-    fprintf('    %-18s %12.2f %12.4f %12.4f %9.1f%% %14.3f %9.1f%% %14.3f %9.1f%%\n', policyNames{pI}, ...
-        mean(pol(:,pI,2),'omitnan'), mean(pol(:,pI,3),'omitnan'), ...
-        mean(pol(:,pI,5),'omitnan'), 100*mean(pol(:,pI,iSatFrac),'omitnan'), hoM, ...
+    fprintf('    %-18s %12.2f %11.1f%% %11.2f%% %9.1f%% %14.3f %9.1f%% %14.3f %9.1f%%\n', policyNames{pI}, ...
+        mean(pol(:,pI,2),'omitnan'), 100*mean(pol(:,pI,3),'omitnan'), ...
+        100*mean(pol(:,pI,5),'omitnan'), 100*mean(pol(:,pI,iSatFrac),'omitnan'), hoM, ...
         100*mean(pol(:,pI,iPpFrac),'omitnan'), mean(pol(:,pI,iRlf),'omitnan'), ...
         100*mean(pol(:,pI,iHofFrac),'omitnan'));
 end
-fprintf('\n    Διαφορές ανά διέλευση (πολιτική μείον βάση), 95%% CI:\n');
+fprintf('\n    Paired differences per pass (policy minus baseline), mean ± 95%% CI:\n');
 for q = 1:height(pairedTable)
     signif = ternary(pairedTable.CI95Low(q) > 0 || pairedTable.CI95High(q) < 0, ...
-        '', '   [το CI περιέχει το μηδέν]');
-    fprintf('    %-18s - %-18s %-18s %+10.4f ± %.4f (%+6.1f%%, θετική στο %4.1f%% των διελεύσεων)%s\n', ...
+        '', '   [CI includes 0]');
+    fprintf('    %-18s - %-18s %-26s %+10.4f ± %.4f (%+6.1f%%, positive in %4.1f%% of passes)%s\n', ...
         pairedTable.Policy(q), pairedTable.Baseline(q), pairedTable.Metric(q), pairedTable.MeanDiff(q), ...
         pairedTable.CI95HalfWidth(q), pairedTable.RelDiffPct(q), ...
         100*pairedTable.FracPassesPositive(q), signif);
 end
 fprintf('\n');
 
-%% ------------------ Γράφημα σύγκρισης πολιτικών ------------------
-polPng = fullfile(opts.outputDir, 'policy_gain.png');
-plotPolicyGain(pairedTable, numPasses, polPng);
-mlbPng = fullfile(opts.outputDir, 'mlb_gain.png');
-plotMlbGain(pairedTable, numPasses, opts.mlbMaxOffsetDb, mlbPng);
-
-hoPng = fullfile(opts.outputDir, 'handover_rates.png');
-plotHandoverRates(pol, policyMetrics, policyNames, numPasses, opts.pingPongMtsS, hoPng);
-mlPng = '';
 if hasMlGate
-    mlPng = fullfile(opts.outputDir, 'ml_gain.png');
-    plotMlGain(pairedTable, numPasses, mlGateInfo, opts.mlReportIntervalMs, mlPng);
-    fprintf('  Απόφαση handover με ML: %d handovers με χαρακτηριστικά ίδια με την καταγραφή\n', ...
+    fprintf('  ML handover gate: features identical to the logged ones in %d handover decisions\n', ...
         gateChecksRun);
 end
 
@@ -767,93 +757,56 @@ for k = 1:numKpi
     summary.(['CI95_' kpiNames{k}]) = lastHw(k);
 end
 
-fprintf('\n--- Σύνοψη ---\n');
+fprintf('\n--- Summary ---\n');
 if ciTargetMet
-    fprintf('  Στόχος ακρίβειας: ΕΠΙΤΕΥΧΘΗΚΕ με %d διελεύσεις (εντός στόχου αδιάλειπτα από τη διέλευση %d)\n', ...
+    fprintf('  Precision target: MET with %d passes (continuously within target from pass %d on)\n', ...
         numPasses, ciTargetFromPass);
 else
-    fprintf('  Στόχος ακρίβειας: ΔΕΝ επιτεύχθηκε με %d διελεύσεις. Μέγιστο CI = %.4f. Αύξησε το numPasses.\n', ...
+    fprintf('  Precision target: NOT met with %d passes (largest CI half-width %.4f). Increase numPasses.\n', ...
         numPasses, max(lastHw(kpiHasTarget)));
 end
 for k = 1:numKpi
     if kpiIsFraction(k)
         fprintf('    %-20s %10.4f  (95%% CI ±%.4f)%s\n', kpiNames{k}, ...
-            mean(passKpi(1:numPasses,k),'omitnan'), lastHw(k), ternary(kpiHasTarget(k),'',' [χωρίς στόχο]'));
+            mean(passKpi(1:numPasses,k),'omitnan'), lastHw(k), ternary(kpiHasTarget(k),'',' [no target]'));
     else
         fprintf('    %-20s %10.4f  (95%% CI ±%.2f%%)%s\n', kpiNames{k}, ...
-            mean(passKpi(1:numPasses,k),'omitnan'), 100*lastHw(k), ternary(kpiHasTarget(k),'',' [χωρίς στόχο]'));
+            mean(passKpi(1:numPasses,k),'omitnan'), 100*lastHw(k), ternary(kpiHasTarget(k),'',' [no target]'));
     end
 end
-fprintf('  Διελεύσεις: %d | συνολικός χρόνος προσομοίωσης: %.0f s (%.2f h)\n', ...
+fprintf('  Passes: %d | simulated time: %.0f s (%.2f h)\n', ...
     numPasses, simulatedTimeS, simulatedTimeS/3600);
-fprintf('  Γραμμές συνόλου δεδομένων: %d -> %s\n', totalRows, opts.datasetPath);
-fprintf('  Έλεγχοι κατάστασης χρηστών: %d βήματα, όλοι πέρασαν\n', checksRun);
+fprintf('  Dataset rows: %d -> %s\n', totalRows, opts.datasetPath);
+fprintf('  UE state checks: %d steps, all passed\n', checksRun);
 
-%% ------------------ Πίνακας και γράφημα της διέλευσης αναφοράς ------------------
+%% ------------------ Πίνακας της διέλευσης αναφοράς ------------------
 if ~isempty(fieldnames(refSnapshot))
-    fprintf('\n--- Διέλευση αναφοράς, στιγμή μέγιστης ανύψωσης ---\n');
+    fprintf('\n--- Reference pass, instant of peak elevation ---\n');
     printUserTable(size(refSnapshot.user_geo,1), refSnapshot.bestNodeVec, refSnapshot.bestNodeTypeVec, ...
         refSnapshot.bestDistanceVec, refSnapshot.bestPathLossVec, refSnapshot.bestSinrDbVec, ...
         refSnapshot.capacityMbpsVec, refSnapshot.bestElevationDegVec, ...
         refSnapshot.nodePowerWattsVec, refSnapshot.energyPerBitUJVec);
-    plotNetworkSnapshot(cell_geo, refSnapshot.user_geo, refSnapshot.sat_geo, wgs84, numCells, ...
-        size(refSnapshot.user_geo,1), refSnapshot.bestNodeTypeVec, refSnapshot.bestNodeVec, ...
-        opts.bsIsdM, simParameters.CellBoresightDeg);
-    saveas(gcf, fullfile(opts.outputDir, 'network_3d.png'));
-    close(gcf);
 end
 
-% Οι αριθμοί πίσω από τα γραφήματα· το dataset καταγράφεται μόνο με SHA-256.
-save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'summary');
-outFiles = {resultsMat, polPng, mlbPng, hoPng, fullfile(opts.outputDir,'network_3d.png')};
-if ~isempty(mlPng)
-    outFiles{end+1} = mlPng;
+%% ------------------ Αποθήκευση και γραφήματα ------------------
+% Οι αριθμοί πίσω από τα γραφήματα και ό,τι χρειάζεται η plotResults για να
+% τα ξαναφτιάξει χωρίς νέα εκτέλεση· το dataset καταγράφεται μόνο με SHA-256.
+plotInfo = struct('numPasses', numPasses, 'ciTolerance', opts.ciTolerance, ...
+    'ciToleranceFrac', opts.ciToleranceFrac, 'kpiNames', {kpiNames}, ...
+    'kpiIsFraction', kpiIsFraction, 'kpiHasTarget', kpiHasTarget, ...
+    'mlbMaxOffsetDb', opts.mlbMaxOffsetDb, 'pingPongMtsS', opts.pingPongMtsS, ...
+    'rlfQoutDb', opts.rlfQoutDb, 'rlfQinDb', opts.rlfQinDb, 'rlfT310Ms', opts.rlfT310Ms, ...
+    'hysteresisDb', opts.hysteresisDb, 'timeToTriggerMs', opts.timeToTriggerMs, ...
+    'gate', [], 'mlReportIntervalMs', opts.mlReportIntervalMs, ...
+    'satMinElevationDeg', satParameters.MinElevationDeg, 'refSnapshot', refSnapshot, ...
+    'cellGeo', cell_geo, 'numCells', numCells, 'bsIsdM', opts.bsIsdM, ...
+    'cellBoresightDeg', simParameters.CellBoresightDeg);
+if hasMlGate
+    plotInfo.gate = struct('NumTrees', mlGateInfo.NumTrees, 'Threshold', mlGateInfo.Threshold);
 end
-
-kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SINR_dB','SatElevation_deg'};
-kpiLabel = {'Χωρητικότητα (Mbps)','Ενέργεια ανά bit (\muJ/bit)','SINR (dB)','Γωνία ανύψωσης (deg)'};
-for k = 1:numel(kpiList)
-    fig = figure('Visible','off');
-    try
-        theme(fig, 'light');
-    catch
-    end
-    hold on;
-    for u = 1:max(refPassTable.UserID)
-        r = sortrows(refPassTable(refPassTable.UserID == u, :), 'Step');
-        plot(r.Time_s, r.(kpiList{k}), 'DisplayName', sprintf('Χρήστης %d', u));
-    end
-    hold off; grid on;
-    xlabel('Χρόνος (s)'); ylabel(kpiLabel{k});
-    legend('Location','best');
-    title(sprintf('%s κατά τη διέλευση αναφοράς', kpiList{k}), 'Interpreter','none');
-    f = fullfile(opts.outputDir, ['temporal_' kpiList{k} '.png']);
-    saveas(fig, f); close(fig);
-    outFiles{end+1} = f; %#ok<AGROW>
-end
-
-% Καμπύλη σύγκλισης.
-fig = figure('Visible','off','Position',[100 100 900 520]);
-try
-    theme(fig, 'light');
-catch
-end
-plot(convTable.PassID, convTable.(['RelCI_' kpiNames{1}]), '-', 'LineWidth', 1.3, 'DisplayName', kpiNames{1});
-hold on;
-for k = 2:numKpi
-    plot(convTable.PassID, convTable.(['RelCI_' kpiNames{k}]), '-', 'LineWidth', 1.3, 'DisplayName', kpiNames{k});
-end
-yline(opts.ciTolerance, '--k', 'LineWidth', 1.2, 'DisplayName', 'στόχος (σχετικό)');
-yline(opts.ciToleranceFrac, ':k', 'LineWidth', 1.2, 'DisplayName', 'στόχος (ποσοστά)');
-hold off; grid on;
-ylim([0 max(0.25, 2*opts.ciTolerance)]);
-xlabel('Πλήθος διελεύσεων');
-ylabel('Ημιεύρος 95% CI (σχετικό· για τα ποσοστά απόλυτο)');
-legend('Location','best','Interpreter','none');
-title('Σύγκλιση δεικτών κατά ITU-R M.2412-0 §7.1');
-f = fullfile(opts.outputDir, 'convergence.png');
-saveas(fig, f); close(fig);
-outFiles{end+1} = f;
+save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'summary', 'plotInfo');
+fprintf('\n');
+outFiles = [{resultsMat}, plotResults(resultsMat, opts.outputDir)];
 
 %% ------------------ Versioning ------------------
 runParams = struct();
@@ -882,7 +835,7 @@ runParams.handoverEvents       = sum(cellfun(@(e) numel(e.PassID), hoEventCells(
 runParams.handoverEventsSha256 = fileSha256(opts.handoverEventsPath);
 runParams.datasetStride    = opts.datasetStride;
 runParams.datasetSampling_s = opts.datasetStride*opts.dtSeconds;
-runParams.durationRule     = 'σταθερό πλήθος διελεύσεων (numPasses)· CI μόνο αναφορά';
+runParams.durationRule     = 'fixed number of passes (numPasses); CI reported only';
 runParams.geometryGrid     = opts.geometryGrid;
 runParams.ciTargetMet      = ciTargetMet;
 runParams.ciTargetFromPass = ciTargetFromPass;
@@ -899,7 +852,7 @@ runParams.mlbReportPeriod_ms = opts.mlbReportPeriodMs;
 runParams.rlf = struct('Qout_dB', opts.rlfQoutDb, 'Qin_dB', opts.rlfQinDb, ...
     'T310_ms', opts.rlfT310Ms, 'N310', opts.rlfN310, 'N311', opts.rlfN311, ...
     'T310_steps', max(1, ceil(opts.rlfT310Ms/(opts.dtSeconds*1000))), ...
-    'source', 'TR 36.839 V11.1.0 Πίν. 5.2.1.3.1· διαδικασία TS 38.331 §5.3.10');
+    'source', 'TR 36.839 V11.1.0 Table 5.2.1.3.1; procedure TS 38.331 §5.3.10');
 runParams.timeToTrigger_steps = max(1, ceil(opts.timeToTriggerMs/(opts.dtSeconds*1000)));
 runParams.measAveraging    = opts.measAveraging;
 runParams.measNAvgTerrestrial = simParameters.Meas.NAvg;
@@ -914,10 +867,10 @@ runParams.mlGateChecks     = gateChecksRun;
 runParams.policies         = strjoin(policyNames, ', ');
 runParams.policyMetrics    = strjoin(policyMetrics, ', ');
 runParams.rngSeed          = opts.rngSeed;
-runParams.rngScheme        = 'rng(rngSeed+passIdx, twister) στην αρχή κάθε διέλευσης· διελεύσεις παράλληλα σε ομάδες, εγγραφή με τη σειρά';
+runParams.rngScheme        = 'rng(rngSeed+passIdx, twister) at the start of each pass; passes run in parallel batches and are written in order';
 runParams.numWorkers       = numWorkers;
 runParams.checksRun        = checksRun;
-runParams.userArea         = 'ομοιόμορφα στις κυψέλες των σταθμών (TR 38.901 Πίν. 7.2-1)';
+runParams.userArea         = 'uniform over the cells of the sites (TR 38.901 Table 7.2-1)';
 runParams.userMinDistBs_m  = userRMinM;
 runParams.userMaxDistNearestBs_m = userRMaxM;
 runParams.maxWalkPerPass_m = maxWalkM;
@@ -955,21 +908,21 @@ runParams.terrestrial      = struct('CarrierFrequency_Hz', simParameters.Carrier
 runParams.terrestrial.Power = simParameters.Power;
 runParams.satellite        = satParameters;
 runParams.sources          = struct( ...
-    'timeStep',   'περίοδος L1->L3 200 ms (TR 36.839 Πίν. 5.3.2.1, TS 38.133 Πίν. 9.2.5.2-1)', ...
-    'duration',   'ITU-R M.2412-0 §7.1 (επαρκές πλήθος drops + αναφορά εύρους διαστημάτων εμπιστοσύνης)· ITU-R M.2514-0 §8.2.4', ...
-    'passWindow', 'TR 38.821 Πίν. 4.2-3 NOTE 1 (visibility time of the satellite)', ...
-    'ueMobility', 'ITU-R M.2412-0 §8.4 ΠΙΝΑΚΑΣ 5 b)/c) (3 km/h, τυχαία ομοιόμορφη κατεύθυνση)', ...
-    'validity',   'TR 38.901 §7.4.1 Πίν. 7.4.1-1 (10 m - 5 km, h_UT 1.5-22.5 m)', ...
+    'timeStep',   'L1->L3 measurement period 200 ms (TR 36.839 Table 5.3.2.1, TS 38.133 Table 9.2.5.2-1)', ...
+    'duration',   'ITU-R M.2412-0 §7.1 (sufficient number of drops, confidence intervals reported); ITU-R M.2514-0 §8.2.4', ...
+    'passWindow', 'TR 38.821 Table 4.2-3 NOTE 1 (visibility time of the satellite)', ...
+    'ueMobility', 'ITU-R M.2412-0 §8.4 Table 5 b)/c) (3 km/h, uniformly random direction)', ...
+    'validity',   'TR 38.901 §7.4.1 Table 7.4.1-1 (10 m - 5 km, h_UT 1.5-22.5 m)', ...
     'hysteresis', 'TS 38.331 §5.5.4.4 (Event A3) + §6.3.2 (Hysteresis, TimeToTrigger)', ...
-    'pingPong',   '3GPP TR 36.839 (ping-pong: επιστροφή στην αρχική κυψέλη με χρόνο παραμονής < MTS = 1 s)', ...
-    'measFilter', 'TS 38.331 §5.5.3.2 (Layer 3 filtering, F_n = (1-a)F_{n-1} + a M_n· NOTE 1 k=0· NOTE 2 λογαριθμικό)', ...
-    'measPeriod', 'TS 38.133 Πίν. 9.2.5.2-1 (FR1 χωρίς DRX: >= 200 ms)', ...
-    'measAvg',    'Clarke 1968, αυτοσυσχέτιση ισχύος J0(2*pi*fD*tau)^2 -> ισοδύναμο πλήθος ανεξάρτητων δειγμάτων ανά βήμα', ...
-    'bsLayout',   'TR 38.901 §7.8 Πίν. 7.8-1 (UMa: εξαγωνικό πλέγμα, ISD 500 m, h_BS 25 m)', ...
-    'satReuse',   'TR 38.821 §6.1.1.1 Πίν. 6.1.1.1-5 (FRF Option 1 = 1 / Option 2 = 3, εύρος ανά δέσμη προσαρμοσμένο στο FRF) + Σχ. 6.1.1.1-2 (ομοδιαυλικές δέσμες = παρεμβολή)', ...
-    'satSpacing', 'σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο', ...
-    'mlGate',     'TS 38.300 §9.2.3.2.1 βήμα 3 (απόφαση HO στον σταθμό) + TR 37.817 §5.3 (AI/ML βελτιστοποίηση κινητικότητας) + Aggarwal et al. ICSigSys 2026 (πρόβλεψη ασταθών HO)· ετικέτα ping-pong TR 36.839 Ορισμός 5', ...
-    'mlReport',   'TS 38.331 ReportConfigNR reportInterval (ms120, ms240, ...): επανάληψη της αναφοράς όσο ισχύει η συνθήκη εισόδου');
+    'pingPong',   'TR 36.839 Definition 5 (return to the source cell with time-of-stay < MTS = 1 s)', ...
+    'measFilter', 'TS 38.331 §5.5.3.2 (Layer 3 filtering, F_n = (1-a)F_{n-1} + a M_n; NOTE 1 k=0; NOTE 2 logarithmic domain)', ...
+    'measPeriod', 'TS 38.133 Table 9.2.5.2-1 (FR1 without DRX: >= 200 ms)', ...
+    'measAvg',    'Clarke 1968, power autocorrelation J0(2*pi*fD*tau)^2 -> equivalent number of independent samples per step', ...
+    'bsLayout',   'TR 38.901 §7.8 Table 7.8-1 (UMa: hexagonal layout, ISD 500 m, h_BS 25 m)', ...
+    'satReuse',   'TR 38.821 §6.1.1.1 Table 6.1.1.1-5 (FRF Option 1 = 1 / Option 2 = 3, bandwidth per beam scaled by FRF) + Figure 6.1.1.1-2 (co-channel beams = interference)', ...
+    'satSpacing', 'design choice: the numSats satellites are exactly those of the plane visible within the window', ...
+    'mlGate',     'TS 38.300 §9.2.3.2.1 step 3 (HO decision at the source gNB) + TR 37.817 §5.3 (AI/ML mobility optimisation) + Aggarwal et al. ICSigSys 2026 (prediction of unstable HOs); ping-pong label TR 36.839 Definition 5', ...
+    'mlReport',   'TS 38.331 ReportConfigNR reportInterval (ms120, ms240, ...): the report repeats while the entering condition holds');
 
 saveRunVersion('runSimulation', runParams, outFiles, opts.label);
 
@@ -1055,8 +1008,8 @@ for pI = 1:numel(pols)
             gf = newDec.(pol).GateFeat(u,:);
             if ~isequaln(gf, feat)
                 error('runSimulation:GateFeatureMismatch', ...
-                    ['Διέλευση %d, βήμα %d, χρήστης %d (%s): τα χαρακτηριστικά της ' ...
-                     'απόφασης ML διαφέρουν από τα καταγεγραμμένα (μέγιστη διαφορά %g).'], ...
+                    ['Pass %d, step %d, UE %d (%s): the features seen by the ML gate ' ...
+                     'differ from the logged ones (max difference %g).'], ...
                     passIdx, s, u, pol, max(abs(gf - feat), [], 'omitnan'));
             end
             gateChecks = gateChecks + 1;
@@ -1265,294 +1218,6 @@ function s = ternary(cond, a, b)
 if cond, s = a; else, s = b; end
 end
 
-function plotPolicyGain(pairedTable, numPasses, pngPath)
-% Μεικτή πολιτική έναντι των αποκλειστικών: μέση διαφορά κατά ζεύγη με 95% CI.
-% Θετική τιμή = καλύτερη η μεικτή. Ρυθμοί/ενέργεια σε %, ποσοστά χρηστών σε
-% ποσοστιαίες μονάδες· το διαθέσιμο φάσμα αναγράφεται στον τίτλο.
-baselines = ["TerrestrialOnly","SatelliteOnly"];
-baseLabel = {'έναντι μόνο επίγειας','έναντι μόνο δορυφορικής'};
-relMetric = ["MeanCapacity_Mbps","TotalRate_Mbps","BitPerJouleRf","SpectralEff_bpsHz"];
-relLabel  = {'Μέση χωρητικότητα χρήστη','Συνολική ρυθμαπόδοση', ...
-             'Ενεργειακή απόδοση (bit/J)','Φασματική απόδοση'};
-ppMetric  = ["FracServed","FracOutage"];
-ppSign    = [1 -1];
-ppLabel   = {'Αύξηση εξυπηρετούμενων','Μείωση εκτός κάλυψης'};
-
-T = pairedTable(pairedTable.Policy == "Actual", :);
-[relVal, relHw] = gainMatrix(T, baselines, relMetric, ones(1,numel(relMetric)), true);
-[ppVal,  ppHw]  = gainMatrix(T, baselines, ppMetric, ppSign, false);
-specVal         = gainMatrix(T, baselines, "Spectrum_MHz", 1, true);
-
-fig = figure('Visible','off','Position',[100 100 1400 520]);
-try
-    theme(fig, 'light');
-catch
-end
-tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'loose');
-nexttile(tl);
-b = gainPanel(relVal, relHw, relLabel, '%');
-xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
-title('Ρυθμός και ενέργεια');
-
-nexttile(tl);
-gainPanel(ppVal, ppHw, ppLabel, ' μον.');
-xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
-title('Κάλυψη χρηστών');
-gainLegend(b, baseLabel);
-
-title(tl, sprintf(['Υπό εξέταση πολιτική έναντι των αποκλειστικών: %d διελεύσεις, 95%% CI ' ...
-    '(ns: το CI περιέχει το 0)\nΔιαθέσιμο φάσμα: %+.0f%% έναντι μόνο επίγειας, ' ...
-    '%+.0f%% έναντι μόνο δορυφορικής'], numPasses, specVal(1), specVal(2)));
-saveas(fig, pngPath);
-close(fig);
-end
-
-function plotMlbGain(pairedTable, numPasses, mlbOffsetDb, pngPath)
-% Συνεισφορά του MLB. Θετική τιμή = καλύτερη η πρώτη πολιτική (για handovers
-% και ping-pong: λιγότερα).
-pairs = ["ActualMLB","Actual"; "TerrestrialOnlyMLB","TerrestrialOnly"; ...
-         "ActualMLB","TerrestrialOnlyMLB"];
-pairLabel = {'μεικτή: με MLB έναντι χωρίς','επίγεια: με MLB έναντι χωρίς', ...
-             'με MLB: μεικτή έναντι επίγειας'};
-relMetric = ["MeanCapacity_Mbps","TotalRate_Mbps","BitPerJouleRf","HoRate_perUserMin"];
-relSign   = [1 1 1 -1];
-relLabel  = {'Μέση χωρητικότητα χρήστη','Συνολική ρυθμαπόδοση', ...
-             'Ενεργειακή απόδοση (bit/J)','Μείωση handovers'};
-ppMetric  = ["FracServed","FracOutage","PingPongFrac"];
-ppSign    = [1 -1 -1];
-ppLabel   = {'Αύξηση εξυπηρετούμενων','Μείωση εκτός κάλυψης','Μείωση ping-pong (μερίδιο HO)'};
-
-nP = size(pairs,1);
-relVal = nan(numel(relMetric), nP); relHw = relVal;
-ppVal  = nan(numel(ppMetric),  nP); ppHw  = ppVal;
-for j = 1:nP
-    T = pairedTable(pairedTable.Policy == pairs(j,1), :);
-    [relVal(:,j), relHw(:,j)] = gainMatrix(T, pairs(j,2), relMetric, relSign, true);
-    [ppVal(:,j),  ppHw(:,j)]  = gainMatrix(T, pairs(j,2), ppMetric,  ppSign,  false);
-end
-
-fig = figure('Visible','off','Position',[100 100 1400 560]);
-try
-    theme(fig, 'light');
-catch
-end
-tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'loose');
-nexttile(tl);
-b = gainPanel(relVal, relHw, relLabel, '%');
-xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
-title('Ρυθμός, ενέργεια, handovers');
-
-nexttile(tl);
-gainPanel(ppVal, ppHw, ppLabel, ' μον.');
-xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
-title('Κάλυψη χρηστών και ping-pong');
-gainLegend(b, pairLabel);
-
-title(tl, sprintf(['Εξισορρόπηση φόρτου (MLB, TS 38.300 §15.5.1): %d διελεύσεις, 95%% CI ' ...
-    '(ns: το CI περιέχει το 0)\nμετατόπιση A3 = %g dB \\times διαφορά εικονικού φόρτου ' ...
-    '(Nasri & Altman), φόρτος κατά Awada et al.'], numPasses, mlbOffsetDb));
-saveas(fig, pngPath);
-close(fig);
-end
-
-function plotMlGain(pairedTable, numPasses, info, reportMs, pngPath)
-% Συνεισφορά της απόφασης ML. Αριστερά οι δείκτες κινητικότητας (TR 36.839),
-% δεξιά handovers, RLF και ρυθμός. Θετική τιμή = καλύτερη η πρώτη πολιτική.
-pairs = ["ActualML","Actual"; "ActualMLBML","ActualMLB"; "ActualMLBML","Actual"];
-pairLabel = {'A3: με ML έναντι χωρίς','A3 + MLB: με ML έναντι χωρίς', ...
-             'A3 + MLB + ML έναντι σκέτου A3'};
-mobMetric = ["PingPongFrac","HoFailFrac","FracOutage"];
-mobSign   = [-1 -1 -1];
-mobLabel  = {'Μείωση ping-pong (μερίδιο HO)','Μείωση αποτυχιών HO (μερίδιο)', ...
-             'Μείωση εκτός κάλυψης'};
-relMetric = ["HoRate_perUserMin","RlfRate_perUserMin","MeanCapacity_Mbps","TotalRate_Mbps"];
-relSign   = [-1 -1 1 1];
-relLabel  = {'Μείωση handovers','Μείωση RLF','Μέση χωρητικότητα χρήστη', ...
-             'Συνολική ρυθμαπόδοση'};
-
-nP = size(pairs,1);
-mobVal = nan(numel(mobMetric), nP); mobHw = mobVal;
-relVal = nan(numel(relMetric), nP); relHw = relVal;
-for j = 1:nP
-    T = pairedTable(pairedTable.Policy == pairs(j,1), :);
-    [mobVal(:,j), mobHw(:,j)] = gainMatrix(T, pairs(j,2), mobMetric, mobSign, false);
-    [relVal(:,j), relHw(:,j)] = gainMatrix(T, pairs(j,2), relMetric, relSign, true);
-end
-
-fig = figure('Visible','off','Position',[100 100 1400 560]);
-try
-    theme(fig, 'light');
-catch
-end
-tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'loose');
-nexttile(tl);
-b = gainPanel(mobVal, mobHw, mobLabel, ' μον.');
-xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
-title('Ping-pong, αποτυχίες, κάλυψη');
-
-nexttile(tl);
-gainPanel(relVal, relHw, relLabel, '%');
-xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
-title('Handovers, RLF, ρυθμός');
-gainLegend(b, pairLabel);
-
-title(tl, sprintf(['Απόφαση handover στον σταθμό με ML (TS 38.300 §9.2.3.2.1, TR 37.817 §5.3): ' ...
-    '%d διελεύσεις, 95%% CI (ns: το CI περιέχει το 0)\n%d δέντρα, αναμονή αν P(ping-pong) > %.2f, ' ...
-    'νέα αναφορά μετά από %d ms (reportInterval)'], numPasses, info.NumTrees, ...
-    info.Threshold, reportMs));
-saveas(fig, pngPath);
-close(fig);
-end
-
-function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, pngPath)
-% Ρυθμός επιτυχών handovers ανά πολιτική (TR 36.839 Ορισμός 6), στοιβαγμένος
-% ανά τύπο, με 95% CI στο σύνολο· ping-pong, αποτυχίες και RLF στις ετικέτες.
-typeKey   = {'TerrTerr','TerrSat','SatSat'};
-typeLabel = {'επίγειο \leftrightarrow επίγειο','επίγειο \leftrightarrow δορυφορικό', ...
-             'δορυφορικό \leftrightarrow δορυφορικό'};
-labelOf   = containers.Map( ...
-    {'Actual','TerrestrialOnly','SatelliteOnly','ActualMLB','TerrestrialOnlyMLB', ...
-     'ActualML','ActualMLBML'}, ...
-    {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική','υπό εξέταση + MLB','μόνο επίγεια + MLB', ...
-     'υπό εξέταση + ML','υπό εξέταση + MLB + ML'});
-polLabel  = cellfun(@(n) labelOf(n), policyNames, 'UniformOutput', false);
-cols      = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
-numPolicy = numel(policyNames);
-
-idx    = @(name) find(strcmp(policyMetrics, name), 1);
-polMean = @(name) mean(pol(:,:,idx(name)), 1, 'omitnan')';
-stackV  = zeros(numPolicy, 0);
-segCol  = zeros(0, 3);
-segLbl  = {};
-for t = 1:numel(typeKey)
-    allV = polMean(['HoRate' typeKey{t} '_perUserMin']);
-    if ~any(allV > 0)
-        continue;
-    end
-    stackV(:,end+1) = allV;         %#ok<AGROW>
-    segCol(end+1,:) = cols(t,:);    %#ok<AGROW>
-    segLbl{end+1}   = typeLabel{t}; %#ok<AGROW>
-end
-totV    = pol(:,:,idx('HoRate_perUserMin'));
-totM    = mean(totV, 1, 'omitnan');
-totHw   = 1.96 * std(totV, 0, 1, 'omitnan') ./ sqrt(sum(isfinite(totV), 1));
-rlfM    = mean(pol(:,:,idx('RlfRate_perUserMin')), 1, 'omitnan');
-hofM    = 100 * mean(pol(:,:,idx('HoFailFrac')), 1, 'omitnan');
-ppM     = 100 * mean(pol(:,:,idx('PingPongFrac')), 1, 'omitnan');
-
-fig = figure('Visible','off','Position',[100 100 max(1150, 215*numPolicy) 560]);
-try
-    theme(fig, 'light');
-catch
-end
-if isempty(stackV)
-    stackV = zeros(numPolicy, 1);   % κανένα handover σε καμία πολιτική
-end
-b = bar(stackV, 'stacked');
-for k = 1:min(numel(b), size(segCol,1))
-    b(k).FaceColor = segCol(k,:);
-end
-hold on;
-errorbar(1:numPolicy, totM, totHw, 'k', 'LineStyle', 'none', 'LineWidth', 1.2, ...
-    'HandleVisibility', 'off');
-top = max(totM + totHw, [], 'omitnan');
-if ~(top > 0), top = 1; end
-for pI = 1:numPolicy
-    if totM(pI) > 0
-        lbl = sprintf('%.3f\nping-pong %.1f%%\nαποτυχίες %.1f%%\nRLF %.3f/min', totM(pI), ...
-            ppM(pI), hofM(pI), rlfM(pI));
-    else
-        lbl = sprintf('%.3f\nκανένα handover\nRLF %.3f/min', totM(pI), rlfM(pI));
-    end
-    text(pI, totM(pI) + max(totHw(pI), 0) + 0.04*top, lbl, ...
-        'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', 'FontSize', 9);
-end
-hold off;
-ylim([0 1.45*top]);
-set(gca, 'XTick', 1:numPolicy, 'XTickLabel', polLabel);
-ylabel('Handovers ανά χρήστη ανά λεπτό');
-if ~isempty(segLbl)
-    legend(segLbl, 'Location', 'northoutside', 'NumColumns', 2);
-end
-grid on;
-title(sprintf(['Ρυθμός handovers ανά πολιτική: %d διελεύσεις, 95%% CI\n' ...
-    'επιτυχή handovers του A3· ping-pong = επιστροφή με παραμονή \\leq %g s· ' ...
-    'αποτυχίες και RLF κατά TR 36.839 (Qout -8 dB, Qin -6 dB, T310 1 s)'], ...
-    numPasses, mtsS));
-saveas(fig, pngPath);
-close(fig);
-end
-
-function [val, hw] = gainMatrix(T, baselines, metrics, sgn, relative)
-% (δείκτης x βάση): μέση διαφορά και ημιεύρος CI, σε % ή ποσοστιαίες μονάδες.
-val = nan(numel(metrics), numel(baselines));
-hw  = nan(numel(metrics), numel(baselines));
-for i = 1:numel(metrics)
-    for j = 1:numel(baselines)
-        r = find(T.Baseline == baselines(j) & T.Metric == metrics(i), 1);
-        if isempty(r) || ~isfinite(T.MeanDiff(r))
-            continue;
-        end
-        scale = 100;
-        if relative
-            base = abs(T.BaselineMean(r));
-            if ~(base > eps)
-                continue;
-            end
-            scale = 100 / base;
-        end
-        val(i,j) = sgn(i) * T.MeanDiff(r) * scale;
-        hw(i,j)  = T.CI95HalfWidth(r) * scale;
-    end
-end
-end
-
-function b = gainPanel(val, hw, labels, unit)
-% Οριζόντιες μπάρες: μία ομάδα ανά δείκτη, μία μπάρα ανά βάση.
-nM   = size(val,1);
-cols = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
-span = max([abs(val(:)) + hw(:); 1], [], 'omitnan');
-pad  = 0.03 * span;
-
-b = barh(val, 'grouped');
-hold on;
-for j = 1:numel(b)
-    b(j).FaceColor = cols(j,:);
-    y = b(j).XEndPoints;
-    x = b(j).YEndPoints;
-    errorbar(x, y, [], [], hw(:,j)', hw(:,j)', 'k', 'LineStyle', 'none', ...
-        'LineWidth', 1, 'HandleVisibility', 'off');
-    for i = 1:nM
-        if ~isfinite(x(i))
-            continue;
-        end
-        txt = sprintf('%+.1f%s', x(i), unit);
-        if abs(x(i)) <= hw(i,j)
-            txt = [txt ' (ns)']; %#ok<AGROW>
-        end
-        if x(i) >= 0
-            text(x(i) + hw(i,j) + pad, y(i), txt, 'HorizontalAlignment', 'left', 'FontSize', 8);
-        else
-            text(x(i) - hw(i,j) - pad, y(i), txt, 'HorizontalAlignment', 'right', 'FontSize', 8);
-        end
-    end
-end
-xline(0, 'k-', 'HandleVisibility', 'off');
-hold off;
-
-lo = min([0; val(:) - hw(:)], [], 'omitnan');
-hi = max([0; val(:) + hw(:)], [], 'omitnan');
-xlim([lo - (lo < 0)*0.35*span - pad, hi + 0.35*span]);
-set(gca, 'YTick', 1:nM, 'YTickLabel', labels, 'YDir', 'reverse');
-grid on;
-end
-
-function gainLegend(b, seriesLabels)
-% Ένα κοινό υπόμνημα κάτω από τα δύο panels.
-lgd = legend(b, seriesLabels, 'Orientation', 'horizontal');
-lgd.Layout.Tile = 'south';
-end
-
 function [G, info] = loadHandoverGate(path, reportSteps)
 % Φορτώνει το μοντέλο του Model/train_handover_gate.py και ελέγχει ότι τα
 % χαρακτηριστικά υπάρχουν και ότι η handoverGatePredict δίνει τις ίδιες
@@ -1563,7 +1228,7 @@ featNames = cellstr(S.FeatureNames);
 [ok, featIdx] = ismember(featNames, allNames);
 if ~all(ok)
     error('runSimulation:GateFeatures', ...
-        'Το μοντέλο %s ζητά στήλες που δεν υπάρχουν στην προσομοίωση: %s', ...
+        'Model %s requires features that the simulation does not provide: %s', ...
         path, strjoin(featNames(~ok), ', '));
 end
 M = struct('Roots', double(S.Roots(:)), 'Feature', double(S.Feature(:)), ...
@@ -1579,8 +1244,8 @@ end
 maxErr = max(abs(pM - testP));
 if ~(maxErr <= 1e-12)
     error('runSimulation:GatePredict', ...
-        ['Η handoverGatePredict διαφέρει από το scikit-learn στα δείγματα ' ...
-         'ελέγχου του %s (μέγιστη διαφορά %g).'], path, maxErr);
+        ['handoverGatePredict differs from scikit-learn on the self-test ' ...
+         'samples of %s (max difference %g).'], path, maxErr);
 end
 G = struct('Model', M, 'Threshold', double(S.Threshold_p), ...
     'FeatIdx', featIdx(:)', 'ReportSteps', reportSteps);
@@ -1591,10 +1256,10 @@ info = struct('Path', path, 'Sha256', fileSha256(path), ...
 if isfield(S, 'Meta')
     info.Meta = S.Meta;
 end
-fprintf('  Μοντέλο απόφασης handover: %s\n', path);
-fprintf('    %d δέντρα, %d χαρακτηριστικά, κατώφλι %.3f, reportInterval %d βήματα\n', ...
+fprintf('  ML handover gate: %s\n', path);
+fprintf('    %d trees, %d features, threshold %.3f, reportInterval %d steps\n', ...
     numel(M.Roots), numel(featIdx), G.Threshold, reportSteps);
-fprintf('    ίδιες πιθανότητες με το scikit-learn σε %d δείγματα (μέγιστη διαφορά %.1e)\n', ...
+fprintf('    same probabilities as scikit-learn on %d self-test samples (max difference %.1e)\n', ...
     numel(testP), maxErr);
 end
 
@@ -1865,16 +1530,16 @@ function validateUserState(user_geo, bsImageGeo, wgs84, ueHeightM, d2dMin, d2dMa
 % ισχύος UMa (TR 38.901 Πίν. 7.4.1-1).
 if any(user_geo(:,3) ~= ueHeightM)
     error('runSimulation:HeightDrift', ...
-        'Διέλευση %d, βήμα %d: ύψος χρήστη %.4f m αντί για %.4f m.', ...
+        'Pass %d, step %d: UE height %.4f m instead of %.4f m.', ...
         passIdx, stepIdx, max(abs(user_geo(:,3))), ueHeightM);
 end
 if ~all(isfinite(user_geo(:)))
     error('runSimulation:NonFiniteGeo', ...
-        'Διέλευση %d, βήμα %d: μη πεπερασμένη συντεταγμένη χρήστη.', passIdx, stepIdx);
+        'Pass %d, step %d: non-finite UE coordinate.', passIdx, stepIdx);
 end
 if any(abs(user_geo(:,1)) > 90) || any(abs(user_geo(:,2)) > 180)
     error('runSimulation:GeoOutOfBounds', ...
-        'Διέλευση %d, βήμα %d: συντεταγμένη χρήστη εκτός ορίων.', passIdx, stepIdx);
+        'Pass %d, step %d: UE coordinate out of bounds.', passIdx, stepIdx);
 end
 
 numUsers = size(user_geo,1);
@@ -1889,13 +1554,13 @@ for u = 1:numUsers
     d2d = d2dAll(u,:)';
     if min(d2d) < minDistBs - 1e-6
         error('runSimulation:TooCloseToBs', ...
-            'Διέλευση %d, βήμα %d, χρήστης %d: %.2f m από σταθμό (< %g m).', ...
+            'Pass %d, step %d, UE %d: %.2f m from a site (< %g m).', ...
             passIdx, stepIdx, u, min(d2d), minDistBs);
     end
     if ~any(d2d >= d2dMin & d2d <= d2dMax)
         error('runSimulation:NoValidLink', ...
-            ['Διέλευση %d, βήμα %d, χρήστης %d: καμία επίγεια ζεύξη εντός ' ...
-             '[%d, %d] m (ελάχιστη απόσταση %.1f m, μέγιστη %.1f m).'], ...
+            ['Pass %d, step %d, UE %d: no terrestrial link within ' ...
+             '[%d, %d] m (min distance %.1f m, max %.1f m).'], ...
             passIdx, stepIdx, u, d2dMin, d2dMax, min(d2d), max(d2d));
     end
 end
@@ -1907,27 +1572,27 @@ function validateOutputs(typeVec, capacityVec, throughputVec, nodeLoadVec, sinrV
 isOut = typeVec == "Outage";
 if any(isOut & (~isnan(capacityVec) | throughputVec ~= 0 | nodeLoadVec ~= 0))
     error('runSimulation:OutageInconsistent', ...
-        'Διέλευση %d, βήμα %d: χρήστης σε outage με μη μηδενική χωρητικότητα/ρυθμαπόδοση/φορτίο.', ...
+        'Pass %d, step %d: UE without a usable link has non-zero capacity, throughput or load.', ...
         passIdx, stepIdx);
 end
 if any(~isOut & (~isfinite(capacityVec) | capacityVec < 0))
     error('runSimulation:ServedInconsistent', ...
-        'Διέλευση %d, βήμα %d: συνδεδεμένος χρήστης χωρίς πεπερασμένη μη αρνητική χωρητικότητα.', ...
+        'Pass %d, step %d: connected UE without a finite non-negative capacity.', ...
         passIdx, stepIdx);
 end
 if any(~isOut & sinrVec >= 10*log10(2^0.2344 - 1) & capacityVec <= 0)
     error('runSimulation:ServedInconsistent', ...
-        'Διέλευση %d, βήμα %d: χρήστης πάνω από το MCS 0 με μηδενική χωρητικότητα.', ...
+        'Pass %d, step %d: UE above MCS 0 with zero capacity.', ...
         passIdx, stepIdx);
 end
 if any(~isOut & nodeLoadVec < 1)
     error('runSimulation:LoadInconsistent', ...
-        'Διέλευση %d, βήμα %d: εξυπηρετούμενος χρήστης με φορτίο κόμβου < 1.', ...
+        'Pass %d, step %d: connected UE on a node with load < 1.', ...
         passIdx, stepIdx);
 end
 if any(~isOut & isnan(sinrVec) & capacityVec ~= 0)
     error('runSimulation:SinrInconsistent', ...
-        'Διέλευση %d, βήμα %d: χρήστης χωρίς ζεύξη στο μοντέλο με μη μηδενική χωρητικότητα.', ...
+        'Pass %d, step %d: UE without a modelled link has non-zero capacity.', ...
         passIdx, stepIdx);
 end
 end
