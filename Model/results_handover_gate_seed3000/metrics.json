@@ -1,0 +1,252 @@
+{
+  "data": {
+    "files": [
+      {
+        "path": "Dataset\\ml_train\\seed3000\\handover_events.mat",
+        "sha256": "908a47324a62eb3c296b83c2d44d5074e888ab226b992fb9e6eb941e575d77d8",
+        "rngSeed": 3000,
+        "events": 154939,
+        "passes": 150
+      }
+    ],
+    "pingPongMaxStay_s": 0.8,
+    "policies": [
+      "Actual",
+      "ActualMLB"
+    ],
+    "events": 154803,
+    "passes": 150,
+    "pingPong": 1746
+  },
+  "split": {
+    "test_size": 0.25,
+    "by": "pass (seed, PassID)",
+    "train_passes": 112,
+    "test_passes": 38
+  },
+  "model": {
+    "type": "RandomForestClassifier",
+    "n_estimators": 300,
+    "max_depth": 12,
+    "min_samples_leaf": 5,
+    "sentinel": -1000.0,
+    "features": [
+      "NumUsers",
+      "ReturnToPrev",
+      "StayFrom_s",
+      "SinrServ_dB",
+      "SinrCand_dB",
+      "Gap_dB",
+      "DeltaSinr1s_dB",
+      "DeltaGap1s_dB",
+      "AvgSinr3s_dB",
+      "AvgGap3s_dB",
+      "SlopeSinr3s_dBps",
+      "SlopeGap3s_dBps",
+      "ElevFrom_deg",
+      "ElevTo_deg",
+      "DistFrom_m",
+      "DistTo_m",
+      "LoadFrom",
+      "LoadTo",
+      "UsersOnFrom",
+      "UsersOnTo",
+      "MlbOffset_dB",
+      "FromSat",
+      "ToSat"
+    ],
+    "nodes": 249170
+  },
+  "cv": {
+    "1": {
+      "mean_ap": 0.10498112243986378,
+      "folds": [
+        0.10771266123612695,
+        0.10188723887523753,
+        0.10534346720822685
+      ]
+    },
+    "5": {
+      "mean_ap": 0.12030034057090903,
+      "folds": [
+        0.12140313745188465,
+        0.1136482062967243,
+        0.12584967796411817
+      ]
+    },
+    "20": {
+      "mean_ap": 0.11662834544763151,
+      "folds": [
+        0.11472299719099414,
+        0.11151579031505697,
+        0.12364624883684341
+      ]
+    },
+    "50": {
+      "mean_ap": 0.11399928975496935,
+      "folds": [
+        0.10370149936131959,
+        0.11342406555646319,
+        0.12487230434712525
+      ]
+    }
+  },
+  "threshold": {
+    "rule": "max F1, out-of-fold (training passes)",
+    "threshold": 0.09408564561966708,
+    "f1": 0.19369817578772802,
+    "precision": 0.16070445789763346,
+    "recall": 0.24373956594323873
+  },
+  "test": {
+    "n": 43449,
+    "positives": 548,
+    "roc_auc": 0.8840804461196266,
+    "average_precision": 0.1138263664951067,
+    "brier": 0.01172592193780666,
+    "threshold": 0.09408564561966708,
+    "precision": 0.16644993498049415,
+    "recall": 0.23357664233576642,
+    "confusion": {
+      "tn": 42260,
+      "fp": 641,
+      "fn": 420,
+      "tp": 128
+    },
+    "held_fraction": 0.017698911367350228,
+    "by_policy": {
+      "Actual": {
+        "n": 15966,
+        "positives": 51,
+        "average_precision": 0.03490530674727594,
+        "precision": 0.125,
+        "recall": 0.0392156862745098
+      },
+      "ActualMLB": {
+        "n": 27483,
+        "positives": 497,
+        "average_precision": 0.121713550276907,
+        "precision": 0.16733067729083664,
+        "recall": 0.2535211267605634
+      }
+    }
+  },
+  "permutation_importance": {
+    "NumUsers": {
+      "mean": -0.0007637452057598859,
+      "std": 0.0009468328881090882
+    },
+    "ReturnToPrev": {
+      "mean": 0.002088623754527835,
+      "std": 0.0005013976573762566
+    },
+    "StayFrom_s": {
+      "mean": 0.01831202339324967,
+      "std": 0.0003135172622451599
+    },
+    "SinrServ_dB": {
+      "mean": 0.01905827024033823,
+      "std": 0.0028971039662293125
+    },
+    "SinrCand_dB": {
+      "mean": 0.05981562587879848,
+      "std": 0.0016257062440784788
+    },
+    "Gap_dB": {
+      "mean": 0.07948405625042568,
+      "std": 0.0027414099715371274
+    },
+    "DeltaSinr1s_dB": {
+      "mean": 0.005375389445278272,
+      "std": 0.002201903898978279
+    },
+    "DeltaGap1s_dB": {
+      "mean": 0.009155793825429045,
+      "std": 0.001902098301130747
+    },
+    "AvgSinr3s_dB": {
+      "mean": 0.01169315279895248,
+      "std": 0.0013107231936116519
+    },
+    "AvgGap3s_dB": {
+      "mean": 0.02228164307304815,
+      "std": 0.005410888977078551
+    },
+    "SlopeSinr3s_dBps": {
+      "mean": 0.005010792272106138,
+      "std": 0.0013026128665783961
+    },
+    "SlopeGap3s_dBps": {
+      "mean": 0.005324907281547902,
+      "std": 0.0004771908448741179
+    },
+    "ElevFrom_deg": {
+      "mean": 0.002934378732583168,
+      "std": 0.0004885240609853366
+    },
+    "ElevTo_deg": {
+      "mean": 0.002904016003253898,
+      "std": 0.0010028071572293943
+    },
+    "DistFrom_m": {
+      "mean": 0.006959563981572667,
+      "std": 0.001054323576905734
+    },
+    "DistTo_m": {
+      "mean": 0.002319295601837823,
+      "std": 0.0008088739593180537
+    },
+    "LoadFrom": {
+      "mean": 0.020492426070714893,
+      "std": 0.002433763831277735
+    },
+    "LoadTo": {
+      "mean": 0.006447526464421946,
+      "std": 0.0010852484059356907
+    },
+    "UsersOnFrom": {
+      "mean": 0.02337379463730362,
+      "std": 0.000572509516199265
+    },
+    "UsersOnTo": {
+      "mean": 0.015366091125394282,
+      "std": 0.0013756471066493341
+    },
+    "MlbOffset_dB": {
+      "mean": 0.01659829585449791,
+      "std": 0.0018300769694474842
+    },
+    "FromSat": {
+      "mean": 0.0021235756595358313,
+      "std": 0.00029762010426671317
+    },
+    "ToSat": {
+      "mean": 0.001018261031371756,
+      "std": 0.00040880913258630716
+    }
+  },
+  "export": {
+    "path": "Model\\results_handover_gate_seed3000\\handover_gate.mat",
+    "sha256": "c6b29327b40a8c84f6968de91fc928c511258a5edc90c0f5e643f6c66efc4088",
+    "bytes": 2372010,
+    "self_test_samples": 2000
+  },
+  "meta": {
+    "created": "2026-11-10T16:56:36",
+    "sklearn": "1.9.0",
+    "numpy": "2.5.1",
+    "scipy": "1.18.1",
+    "label": "TR 36.839 Ορισμός 5: NextNode == FromNode & NextCause == HO & StayTo_s <= pingPongMaxStay_s",
+    "pingPongMaxStay_s": 0.8,
+    "trainPolicies": "Actual, ActualMLB",
+    "trainSeeds": "3000",
+    "trainEvents": 111354,
+    "trainPingPong": 1198,
+    "nTrees": 300,
+    "maxDepth": 12,
+    "minSamplesLeaf": 5,
+    "testAveragePrecision": 0.1138263664951067,
+    "testRecallAtThreshold": 0.23357664233576642,
+    "testPrecisionAtThreshold": 0.16644993498049415
+  }
+}

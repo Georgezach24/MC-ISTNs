@@ -51,7 +51,7 @@
 
 Απαιτήσεις:
 
-- MATLAB R2024b με 5G, Mapping, Phased Array και Communications Toolbox.
+- MATLAB R2026a ή νεότερο (δοκιμάστηκε σε R2026a και R2026b) με 5G, Mapping, Phased Array, Communications και Aerospace Toolbox (`ecef2lla`).
 - Parallel Computing Toolbox (προαιρετικό).
 - Python 3 με `Model/requirements.txt`.
 

@@ -1,0 +1,12 @@
+Σύγκριση vs 20261110_005137_runSimulation
+
+  ~ datasetPath : C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\PROD\..\Dataset\dataset.csv  ->  C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\Dataset\v2_strengtheners\dataset.csv
+  ~ handoverEventsPath : C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\PROD\..\Dataset\handover_events.mat  ->  C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\Dataset\v2_strengtheners\handover_events.mat
+  ~ handoverEventsSha256 : ae21e6f8dc429cd4a5c552aceb0bfe6d0e746db4a235d797dcf82a654bf53cbf  ->  d8caa81c80bca4810a35ec8328b8231a95567c1a3b1514b47ad68d531c993ab5
+  + historyGate = true
+  ~ mlGate.Path : C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\PROD\..\Model\results_handover_gate\handover_gate.mat  ->  C:/Users/g.zachos/Desktop/Thesis/MC-ISTNs/Model/results_handover_gate/handover_gate.mat
+  + mlGateExtra = <cell>
+  ~ policies : Actual, TerrestrialOnly, SatelliteOnly, ActualMLB, TerrestrialOnlyMLB, ActualML, ActualMLBML  ->  Actual, TerrestrialOnly, SatelliteOnly, ActualMLB, TerrestrialOnlyMLB, ActualML, ActualMLBML, ActualMLBHist, ActualMLBML_s2000, ActualMLBML_s3000
+  + sources.historyGate = TS 38.300 §15.5.2.4 (ανίχνευση ping-pong από το UE History Information: προηγούμενος κόμβος, χρόνος παραμονής) + TS 38.413 §9.3.1.97· MTS TR 36.839
+  ~ sources.satSpacing : σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο (βλ. σχόλιο satSpacingS)  ->  σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο
+  ~ sources.timeStep : ITU-R M.2412-0 Παρ.1 §5.3.2 (<1 m/βήμα) + TR 38.821 §7.3.2.1.4 Πίν. 7.3.2.1.4-1 (6.61 s)  ->  περίοδος L1->L3 200 ms (TR 36.839 Πίν. 5.3.2.1, TS 38.133 Πίν. 9.2.5.2-1)

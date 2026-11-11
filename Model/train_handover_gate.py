@@ -303,6 +303,9 @@ def main():
     args = ap_.parse_args()
     if not args.events:
         sys.exit("Δεν βρέθηκαν αρχεία handover_events.mat (Dataset/ml_train/seed*/).")
+    # απόλυτες διαδρομές (το relative_to(ROOT) αποτυγχάνει με σχετικές)
+    args.events = [p.resolve() for p in args.events]
+    args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
 
     raw, max_stay, provenance = build_frame(args.events)

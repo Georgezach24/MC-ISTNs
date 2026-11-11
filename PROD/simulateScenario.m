@@ -187,8 +187,42 @@ if hasMl
     policyBaseLocal  = [policyBaseLocal,  {'Actual','Actual'}];
     policyMlbLocal   = [policyMlbLocal, false, true];
 end
+% Επιπλέον αποφάσεις του σταθμού για σύγκριση, όλες με MLB
+% (simParameters.Mobility.ExtraGates: Name, Kind, Gate):
+%   Kind "history"  κανόνας UE History (TS 38.300 §15.5.2.4): αναμονή αν ο στόχος
+%                   είναι ο προηγούμενος κόμβος και η παραμονή < MTS.
+%   Kind "ml"       άλλο μοντέλο, π.χ. από άλλον σπόρο εκπαίδευσης.
+extraGates = [];
+if hasMl && isfield(simParameters.Mobility, 'ExtraGates')
+    extraGates = simParameters.Mobility.ExtraGates;
+end
+policyGateLocal = [cell(1, 5), repmat({mlGate}, 1, numel(policyNamesLocal) - 5)];
+policyKindLocal = [repmat("", 1, 5), repmat("ml", 1, numel(policyNamesLocal) - 5)];
+for k = 1:numel(extraGates)
+    policyNamesLocal{end+1} = extraGates(k).Name; %#ok<AGROW>
+    policyBaseLocal{end+1}  = 'Actual'; %#ok<AGROW>
+    policyMlbLocal(end+1)   = true; %#ok<AGROW>
+    policyGateLocal{end+1}  = extraGates(k).Gate; %#ok<AGROW>
+    policyKindLocal(end+1)  = string(extraGates(k).Kind); %#ok<AGROW>
+end
+% Dual connectivity (TS 37.340, μεταφορά στο ISTN): MCG = επίγειο κελί με την
+% κινητικότητα της TerrestrialOnly, SCG = δορυφόρος (scgStep).
+%   DcSplit  split bearer: ρυθμός R_MCG + R_SCG
+%   DcDup    PDCP duplication (TS 38.323 §5.11): ρυθμός max(R_MCG, R_SCG)
+% simParameters.Mobility.Dc: Enabled, SnAddThrDb (κατώφλι του A4).
+hasDc = isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'Dc') && ...
+    simParameters.Mobility.Dc.Enabled;
+if hasDc
+    dcAddThrDb = simParameters.Mobility.Dc.SnAddThrDb;
+    policyNamesLocal = [policyNamesLocal, {'DcSplit','DcDup'}];
+    policyBaseLocal  = [policyBaseLocal,  {'TerrestrialOnly','TerrestrialOnly'}];
+    policyMlbLocal   = [policyMlbLocal, false, false];
+    policyGateLocal  = [policyGateLocal, {[], []}];
+    policyKindLocal  = [policyKindLocal, "dc", "dc"];
+end
 numPolLocal         = numel(policyNamesLocal);
-policyMlLocal       = [false(1,5), true(1, numPolLocal - 5)];
+policyMlLocal       = policyKindLocal == "ml" | policyKindLocal == "history";
+policyDcLocal       = policyKindLocal == "dc";
 nGateFeat           = numel(handoverFeatures());
 % Κατάσταση απόφασης ανά πολιτική και χρήστη:
 %   Node/Pending/Count   εξυπηρετών, υποψήφιος του A3, βήματα επιβεβαίωσης
@@ -211,6 +245,15 @@ for pI = 1:numPolLocal
     if policyMlLocal(pI)
         newDecision.(policyNamesLocal{pI}).GateFeat = nan(numUsers, nGateFeat);
     end
+    if policyDcLocal(pI)
+        % SCG: PSCell, υποψήφιος και βήματα του A4/A3, RLM του PSCell
+        newDecision.(policyNamesLocal{pI}).SnNode    = repmat("None", numUsers, 1);
+        newDecision.(policyNamesLocal{pI}).SnPending = strings(numUsers,1);
+        newDecision.(policyNamesLocal{pI}).SnCount   = zeros(numUsers,1);
+        newDecision.(policyNamesLocal{pI}).SnOos     = zeros(numUsers,1);
+        newDecision.(policyNamesLocal{pI}).SnIs      = zeros(numUsers,1);
+        newDecision.(policyNamesLocal{pI}).SnT310    = -ones(numUsers,1);
+    end
 end
 hasPrevDecision = ~isempty(prevDecision);
 
@@ -219,7 +262,8 @@ hasPrevDecision = ~isempty(prevDecision);
 hoCount = struct();
 for pol = policyNamesLocal
     hoCount.(pol{1}) = struct('TerrTerr', 0, 'TerrSat', 0, 'SatSat', 0, 'PingPong', 0, ...
-        'RlfTerr', 0, 'RlfSat', 0, 'HoFail', 0, 'Held', 0);
+        'RlfTerr', 0, 'RlfSat', 0, 'HoFail', 0, 'Held', 0, ...
+        'SnAdd', 0, 'SnChange', 0, 'ScgFail', 0, 'McgRlfCovered', 0);
 end
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
@@ -240,6 +284,9 @@ satUnavailReasonVec = strings(numUsers,1);
 polNodeMat = strings(numUsers,numPolLocal);
 polTypeMat = strings(numUsers,numPolLocal);
 polSinrMat = nan(numUsers,numPolLocal);
+% PSCell και SINR του ανά πολιτική DC ("None" = χωρίς SCG).
+snNodeMat  = repmat("None", numUsers, numPolLocal);
+snSinrMat  = nan(numUsers,numPolLocal);
 
 % Η διάδοση ορίζεται ανά site· τα κελιά ενός site διαφέρουν μόνο στο κέρδος κεραίας.
 pathLossMat       = nan(numUsers,numSites);
@@ -704,7 +751,8 @@ for u = 1:numUsers
         % Πολιτική με ML: δεδομένα για τα χαρακτηριστικά της απόφασης (mlGateDecision).
         gateCtx = [];
         if policyMlLocal(pI) && hasPrevDecision
-            gateCtx = struct('Gate', mlGate, 'User', u, 'Step', histStep, ...
+            gateCtx = struct('Gate', policyGateLocal{pI}, 'Kind', policyKindLocal(pI), ...
+                'PpMaxStay', ppMaxStaySteps, 'User', u, 'Step', histStep, ...
                 'W', histW, 'Lag', histLag, 'DtS', dtSecHys, 'NumUsers', numUsers, ...
                 'HistBs', histBs, 'HistSat', histSat, ...
                 'FiltBs', filtSinrBsMat(u,:), 'FiltSat', filtSinrSatMat(u,:), ...
@@ -758,6 +806,38 @@ for u = 1:numUsers
             end
         end
         hoCount.(polName).HoFail = hoCount.(polName).HoFail + ev.HoFail;
+
+        % DC: βήμα του SCG μετά το MCG του ίδιου βήματος.
+        if policyDcLocal(pI)
+            sn = struct('Node', "None", 'Pending', "", 'Count', 0, 'Wait', 0, ...
+                'Oos', 0, 'Is', 0, 'T310', -1);
+            if hasPrevDecision
+                sn = struct('Node', pd.SnNode(u), 'Pending', pd.SnPending(u), ...
+                    'Count', pd.SnCount(u), 'Wait', 0, 'Oos', pd.SnOos(u), ...
+                    'Is', pd.SnIs(u), 'T310', pd.SnT310(u));
+            end
+            snBefore = sn.Node ~= "None";
+            [si, sn, sev] = scgStep(candNode, candSinr, candSinrMeas, isSat, sn, mob, ...
+                selNode ~= "None", dcAddThrDb);
+            newDecision.(polName).SnNode(u)    = sn.Node;
+            newDecision.(polName).SnPending(u) = sn.Pending;
+            newDecision.(polName).SnCount(u)   = sn.Count;
+            newDecision.(polName).SnOos(u)     = sn.Oos;
+            newDecision.(polName).SnIs(u)      = sn.Is;
+            newDecision.(polName).SnT310(u)    = sn.T310;
+            hoCount.(polName).SnAdd    = hoCount.(polName).SnAdd    + sev.Add;
+            hoCount.(polName).SnChange = hoCount.(polName).SnChange + sev.Change;
+            hoCount.(polName).ScgFail  = hoCount.(polName).ScgFail  + sev.Fail;
+            % Fast MCG link recovery (TS 38.331 §5.7.3b): RLF του MCG με ενεργό SCG,
+            % ο χρήστης μένει συνδεδεμένος μέσω του SCG.
+            if ev.Rlf && snBefore && sn.Node ~= "None"
+                hoCount.(polName).McgRlfCovered = hoCount.(polName).McgRlfCovered + 1;
+            end
+            snNodeMat(u,pI) = sn.Node;
+            if si > 0
+                snSinrMat(u,pI) = candSinr(si);
+            end
+        end
 
         % Handover = επιτυχής εκτέλεση του A3 (TR 36.839 Ορισμός 6)· όχι η
         % επανεγκατάσταση μετά από RLF/αποτυχία ή η πρώτη σύνδεση.
@@ -846,8 +926,20 @@ for pI = 2:numPolLocal
         case 'TerrestrialOnly', specMHz = spectrumTerrMHz;
         otherwise,              specMHz = spectrumSatMHz;
     end
-    [capP, thrP, ~, ~, ~, netP] = allocateAndTally(polNodeMat(:,pI), polTypeMat(:,pI), ...
+    [capP, thrP, ssP, ~, ~, netP] = allocateAndTally(polNodeMat(:,pI), polTypeMat(:,pI), ...
         polSinrMat(:,pI), simParameters, satParameters, alloc);
+    if policyDcLocal(pI)
+        % Ανεξάρτητος χρονοπρογραμματισμός σε MN και SN (TR 36.842 Παράρτ. F):
+        % ίσο μερίδιο σε κάθε κόμβο, χωριστά για MCG και SCG.
+        snType = repmat("Satellite", numUsers, 1);
+        snType(snNodeMat(:,pI) == "None") = "Outage";
+        [capS, thrS, ssS, ~, ~, netS] = allocateAndTally(snNodeMat(:,pI), snType, ...
+            snSinrMat(:,pI), simParameters, satParameters, alloc);
+        policyKpis.(polName) = dcSummary(strcmp(polName, 'DcSplit'),capP, thrP, ssP, netP, ...
+            capS, thrS, ssS, netS, simParameters, numUsers, spectrumTerrMHz + spectrumSatMHz, ...
+            hoCount.(polName), dtSecHys);
+        continue;
+    end
     policyKpis.(polName) = policySummary(capP, thrP, netP, numUsers, specMHz, ...
         hoCount.(polName), dtSecHys);
 end
@@ -1041,8 +1133,14 @@ end
 function [holdHo, feat] = mlGateDecision(g, candNode, iBest, candOffsetDb, servNode)
 % Απόφαση του σταθμού για αναφορά A3 servNode -> candNode(iBest): ίδια
 % χαρακτηριστικά με την καταγραφή (handoverFeatures), P(ping-pong) από το
-% μοντέλο, αναμονή αν ξεπερνά το κατώφλι.
+% μοντέλο, αναμονή αν ξεπερνά το κατώφλι. Κανόνας "history": αναμονή αν η
+% εκτέλεση θα ήταν ping-pong κατά το ιστορικό του χρήστη (TS 38.300 §15.5.2.4).
 tgtNode = candNode(iBest);
+if g.Kind == "history"
+    holdHo = tgtNode == g.Prev && (g.Stay + 1) <= g.PpMaxStay;
+    feat = [];
+    return;
+end
 [satF, idxF] = gateNodeIndex(servNode);
 [satT, idxT] = gateNodeIndex(tgtNode);
 mF = [gateMeas(g, satF, idxF, 0), gateMeas(g, satF, idxF, g.Lag), gateMeas(g, satF, idxF, 2*g.Lag)];
@@ -1254,6 +1352,106 @@ s.RlfRateTerr_perUserMin    = ho.RlfTerr * perUserMin;
 s.RlfRateSat_perUserMin     = ho.RlfSat  * perUserMin;
 s.HoFailRate_perUserMin     = ho.HoFail  * perUserMin;
 s.HoHeldRate_perUserMin     = ho.Held    * perUserMin;   % αναμονές του μοντέλου (*ML)
+% Διακοπή υπηρεσίας: χρήστες με μηδενικό ρυθμό (εκτός κάλυψης ή κάτω από το MCS 0,
+% π.χ. όσο τρέχει ο T310).
+s.FracZeroRate              = sum(throughputMbpsVec <= 0) / numUsers;
+% SCG (μόνο DC): προσθήκες, αλλαγές PSCell, αποτυχίες SCG (TS 38.331 §5.7.3),
+% RLF του MCG που καλύφθηκαν από το SCG (§5.7.3b).
+s.SnAddRate_perUserMin         = ho.SnAdd         * perUserMin;
+s.SnChangeRate_perUserMin      = ho.SnChange      * perUserMin;
+s.ScgFailRate_perUserMin       = ho.ScgFail       * perUserMin;
+s.McgRlfCoveredRate_perUserMin = ho.McgRlfCovered * perUserMin;
+end
+
+function s = dcSummary(isSplit, capM, thrM, ssM, netM, capS, thrS, ssS, netS, ...
+    simParameters, numUsers, spectrumMHz, ho, dtS)
+% KPIs πολιτικής DC από τις δύο κατανομές (MCG, SCG) του βήματος.
+%   split bearer: R = R_MCG + R_SCG (TS 37.340 §4.2.2)
+%   duplication:  R = max(R_MCG, R_SCG): υπόθεση, η ταχύτερη ζεύξη παραδίδει
+%                 πρώτη και τα αντίγραφα απορρίπτονται (TS 38.323 §5.11)
+% Εξυπηρετούμενος: τουλάχιστον μία ζεύξη πάνω από τον στόχο· εκτός κάλυψης:
+% καμία ζεύξη. Ισχύς: οι σταθμοί από το MCG, οι δορυφόροι από το SCG.
+legM = ~isnan(capM);
+legS = ~isnan(capS);
+if isSplit
+    thr = thrM + thrS;
+else
+    thr = max(thrM, thrS);
+end
+cap = thr;
+cap(~legM & ~legS) = NaN;
+bsSleepW = simParameters.Power.NumTrx * simParameters.Power.Psleep;
+net = struct();
+% Το netS μετρά όλους τους σταθμούς ως αδρανείς· αφαιρούνται.
+net.TotalPower_W     = netM.TotalPower_W + netS.TotalPower_W - netS.IdleBs*bsSleepW;
+net.TotalPowerRf_W   = netM.TotalPowerRf_W + netS.TotalPowerRf_W;
+net.BitPerJoule      = sum(thr)*1e6 / net.TotalPower_W;
+net.BitPerJouleRf    = sum(thr)*1e6 / net.TotalPowerRf_W;
+net.ServedUsers      = sum(ssM == "Served" | ssS == "Served");
+net.OutageUsers      = sum(~legM & ~legS);
+net.BelowTargetUsers = numUsers - net.ServedUsers - net.OutageUsers;
+net.SatelliteUsers   = sum(legS);   % χρήστες με SCG
+s = policySummary(cap, thr, net, numUsers, spectrumMHz, ho, dtS);
+end
+
+function [chosenIdx, st, ev] = scgStep(candNode, candSinr, candSinrMeas, isSat, st, P, mcgUp, addThrDb)
+% Ένα βήμα του SCG (δορυφόρος) ενός χρήστη σε πολιτική DC:
+%   χωρίς MCG:  αποδέσμευση (χωρίς σύνδεση RRC δεν υπάρχει SCG)
+%   χωρίς SN:   προσθήκη με A4 (TS 38.331 §5.5.4.5): M_n - Hys > Thresh για NTtt
+%               βήματα· στόχος κάτω από το Qout στην εκτέλεση = αποτυχία SCG
+%               (αποτυχία reconfigurationWithSync, §5.7.3.2)
+%   με SN:      RLM του PSCell και A3 μεταξύ δορυφόρων (mobilityStep)· RLF ή
+%               αποτυχία αλλαγής = αποτυχία SCG (§5.3.10.3, §5.7.3) και αποδέσμευση
+% chosenIdx: δείκτης του PSCell στους υποψηφίους (0 = χωρίς SCG ή χωρίς ζεύξη).
+ev = struct('Add', false, 'Change', false, 'Fail', false);
+chosenIdx = 0;
+if ~mcgUp
+    st = resetScg(st);
+    return;
+end
+valid = isSat & isfinite(candSinrMeas);
+if st.Node == "None"
+    m = candSinrMeas;
+    m(~valid) = -Inf;
+    [mBest, iBest] = max(m);
+    if ~isfinite(mBest) || mBest - P.HysDb <= addThrDb
+        st = resetScg(st);
+        return;
+    end
+    if st.Pending == candNode(iBest)
+        st.Count = st.Count + 1;
+    else
+        st.Pending = candNode(iBest);
+        st.Count = 1;
+    end
+    if st.Count < P.NTtt
+        return;
+    end
+    if candSinr(iBest) < P.QoutDb
+        ev.Fail = true;
+        st = resetScg(st);
+        return;
+    end
+    ev.Add = true;
+    chosenIdx = iBest;
+    st = resetScg(st);
+    st.Node = candNode(iBest);
+    return;
+end
+[chosenIdx, st, mev] = mobilityStep(candNode, candSinr, candSinrMeas, valid, st, P, ...
+    zeros(numel(candNode), 1), []);
+if mev.Cause == "RLF" || mev.Cause == "HOF"
+    ev.Fail = true;
+    chosenIdx = 0;
+    st = resetScg(st);
+elseif mev.Cause == "HO"
+    ev.Change = true;
+end
+end
+
+function st = resetScg(st)
+st.Node = "None"; st.Pending = ""; st.Count = 0; st.Wait = 0;
+st.Oos = 0; st.Is = 0; st.T310 = -1;
 end
 
 function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)

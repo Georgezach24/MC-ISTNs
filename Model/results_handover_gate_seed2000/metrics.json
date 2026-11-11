@@ -1,0 +1,252 @@
+{
+  "data": {
+    "files": [
+      {
+        "path": "Dataset\\ml_train\\seed2000\\handover_events.mat",
+        "sha256": "42a239619be54222453fde1835fb2d382e0afd18af01955b490b3d59e7ce59a9",
+        "rngSeed": 2000,
+        "events": 156988,
+        "passes": 150
+      }
+    ],
+    "pingPongMaxStay_s": 0.8,
+    "policies": [
+      "Actual",
+      "ActualMLB"
+    ],
+    "events": 156856,
+    "passes": 150,
+    "pingPong": 1718
+  },
+  "split": {
+    "test_size": 0.25,
+    "by": "pass (seed, PassID)",
+    "train_passes": 112,
+    "test_passes": 38
+  },
+  "model": {
+    "type": "RandomForestClassifier",
+    "n_estimators": 300,
+    "max_depth": 12,
+    "min_samples_leaf": 20,
+    "sentinel": -1000.0,
+    "features": [
+      "NumUsers",
+      "ReturnToPrev",
+      "StayFrom_s",
+      "SinrServ_dB",
+      "SinrCand_dB",
+      "Gap_dB",
+      "DeltaSinr1s_dB",
+      "DeltaGap1s_dB",
+      "AvgSinr3s_dB",
+      "AvgGap3s_dB",
+      "SlopeSinr3s_dBps",
+      "SlopeGap3s_dBps",
+      "ElevFrom_deg",
+      "ElevTo_deg",
+      "DistFrom_m",
+      "DistTo_m",
+      "LoadFrom",
+      "LoadTo",
+      "UsersOnFrom",
+      "UsersOnTo",
+      "MlbOffset_dB",
+      "FromSat",
+      "ToSat"
+    ],
+    "nodes": 203050
+  },
+  "cv": {
+    "1": {
+      "mean_ap": 0.1165759292300964,
+      "folds": [
+        0.12145501951174562,
+        0.1043260459873451,
+        0.12394672219119846
+      ]
+    },
+    "5": {
+      "mean_ap": 0.12512605581134364,
+      "folds": [
+        0.12718950239576995,
+        0.11922378230527399,
+        0.12896488273298698
+      ]
+    },
+    "20": {
+      "mean_ap": 0.1254483901830833,
+      "folds": [
+        0.12625967326276266,
+        0.1268526661351558,
+        0.12323283115133146
+      ]
+    },
+    "50": {
+      "mean_ap": 0.1163887179153371,
+      "folds": [
+        0.10937311541441935,
+        0.12081807110373483,
+        0.1189749672278571
+      ]
+    }
+  },
+  "threshold": {
+    "rule": "max F1, out-of-fold (training passes)",
+    "threshold": 0.09522521565538096,
+    "f1": 0.19247115968427445,
+    "precision": 0.16173469387755102,
+    "recall": 0.2376311844077961
+  },
+  "test": {
+    "n": 37574,
+    "positives": 384,
+    "roc_auc": 0.8919251226808282,
+    "average_precision": 0.14626681590414187,
+    "brier": 0.009411089711277142,
+    "threshold": 0.09522521565538096,
+    "precision": 0.21135029354207435,
+    "recall": 0.28125,
+    "confusion": {
+      "tn": 36787,
+      "fp": 403,
+      "fn": 276,
+      "tp": 108
+    },
+    "held_fraction": 0.01359982966945228,
+    "by_policy": {
+      "Actual": {
+        "n": 13980,
+        "positives": 31,
+        "average_precision": 0.02948907823473417,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "ActualMLB": {
+        "n": 23594,
+        "positives": 353,
+        "average_precision": 0.15596186102712445,
+        "precision": 0.21135029354207435,
+        "recall": 0.3059490084985836
+      }
+    }
+  },
+  "permutation_importance": {
+    "NumUsers": {
+      "mean": -0.00029845129207698996,
+      "std": 0.0010507041290108566
+    },
+    "ReturnToPrev": {
+      "mean": 0.0017755353328878342,
+      "std": 0.0005000052787627366
+    },
+    "StayFrom_s": {
+      "mean": 0.03309082574084387,
+      "std": 0.003160401900141911
+    },
+    "SinrServ_dB": {
+      "mean": 0.013523947319363804,
+      "std": 0.003009207114643508
+    },
+    "SinrCand_dB": {
+      "mean": 0.05207863875146675,
+      "std": 0.0052254202768623895
+    },
+    "Gap_dB": {
+      "mean": 0.08024302079407204,
+      "std": 0.0070637643640267134
+    },
+    "DeltaSinr1s_dB": {
+      "mean": 0.01586241511663056,
+      "std": 0.003938511223401184
+    },
+    "DeltaGap1s_dB": {
+      "mean": 0.01151153068295801,
+      "std": 0.000639363109046047
+    },
+    "AvgSinr3s_dB": {
+      "mean": 0.007239192798006005,
+      "std": 0.00378882546470319
+    },
+    "AvgGap3s_dB": {
+      "mean": 0.028511543564250647,
+      "std": 0.004748011212560934
+    },
+    "SlopeSinr3s_dBps": {
+      "mean": 0.004500691131773471,
+      "std": 0.0013068027394811071
+    },
+    "SlopeGap3s_dBps": {
+      "mean": 0.011052790509625321,
+      "std": 0.0010075644047560519
+    },
+    "ElevFrom_deg": {
+      "mean": 0.004247767010070624,
+      "std": 0.0023637196702489703
+    },
+    "ElevTo_deg": {
+      "mean": 0.00419966730534505,
+      "std": 0.000687527176025599
+    },
+    "DistFrom_m": {
+      "mean": 0.0053691286468772305,
+      "std": 0.0011161353378316848
+    },
+    "DistTo_m": {
+      "mean": 0.004888737486120359,
+      "std": 0.00024735590058532175
+    },
+    "LoadFrom": {
+      "mean": 0.017735113819822595,
+      "std": 0.004518264983827195
+    },
+    "LoadTo": {
+      "mean": 0.004351635439647378,
+      "std": 0.0014360475465627711
+    },
+    "UsersOnFrom": {
+      "mean": 0.01346327486632658,
+      "std": 0.0024511241848368865
+    },
+    "UsersOnTo": {
+      "mean": 0.019648795046107663,
+      "std": 0.003013696749973044
+    },
+    "MlbOffset_dB": {
+      "mean": 0.01587939477527166,
+      "std": 0.0016457915512900893
+    },
+    "FromSat": {
+      "mean": 0.002050822107605832,
+      "std": 0.001263162649715852
+    },
+    "ToSat": {
+      "mean": 0.0012087465043853275,
+      "std": 0.000690144697502766
+    }
+  },
+  "export": {
+    "path": "Model\\results_handover_gate_seed2000\\handover_gate.mat",
+    "sha256": "97ecdfa55ea33f0f78b430df642d3c7261422b80557291b71c442ba619daf9b7",
+    "bytes": 2069825,
+    "self_test_samples": 2000
+  },
+  "meta": {
+    "created": "2026-11-10T16:54:36",
+    "sklearn": "1.9.0",
+    "numpy": "2.5.1",
+    "scipy": "1.18.1",
+    "label": "TR 36.839 Ορισμός 5: NextNode == FromNode & NextCause == HO & StayTo_s <= pingPongMaxStay_s",
+    "pingPongMaxStay_s": 0.8,
+    "trainPolicies": "Actual, ActualMLB",
+    "trainSeeds": "2000",
+    "trainEvents": 119282,
+    "trainPingPong": 1334,
+    "nTrees": 300,
+    "maxDepth": 12,
+    "minSamplesLeaf": 20,
+    "testAveragePrecision": 0.14626681590414187,
+    "testRecallAtThreshold": 0.28125,
+    "testPrecisionAtThreshold": 0.21135029354207435
+  }
+}

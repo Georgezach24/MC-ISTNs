@@ -55,6 +55,10 @@ def = struct( ...
     'mlbMaxOffsetDb', 6, ...     % dB ανά μονάδα διαφοράς φόρτου (Nasri & Altman: HMmax - f(0) = 12 - 6)
     'mlGatePath', fullfile(thisDir, '..', 'Model', 'results_handover_gate', 'handover_gate.mat'), ... % μοντέλο ML· χωρίς αρχείο = χωρίς τις πολιτικές *ML
     'mlReportIntervalMs', 240, ...% ms, reportInterval (TS 38.331 ReportConfigNR)
+    'historyGate',   true, ...   % πολιτική ActualMLBHist: κανόνας UE History (TS 38.300 §15.5.2.4), για σύγκριση με το ML
+    'mlGateExtraPaths', {{}}, ...% {όνομα, αρχείο; ...}: επιπλέον μοντέλα -> πολιτικές ActualMLBML_<όνομα>
+    'dcPolicies',    true, ...   % πολιτικές DcSplit/DcDup: MCG επίγειο + SCG δορυφόρος (TS 37.340)
+    'dcSnAddThrDb',  -6, ...     % dB, κατώφλι A4 για προσθήκη SN = Qin (υπόθεση: PSCell in-sync, TS 38.133 §8.1)
     'wrapAround',    true, ...   % wrap-around του πλέγματος (TR 38.901)
     'bsSectors',     3, ...      % τομείς ανά site: 3 (TR 38.901 Πίν. 7.8-1) ή 1
     'numWorkers',    6, ...      % παράλληλες διελεύσεις (Parallel Computing Toolbox)· 0 = σειριακά
@@ -86,10 +90,7 @@ checkpointPath = fullfile(opts.outputDir, 'runSimulation_checkpoint.mat');
 resumeState = [];
 if opts.resume && isfile(checkpointPath) && isfile(opts.datasetPath)
     S = load(checkpointPath);
-    gateSha = '';
-    if ~isempty(opts.mlGatePath) && isfile(opts.mlGatePath)
-        gateSha = fileSha256(opts.mlGatePath);
-    end
+    gateSha = gateFilesSha256(opts);
     if isfield(S,'ckpt') && isfield(S.ckpt,'mlGateSha256') && ...
             strcmp(S.ckpt.mlGateSha256, gateSha) && checkpointMatches(S.ckpt.opts, opts)
         % Διακοπή ανάμεσα στην εγγραφή του CSV και του σημείου ελέγχου θα
@@ -267,6 +268,31 @@ if ~isempty(opts.mlGatePath) && isfile(opts.mlGatePath)
         max(1, ceil(opts.mlReportIntervalMs/(opts.dtSeconds*1000))));
 end
 hasMlGate = ~isempty(simParameters.Mobility.MlGate);
+% Επιπλέον αποφάσεις του σταθμού για σύγκριση με το ML, όλες με MLB: ο κανόνας
+% UE History και μοντέλα από άλλους σπόρους εκπαίδευσης.
+extraGates = struct('Name', {}, 'Kind', {}, 'Gate', {});
+extraGateInfo = {};
+if hasMlGate
+    if opts.historyGate
+        extraGates(end+1) = struct('Name', 'ActualMLBHist', 'Kind', 'history', 'Gate', []);
+    end
+    for k = 1:size(opts.mlGateExtraPaths, 1)
+        name = ['ActualMLBML_' opts.mlGateExtraPaths{k,1}];
+        [G, info] = loadHandoverGate(opts.mlGateExtraPaths{k,2}, ...
+            simParameters.Mobility.MlGate.ReportSteps);
+        extraGates(end+1) = struct('Name', name, 'Kind', 'ml', 'Gate', G); %#ok<AGROW>
+        info.Name = name;
+        extraGateInfo{end+1} = info; %#ok<AGROW>
+    end
+end
+simParameters.Mobility.ExtraGates = extraGates;
+extraPolicyNames = {extraGates.Name};
+% Dual connectivity (TS 37.340, μεταφορά στο ISTN): πολιτικές DcSplit, DcDup.
+simParameters.Mobility.Dc = struct('Enabled', opts.dcPolicies, 'SnAddThrDb', opts.dcSnAddThrDb);
+dcPolicyNames = {};
+if opts.dcPolicies
+    dcPolicyNames = {'DcSplit','DcDup'};
+end
 
 % Δορυφόρος: TR 38.821 Set-1, LEO-600, S-band (Πίν. 6.1.1.1-1, 6.1.3.2-1).
 % Δεδομένο η πυκνότητα EIRP· εύρος ανά δέσμη 30/FRF MHz (Πίν. 6.1.1.1-5).
@@ -386,8 +412,9 @@ passKpi = nan(opts.numPasses, numKpi);
 % κατά ζεύγη. *MLB = με MLB, *ML = με την απόφαση ML (ίδια σειρά με τη simulateScenario).
 policyNames   = {'Actual','TerrestrialOnly','SatelliteOnly','ActualMLB','TerrestrialOnlyMLB'};
 if hasMlGate
-    policyNames = [policyNames, {'ActualML','ActualMLBML'}];
+    policyNames = [policyNames, {'ActualML','ActualMLBML'}, extraPolicyNames];
 end
+policyNames = [policyNames, dcPolicyNames];
 policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
                  'FracBelowTarget','FracOutage','BitPerJouleRf','Spectrum_MHz', ...
                  'HoRate_perUserMin','HoRateTerrTerr_perUserMin', ...
@@ -397,6 +424,10 @@ policyMetrics = {'MeanCapacity_Mbps','TotalRate_Mbps','FracServed', ...
                  'HoFailRate_perUserMin','FracSatellite'};
 if hasMlGate
     policyMetrics{end+1} = 'HoHeldRate_perUserMin';
+end
+if opts.dcPolicies
+    policyMetrics = [policyMetrics, {'FracZeroRate','SnAddRate_perUserMin', ...
+        'SnChangeRate_perUserMin','ScgFailRate_perUserMin','McgRlfCoveredRate_perUserMin'}];
 end
 numPolicy       = numel(policyNames);
 numPolicyMetric = numel(policyMetrics);
@@ -514,10 +545,7 @@ end
 fprintf('  Εκτέλεση διελεύσεων: %s\n\n', ternary(numWorkers > 0, ...
     sprintf('παράλληλα, %d workers', numWorkers), 'σειριακά'));
 
-mlGateSha256 = '';
-if hasMlGate
-    mlGateSha256 = mlGateInfo.Sha256;
-end
+mlGateSha256 = gateFilesSha256(opts);
 
 while passIdx < opts.numPasses
     batch = passIdx+1 : min(passIdx + max(numWorkers,1), opts.numPasses);
@@ -646,6 +674,17 @@ compNames = {'Actual','TerrestrialOnly'; 'Actual','SatelliteOnly'; ...
 if hasMlGate
     compNames = [compNames; {'ActualML','Actual'; 'ActualMLBML','ActualMLB'; ...
                              'ActualMLBML','Actual'}];
+    for k = 1:numel(extraPolicyNames)
+        compNames = [compNames; {extraPolicyNames{k},'ActualMLB'; ...
+                                 'ActualMLBML',extraPolicyNames{k}}]; %#ok<AGROW>
+    end
+end
+% DC: έναντι της ίδιας κινητικότητας χωρίς SCG (TerrestrialOnly), των υβριδικών
+% single connectivity (Actual, ActualMLB) και μεταξύ τους.
+if opts.dcPolicies
+    compNames = [compNames; {'DcSplit','TerrestrialOnly'; 'DcDup','TerrestrialOnly'; ...
+        'DcSplit','Actual'; 'DcDup','Actual'; 'DcSplit','ActualMLB'; 'DcDup','ActualMLB'; ...
+        'DcSplit','DcDup'}];
 end
 compIdx = zeros(size(compNames));
 for c = 1:numel(compNames)
@@ -732,6 +771,16 @@ if hasMlGate
     fprintf('  Απόφαση handover με ML: %d handovers με χαρακτηριστικά ίδια με την καταγραφή\n', ...
         gateChecksRun);
 end
+gatePng = '';
+if ~isempty(extraPolicyNames)
+    gatePng = fullfile(opts.outputDir, 'gate_comparison.png');
+    plotGateComparison(pairedTable, numPasses, extraPolicyNames, gatePng);
+end
+dcPng = '';
+if opts.dcPolicies
+    dcPng = fullfile(opts.outputDir, 'dc_gain.png');
+    plotDcGain(pairedTable, numPasses, dcPng);
+end
 
 %% ------------------ Καμπύλη σύγκλισης ------------------
 convMat = vertcat(convRows{1:numPasses});
@@ -808,6 +857,12 @@ save(resultsMat, 'refPassTable', 'convTable', 'policyTable', 'pairedTable', 'sum
 outFiles = {resultsMat, polPng, mlbPng, hoPng, fullfile(opts.outputDir,'network_3d.png')};
 if ~isempty(mlPng)
     outFiles{end+1} = mlPng;
+end
+if ~isempty(gatePng)
+    outFiles{end+1} = gatePng;
+end
+if ~isempty(dcPng)
+    outFiles{end+1} = dcPng;
 end
 
 kpiList  = {'Capacity_Mbps','EnergyPerBit_uJ','SINR_dB','SatElevation_deg'};
@@ -909,6 +964,10 @@ runParams.l3FilterAlphaAtX = ternary(opts.l3FilterK > 0, 2^(-opts.l3FilterK/4), 
 runParams.l3FilterAlphaAtDt = l3Alpha;
 runParams.measPeriod_ms    = opts.measPeriodMs;
 runParams.mlGate           = mlGateInfo;
+runParams.historyGate      = opts.historyGate;
+runParams.mlGateExtra      = extraGateInfo;
+runParams.dc               = struct('Enabled', opts.dcPolicies, 'SnAddThr_dB', opts.dcSnAddThrDb, ...
+    'Policies', strjoin(dcPolicyNames, ', '));
 runParams.mlReportInterval_ms = opts.mlReportIntervalMs;
 runParams.mlGateChecks     = gateChecksRun;
 runParams.policies         = strjoin(policyNames, ', ');
@@ -969,7 +1028,11 @@ runParams.sources          = struct( ...
     'satReuse',   'TR 38.821 §6.1.1.1 Πίν. 6.1.1.1-5 (FRF Option 1 = 1 / Option 2 = 3, εύρος ανά δέσμη προσαρμοσμένο στο FRF) + Σχ. 6.1.1.1-2 (ομοδιαυλικές δέσμες = παρεμβολή)', ...
     'satSpacing', 'σχεδιαστική επιλογή: οι numSats δορυφόροι είναι ακριβώς όσοι του επιπέδου φαίνονται μέσα στο παράθυρο', ...
     'mlGate',     'TS 38.300 §9.2.3.2.1 βήμα 3 (απόφαση HO στον σταθμό) + TR 37.817 §5.3 (AI/ML βελτιστοποίηση κινητικότητας) + Aggarwal et al. ICSigSys 2026 (πρόβλεψη ασταθών HO)· ετικέτα ping-pong TR 36.839 Ορισμός 5', ...
-    'mlReport',   'TS 38.331 ReportConfigNR reportInterval (ms120, ms240, ...): επανάληψη της αναφοράς όσο ισχύει η συνθήκη εισόδου');
+    'mlReport',   'TS 38.331 ReportConfigNR reportInterval (ms120, ms240, ...): επανάληψη της αναφοράς όσο ισχύει η συνθήκη εισόδου', ...
+    'historyGate', 'TS 38.300 §15.5.2.4 (ανίχνευση ping-pong από το UE History Information: προηγούμενος κόμβος, χρόνος παραμονής) + TS 38.413 §9.3.1.97· MTS TR 36.839', ...
+    'dc',         ['TS 37.340 (MR-DC, split bearer)· TS 38.323 §5.11 (PDCP duplication)· TS 38.331 §5.5.4.5 (A4, προσθήκη SN), ' ...
+                   '§5.3.10.3/§5.7.3 (αποτυχία SCG), §5.7.3b (fast MCG link recovery)· TR 36.842 Παράρτ. F (ανεξάρτητος χρονοπρογραμματισμός MeNB/SeNB)· ' ...
+                   'TN-NTN MR-DC μη τυποποιημένο: Majamaa, IEEE Commun. Mag. 2024 (arXiv 2310.10213)']);
 
 saveRunVersion('runSimulation', runParams, outFiles, opts.label);
 
@@ -1199,13 +1262,26 @@ keys = {'dtSeconds','ueSpeedKmh','passWindowS','datasetStride','rngSeed', ...
         'pingPongMtsS','numUsersRange','bsRings','bsIsdM','numSats','satFreqReuse', ...
         'mlbMaxOffsetDb','handoverEventsPath','wrapAround','bsSectors', ...
         'rlfQoutDb','rlfQinDb','rlfT310Ms','rlfN310','rlfN311','softLosState','mlbReportPeriodMs', ...
-        'mlGatePath','mlReportIntervalMs'};
+        'mlGatePath','mlReportIntervalMs','historyGate','mlGateExtraPaths', ...
+        'dcPolicies','dcSnAddThrDb'};
 tf = true;
 for k = 1:numel(keys)
     if ~isfield(a,keys{k}) || ~isfield(b,keys{k}) || ~isequal(a.(keys{k}), b.(keys{k}))
         tf = false;
         return;
     end
+end
+end
+
+function h = gateFilesSha256(opts)
+% SHA-256 των αρχείων μοντέλων (κύριο + επιπλέον), για το σημείο ελέγχου.
+h = '';
+if isempty(opts.mlGatePath) || ~isfile(opts.mlGatePath)
+    return;
+end
+h = fileSha256(opts.mlGatePath);
+for k = 1:size(opts.mlGateExtraPaths, 1)
+    h = [h ',' fileSha256(opts.mlGateExtraPaths{k,2})]; %#ok<AGROW>
 end
 end
 
@@ -1263,6 +1339,46 @@ end
 
 function s = ternary(cond, a, b)
 if cond, s = a; else, s = b; end
+end
+
+function plotDcGain(pairedTable, numPasses, pngPath)
+% DC (split bearer, duplication) έναντι single connectivity: ίδια κινητικότητα
+% χωρίς SCG (TerrestrialOnly) και οι υβριδικές (Actual, ActualMLB). Θετική τιμή =
+% καλύτερη η DC. Ρυθμοί/ενέργεια σε %, ποσοστά χρηστών σε ποσοστιαίες μονάδες.
+pols      = ["DcSplit","DcDup"];
+polLabel  = {'DC split bearer','DC duplication'};
+baselines = ["TerrestrialOnly","Actual","ActualMLB"];
+baseLabel = {'έναντι μόνο επίγειας','έναντι υπό εξέταση','έναντι υπό εξέταση + MLB'};
+relMetric = ["MeanCapacity_Mbps","TotalRate_Mbps","BitPerJouleRf"];
+relLabel  = {'Μέση χωρητικότητα χρήστη','Συνολική ρυθμαπόδοση','Ενεργειακή απόδοση (bit/J)'};
+ppMetric  = ["FracZeroRate","FracServed","FracOutage"];
+ppSign    = [-1 1 -1];
+ppLabel   = {'Μείωση διακοπής (ρυθμός 0)','Αύξηση εξυπηρετούμενων','Μείωση εκτός κάλυψης'};
+
+fig = figure('Visible','off','Position',[100 100 1400 900]);
+try
+    theme(fig, 'light');
+catch
+end
+tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose');
+for j = 1:numel(pols)
+    T = pairedTable(pairedTable.Policy == pols(j), :);
+    [relVal, relHw] = gainMatrix(T, baselines, relMetric, ones(1,numel(relMetric)), true);
+    [ppVal,  ppHw]  = gainMatrix(T, baselines, ppMetric, ppSign, false);
+    nexttile(tl);
+    b = gainPanel(relVal, relHw, relLabel, '%');
+    xlabel('Βελτίωση [%], σχετική ως προς τη βάση');
+    title([polLabel{j} ': ρυθμός και ενέργεια']);
+    nexttile(tl);
+    gainPanel(ppVal, ppHw, ppLabel, ' μον.');
+    xlabel('Βελτίωση [ποσοστιαίες μονάδες]');
+    title([polLabel{j} ': συνέχεια υπηρεσίας']);
+end
+gainLegend(b, baseLabel);
+title(tl, sprintf(['Dual connectivity (MCG επίγειο, SCG δορυφόρος) έναντι single connectivity: ' ...
+    '%d διελεύσεις, 95%% CI (ns: το CI περιέχει το 0)'], numPasses));
+saveas(fig, pngPath);
+close(fig);
 end
 
 function plotPolicyGain(pairedTable, numPasses, pngPath)
@@ -1404,6 +1520,39 @@ saveas(fig, pngPath);
 close(fig);
 end
 
+function plotGateComparison(pairedTable, numPasses, extraNames, pngPath)
+% Αποφάσεις του σταθμού έναντι του A3 + MLB χωρίς απόφαση: το ML (κύριο
+% μοντέλο), ο κανόνας UE History και τα μοντέλα άλλων σπόρων. Θετική τιμή =
+% καλύτερη από το ActualMLB.
+pols = ["ActualMLBML", string(extraNames)];
+metric = ["PingPongRate_perUserMin","HoRate_perUserMin","RlfRate_perUserMin", ...
+          "HoFailRate_perUserMin","MeanCapacity_Mbps"];
+sgn    = [-1 -1 -1 -1 1];
+label  = {'Μείωση ping-pong','Μείωση handovers','Μείωση RLF', ...
+          'Μείωση αποτυχιών HO','Μέση χωρητικότητα χρήστη'};
+val = nan(numel(metric), numel(pols)); hw = val;
+for j = 1:numel(pols)
+    T = pairedTable(pairedTable.Policy == pols(j), :);
+    [val(:,j), hw(:,j)] = gainMatrix(T, "ActualMLB", metric, sgn, true);
+end
+polLabel = strrep(strrep(cellstr(pols), 'ActualMLBML_', 'ML '), 'ActualMLBML', 'ML');
+polLabel = strrep(polLabel, 'ActualMLBHist', 'UE History');
+
+fig = figure('Visible','off','Position',[100 100 1000 560]);
+try
+    theme(fig, 'light');
+catch
+end
+b = gainPanel(val, hw, label, '%');
+xlabel('Βελτίωση [%] έναντι A3 + MLB');
+legend(b, polLabel, 'Location', 'southoutside', 'Orientation', 'horizontal');
+title(sprintf(['Απόφαση του σταθμού έναντι A3 + MLB: %d διελεύσεις, 95%% CI (ns: το CI περιέχει το 0)\n' ...
+    'UE History = αναμονή αν ο στόχος είναι ο προηγούμενος κόμβος με παραμονή < MTS (TS 38.300 §15.5.2.4)'], ...
+    numPasses));
+saveas(fig, pngPath);
+close(fig);
+end
+
 function plotHandoverRates(pol, policyMetrics, policyNames, numPasses, mtsS, pngPath)
 % Ρυθμός επιτυχών handovers ανά πολιτική (TR 36.839 Ορισμός 6), στοιβαγμένος
 % ανά τύπο, με 95% CI στο σύνολο· ping-pong, αποτυχίες και RLF στις ετικέτες.
@@ -1415,7 +1564,17 @@ labelOf   = containers.Map( ...
      'ActualML','ActualMLBML'}, ...
     {'υπό εξέταση','μόνο επίγεια','μόνο δορυφορική','υπό εξέταση + MLB','μόνο επίγεια + MLB', ...
      'υπό εξέταση + ML','υπό εξέταση + MLB + ML'});
-polLabel  = cellfun(@(n) labelOf(n), policyNames, 'UniformOutput', false);
+labelOf('ActualMLBHist') = 'υπό εξέταση + MLB + UE History';
+labelOf('DcSplit') = 'DC split bearer (MCG επίγειο)';
+labelOf('DcDup')   = 'DC duplication (MCG επίγειο)';
+polLabel = cell(size(policyNames));
+for pI = 1:numel(policyNames)
+    if isKey(labelOf, policyNames{pI})
+        polLabel{pI} = labelOf(policyNames{pI});
+    else
+        polLabel{pI} = strrep(policyNames{pI}, 'ActualMLBML_', 'υπό εξέταση + MLB + ML ');
+    end
+end
 cols      = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
 numPolicy = numel(policyNames);
 
@@ -1510,7 +1669,7 @@ end
 function b = gainPanel(val, hw, labels, unit)
 % Οριζόντιες μπάρες: μία ομάδα ανά δείκτη, μία μπάρα ανά βάση.
 nM   = size(val,1);
-cols = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30];
+cols = [0.20 0.45 0.75; 0.90 0.55 0.15; 0.45 0.65 0.30; 0.60 0.40 0.70; 0.55 0.55 0.55];
 span = max([abs(val(:)) + hw(:); 1], [], 'omitnan');
 pad  = 0.03 * span;
 
