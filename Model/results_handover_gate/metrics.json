@@ -1,0 +1,252 @@
+{
+  "data": {
+    "files": [
+      {
+        "path": "Dataset\\ml_train\\seed1000\\handover_events.mat",
+        "sha256": "2a7ae5ca5f299a21269cc13df3e0c93abe30ce1bb32f54b0ab22221062b25ca1",
+        "rngSeed": 1000,
+        "events": 148830,
+        "passes": 150
+      }
+    ],
+    "pingPongMaxStay_s": 0.8,
+    "policies": [
+      "Actual",
+      "ActualMLB"
+    ],
+    "events": 148707,
+    "passes": 150,
+    "pingPong": 1552
+  },
+  "split": {
+    "test_size": 0.25,
+    "by": "pass (seed, PassID)",
+    "train_passes": 112,
+    "test_passes": 38
+  },
+  "model": {
+    "type": "RandomForestClassifier",
+    "n_estimators": 300,
+    "max_depth": 12,
+    "min_samples_leaf": 20,
+    "sentinel": -1000.0,
+    "features": [
+      "NumUsers",
+      "ReturnToPrev",
+      "StayFrom_s",
+      "SinrServ_dB",
+      "SinrCand_dB",
+      "Gap_dB",
+      "DeltaSinr1s_dB",
+      "DeltaGap1s_dB",
+      "AvgSinr3s_dB",
+      "AvgGap3s_dB",
+      "SlopeSinr3s_dBps",
+      "SlopeGap3s_dBps",
+      "ElevFrom_deg",
+      "ElevTo_deg",
+      "DistFrom_m",
+      "DistTo_m",
+      "LoadFrom",
+      "LoadTo",
+      "UsersOnFrom",
+      "UsersOnTo",
+      "MlbOffset_dB",
+      "FromSat",
+      "ToSat"
+    ],
+    "nodes": 191052
+  },
+  "cv": {
+    "1": {
+      "mean_ap": 0.11410743730236698,
+      "folds": [
+        0.09489005000827631,
+        0.11599806116337459,
+        0.13143420073545004
+      ]
+    },
+    "5": {
+      "mean_ap": 0.12300895527418465,
+      "folds": [
+        0.09528840999018946,
+        0.13228887210361817,
+        0.1414495837287463
+      ]
+    },
+    "20": {
+      "mean_ap": 0.12640891102278506,
+      "folds": [
+        0.09974627623301072,
+        0.1391987348204649,
+        0.14028172201487954
+      ]
+    },
+    "50": {
+      "mean_ap": 0.11899308773699575,
+      "folds": [
+        0.094635461301555,
+        0.13439316069153565,
+        0.12795064121789665
+      ]
+    }
+  },
+  "threshold": {
+    "rule": "max F1, out-of-fold (training passes)",
+    "threshold": 0.06925133326314467,
+    "f1": 0.20433284096504184,
+    "precision": 0.14072566971854866,
+    "recall": 0.3728661275831087
+  },
+  "test": {
+    "n": 39863,
+    "positives": 439,
+    "roc_auc": 0.8813321857527439,
+    "average_precision": 0.1172134567947861,
+    "brier": 0.010252104978515413,
+    "threshold": 0.06925133326314467,
+    "precision": 0.12656119900083265,
+    "recall": 0.3462414578587699,
+    "confusion": {
+      "tn": 38375,
+      "fp": 1049,
+      "fn": 287,
+      "tp": 152
+    },
+    "held_fraction": 0.030128189047487645,
+    "by_policy": {
+      "Actual": {
+        "n": 14542,
+        "positives": 27,
+        "average_precision": 0.015065745481040999,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "ActualMLB": {
+        "n": 25321,
+        "positives": 412,
+        "average_precision": 0.12390225858114041,
+        "precision": 0.12837837837837837,
+        "recall": 0.36893203883495146
+      }
+    }
+  },
+  "permutation_importance": {
+    "NumUsers": {
+      "mean": -0.0010168822227791558,
+      "std": 0.00035439937118382964
+    },
+    "ReturnToPrev": {
+      "mean": 0.0013777902766789556,
+      "std": 0.0006405510112137768
+    },
+    "StayFrom_s": {
+      "mean": 0.015502970963001345,
+      "std": 0.002463296058545406
+    },
+    "SinrServ_dB": {
+      "mean": 0.00934337797321758,
+      "std": 0.002195444453540223
+    },
+    "SinrCand_dB": {
+      "mean": 0.03179957347647587,
+      "std": 0.006907309922246933
+    },
+    "Gap_dB": {
+      "mean": 0.06404968699216264,
+      "std": 0.0053543059671563005
+    },
+    "DeltaSinr1s_dB": {
+      "mean": 0.010093811734915683,
+      "std": 0.0030581774731182803
+    },
+    "DeltaGap1s_dB": {
+      "mean": 0.0023985161960897337,
+      "std": 0.0014551107467805696
+    },
+    "AvgSinr3s_dB": {
+      "mean": 0.0071497289871159135,
+      "std": 0.0016689286662709378
+    },
+    "AvgGap3s_dB": {
+      "mean": 0.01613248733082088,
+      "std": 0.004659388949464709
+    },
+    "SlopeSinr3s_dBps": {
+      "mean": -0.00022051632759206852,
+      "std": 0.0023815860001035584
+    },
+    "SlopeGap3s_dBps": {
+      "mean": 0.0032358191819617716,
+      "std": 0.0015414957332169983
+    },
+    "ElevFrom_deg": {
+      "mean": 0.0017970848767389414,
+      "std": 0.0005880245311512541
+    },
+    "ElevTo_deg": {
+      "mean": 0.0013026625053187662,
+      "std": 0.00032893114122064924
+    },
+    "DistFrom_m": {
+      "mean": 0.005616236909851824,
+      "std": 0.0013382344069410171
+    },
+    "DistTo_m": {
+      "mean": 0.0022937088654969044,
+      "std": 0.0009254781458684219
+    },
+    "LoadFrom": {
+      "mean": 0.01973846161677765,
+      "std": 0.00212969094398155
+    },
+    "LoadTo": {
+      "mean": 0.002711403989789582,
+      "std": 0.0006349892118210713
+    },
+    "UsersOnFrom": {
+      "mean": 0.00900416420626739,
+      "std": 0.0020244916725684126
+    },
+    "UsersOnTo": {
+      "mean": 0.0046093344921641684,
+      "std": 0.0007285514810333872
+    },
+    "MlbOffset_dB": {
+      "mean": 0.010670026246877563,
+      "std": 0.0037023266781705593
+    },
+    "FromSat": {
+      "mean": 0.0017675409597671665,
+      "std": 0.0004950983142955922
+    },
+    "ToSat": {
+      "mean": 0.0005054222318690265,
+      "std": 0.00018168884474955291
+    }
+  },
+  "export": {
+    "path": "Model\\results_handover_gate\\handover_gate.mat",
+    "sha256": "c8956eb8fd51b3dd8410372562f0d126ec1c3248dbbaef55661c0757abd3bdf1",
+    "bytes": 1947994,
+    "self_test_samples": 2000
+  },
+  "meta": {
+    "created": "2026-11-09T20:37:23",
+    "sklearn": "1.9.0",
+    "numpy": "2.5.1",
+    "scipy": "1.18.1",
+    "label": "TR 36.839 Ορισμός 5: NextNode == FromNode & NextCause == HO & StayTo_s <= pingPongMaxStay_s",
+    "pingPongMaxStay_s": 0.8,
+    "trainPolicies": "Actual, ActualMLB",
+    "trainSeeds": "1000",
+    "trainEvents": 108844,
+    "trainPingPong": 1113,
+    "nTrees": 300,
+    "maxDepth": 12,
+    "minSamplesLeaf": 20,
+    "testAveragePrecision": 0.1172134567947861,
+    "testRecallAtThreshold": 0.3462414578587699,
+    "testPrecisionAtThreshold": 0.12656119900083265
+  }
+}

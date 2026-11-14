@@ -1,16 +1,9 @@
 function T = geometryValidation(outputDir, label)
-% Έλεγχος της γεωμετρίας που τροφοδοτεί τα μοντέλα UMa/UMi.
-%
-% Σαρώνει την οριζόντια απόσταση κρατώντας σταθερό το ύψος του χρήστη και
-% επαληθεύει τρία πράγματα:
-%   1. Το ύψος που φτάνει στη nrPathLoss παραμένει 1.5 m σε κάθε απόσταση.
-%   2. Η τρισδιάστατη απόσταση προκύπτει από sqrt(d2D^2 + (hBS-hUT)^2).
-%   3. Ο έλεγχος πεδίου ισχύος αποκλείει τις ζεύξεις πέραν των 5 km.
-%
-% Συγκρίνει επίσης με τη γεωμετρία ENU που χρησιμοποιούνταν παλαιότερα, ώστε
-% να ποσοτικοποιηθεί το σφάλμα ύψους λόγω καμπυλότητας της Γης.
-%
-% Επιστρέφει πίνακα με ένα σημείο ανά απόσταση και γράφει CSV/PNG.
+%GEOMETRYVALIDATION Έλεγχος της γεωμετρίας των μοντέλων UMa/UMi σε σάρωση d2D:
+%   1. ύψος χρήστη σταθερό 1.5 m στη nrPathLoss,
+%   2. d3D = sqrt(d2D^2 + (hBS - hUT)^2),
+%   3. πεδίο ισχύος 10 m - 5 km (TR 38.901 Πίν. 7.4.1-1).
+% Συγκρίνει με επίπεδη γεωμετρία ENU για το σφάλμα λόγω καμπυλότητας της Γης.
 
 if nargin < 1 || isempty(outputDir)
     outputDir = fullfile(fileparts(mfilename('fullpath')), '..', 'Results');
@@ -61,7 +54,7 @@ for k = 1:n
     txCorrect  = [0; 0; hBs];
     rxCorrect  = [d2dActual(k); 0; hUt];
 
-    % --- Παλιά γεωμετρία ENU, για σύγκριση ---
+    % --- Γεωμετρία ENU, για σύγκριση ---
     [~, ~, zBs] = geodetic2enu(baseLat, baseLon, hBs, baseLat, baseLon, 0, wgs84);
     [xUe, yUe, zUe] = geodetic2enu(userLat, baseLon, hUt, baseLat, baseLon, 0, wgs84);
     hUtEnu(k) = zUe;
@@ -89,61 +82,68 @@ heightOk = all(abs(T.hUT_used_m - hUt) < tolHeight);
 rangeOk  = all(abs(T.d3D_geom_m - sqrt(T.d2D_m.^2 + (hBs-hUt)^2)) < tolRange);
 gateOk   = isequal(T.WithinValidity, T.d2D_m >= 10 & T.d2D_m <= 5000);
 
-fprintf('\n=== Έλεγχος γεωμετρίας (UMa, hBS=%g m, hUT=%g m, fc=%.2f GHz) ===\n', ...
+fprintf('\n=== Geometry check (UMa, hBS = %g m, hUT = %g m, fc = %.2f GHz) ===\n', ...
     hBs, hUt, fcHz/1e9);
 disp(T);
 
-fprintf('1. Ύψος χρήστη σταθερό στα %.1f m σε όλες τις αποστάσεις : %s\n', ...
+fprintf('1. UE height constant at %.1f m at all distances       : %s\n', ...
     hUt, boolText(heightOk));
-fprintf('2. d3D = sqrt(d2D^2 + (hBS-hUT)^2)                        : %s\n', boolText(rangeOk));
-fprintf('3. Πεδίο ισχύος 10 m <= d2D <= 5 km                        : %s\n', boolText(gateOk));
-fprintf('   Μέγιστη απόκλιση ύψους της γεωμετρίας ENU              : %.1f m\n', ...
+fprintf('2. d3D = sqrt(d2D^2 + (hBS-hUT)^2)                      : %s\n', boolText(rangeOk));
+fprintf('3. Validity range 10 m <= d2D <= 5 km                   : %s\n', boolText(gateOk));
+fprintf('   Max height deviation of the flat ENU geometry        : %.1f m\n', ...
     max(abs(T.hUT_enu_m - hUt)));
-fprintf('   Μέγιστο σφάλμα απωλειών από τη γεωμετρία ENU           : %.1f dB\n\n', ...
+fprintf('   Max path-loss error of the flat ENU geometry         : %.1f dB\n\n', ...
     max(T.Error_dB));
 
 if ~(heightOk && rangeOk && gateOk)
-    error('geometryValidation:Failed', 'Ο έλεγχος γεωμετρίας απέτυχε.');
+    error('geometryValidation:Failed', 'Geometry check failed.');
 end
 
 %% ------------------ Γράφημα ------------------
-fig = figure('Visible','off','Position',[100 100 900 380]);
+C = thesisColors();
+fig = thesisFigure(17, 7);
+tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
 
-subplot(1,2,1);
-semilogx(T.d2D_m, T.hUT_used_m, '-o', 'LineWidth', 1.4); hold on;
-semilogx(T.d2D_m, T.hUT_enu_m, '-s', 'LineWidth', 1.4);
-xline(5000, '--', 'όριο 5 km');
-grid on; xlabel('Οριζόντια απόσταση d_{2D} [m]'); ylabel('Ύψος χρήστη [m]');
-legend({'φυσικό ύψος','κατακόρυφη ENU'}, 'Location','southwest');
-title('Ύψος κεραίας χρήστη');
+ax = nexttile(tl);
+semilogx(ax, T.d2D_m, T.hUT_used_m, '-o', 'Color', C.cat(1,:), 'MarkerSize', 4, ...
+    'MarkerFaceColor', C.cat(1,:)); hold(ax, 'on');
+semilogx(ax, T.d2D_m, T.hUT_enu_m, '-s', 'Color', C.cat(2,:), 'MarkerSize', 4, ...
+    'MarkerFaceColor', C.cat(2,:));
+xline(ax, 5000, '--', 'validity limit 5 km', 'Color', C.text, 'FontSize', 7.5, ...
+    'LabelVerticalAlignment', 'middle');
+grid(ax, 'on'); xlabel(ax, 'Horizontal distance d_{2D} [m]'); ylabel(ax, 'UE height [m]');
+legend(ax, {'geodetic (used)','flat ENU "up" axis'}, 'Location','southwest');
+title(ax, '(a) UE antenna height', 'FontWeight', 'normal');
 
-subplot(1,2,2);
-semilogx(T.d2D_m, T.Error_dB, '-o', 'LineWidth', 1.4);
-xline(5000, '--', 'όριο 5 km');
-grid on; xlabel('Οριζόντια απόσταση d_{2D} [m]'); ylabel('Σφάλμα απωλειών [dB]');
-title('Σφάλμα από τη γεωμετρία ENU');
+ax = nexttile(tl);
+semilogx(ax, T.d2D_m, T.Error_dB, '-o', 'Color', C.cat(2,:), 'MarkerSize', 4, ...
+    'MarkerFaceColor', C.cat(2,:));
+xline(ax, 5000, '--', 'validity limit 5 km', 'Color', C.text, 'FontSize', 7.5, ...
+    'LabelVerticalAlignment', 'middle');
+grid(ax, 'on'); xlabel(ax, 'Horizontal distance d_{2D} [m]'); ylabel(ax, 'Path-loss error [dB]');
+title(ax, '(b) Path-loss error of a flat ENU geometry', 'FontWeight', 'normal');
+title(tl, sprintf('Geometry check (UMa, h_{BS} = %g m, h_{UT} = %g m, TR 38.901 Table 7.4.1-1)', hBs, hUt), ...
+    'FontWeight', 'bold', 'FontSize', 10);
 
-csvPath = fullfile(outputDir, 'geometry_validation.csv');
 pngPath = fullfile(outputDir, 'geometry_validation.png');
-writetable(T, csvPath);
-saveas(fig, pngPath);
-close(fig);
+saveThesisFigure(fig, pngPath);
 
-fprintf('Αποτελέσματα -> %s\n', csvPath);
+fprintf('Figure -> %s\n', pngPath);
 
 %% ------------------ Versioning ------------------
 runParams = struct('rngSeed', 42, 'scenario', 'UMa', 'hBS_m', hBs, 'hUT_m', hUt, ...
     'CarrierFrequency_Hz', fcHz, 'd2D_targets_m', d2dTargets, ...
     'validity_d2D_min_m', 10, 'validity_d2D_max_m', 5000, ...
     'validity_hUT_min_m', 1.5, 'validity_hUT_max_m', 22.5);
-saveRunVersion('geometryValidation', runParams, {csvPath, pngPath}, label);
+runParams.results = T;
+saveRunVersion('geometryValidation', runParams, {pngPath}, label);
 
 end
 
 function s = boolText(tf)
 if tf
-    s = 'ΟΚ';
+    s = 'PASS';
 else
-    s = 'ΑΠΕΤΥΧΕ';
+    s = 'FAIL';
 end
 end

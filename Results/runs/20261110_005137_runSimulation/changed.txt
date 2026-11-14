@@ -1,0 +1,21 @@
+Σύγκριση vs 20261109_204858_runSimulation_mltest20
+
+  ~ checksRun : 90020  ->  1350300
+  ~ ciHalfWidthFinal : [0.06425701 0.058806421 0.083999523 0.079129916 0.093947599]  ->  [0.013797562 0.015795091 0.019946904 0.018884045 0.01982153]
+  ~ ciTargetFromPass : NaN  ->  299
+  ~ ciTargetMet : false  ->  true
+  ~ datasetBytes : 25262749  ->  3.7512794e+08
+  ~ datasetPath : C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\Results_mltest\dataset.csv  ->  C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\PROD\..\Dataset\dataset.csv
+  ~ datasetSha256 : b3d7930d00404112a92af8db4d18cc057e3255eeaaf7422ecb4f1ffb2c05d688  ->  6a3cec46c4b16cab78dbd61f6ef0ad00c7c893fd5f7af47db6eda8bf9c3f1c87
+  ~ handoverEvents : 42168  ->  599465
+  ~ handoverEventsPath : C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\Results_mltest\handover_events.mat  ->  C:\Users\g.zachos\Desktop\Thesis\MC-ISTNs\PROD\..\Dataset\handover_events.mat
+  ~ handoverEventsSha256 : 4dfecccb38bc0c23ac8b62ddea8b5d59ac8fb0dc1c0af907b30a02176d0df3af  ->  ae21e6f8dc429cd4a5c552aceb0bfe6d0e746db4a235d797dcf82a654bf53cbf
+  ~ mlGate.Meta.created : 2026-11-09T20:31:36  ->  2026-11-09T20:37:23
+  ~ mlGate.Meta.testPrecisionAtThreshold : 0  ->  0.1265612
+  ~ mlGate.Meta.testRecallAtThreshold : 0  ->  0.34624146
+  ~ mlGate.Sha256 : 633b2fb80d132b30831f67c21ad72e3ae3dc49ea6c94ce8819f82de098c33f0f  ->  c8956eb8fd51b3dd8410372562f0d126ec1c3248dbbaef55661c0757abd3bdf1
+  ~ mlGate.Threshold : 0.5  ->  0.069251333
+  ~ mlGateChecks : 21084  ->  294701
+  ~ numPasses : 20  ->  300
+  ~ numRows : 72400  ->  1070977
+  ~ simulatedTime_s : 18000  ->  270000

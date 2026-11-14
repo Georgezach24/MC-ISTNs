@@ -1,4 +1,0 @@
-Σύγκριση vs 20260906_173142_temporalPassSimulation_dt5
-
-  ~ dtSeconds : 5  ->  2
-  ~ numSteps : 135  ->  334

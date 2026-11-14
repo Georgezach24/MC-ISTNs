@@ -1,4 +1,0 @@
-Σύγκριση vs 20260906_152035_monteCarloDriver_logunif
-
-  ~ numScenarios : 200  ->  10
-  ~ numUserRows : 1279  ->  68

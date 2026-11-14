@@ -7,30 +7,9 @@ function [bestNodeVec, bestNodeTypeVec, bestDistanceVec, bestPathLossVec, ...
     bsUnavailReasonVec, satUnavailReasonVec, policyKpis, newDecision] = ...
     simulateScenario(bs_geo, user_geo, sat_geo, wgs84, simParameters, satParameters, ...
                      prevChannelState, prevDecision)
-% Για κάθε χρήστη: επιλέγει τον καλύτερο κόμβο (BS ή δορυφόρο) βάσει SINR και
-% υπολογίζει χωρητικότητα/ενέργεια μετά την κατανομή εύρους ζώνης.
-% Επιστρέφει και per-candidate διαγνωστικά (καλύτερο BS + δορυφόρος, ανεξάρτητα
-% από την τελική επιλογή) για την εκπαίδευση του ML μοντέλου του Part 2.
-%
-% 23η έξοδος policyKpis: η ίδια πραγματοποίηση καναλιού αποτιμάται και με τις
-% τρεις πολιτικές επιλογής κόμβου (η υπό εξέταση, αποκλειστικά επίγεια,
-% αποκλειστικά δορυφορική), με την κατανομή πόρων να υπολογίζεται εκ νέου σε
-% καθεμία. Τα δύο υποψήφια SINR έχουν ήδη υπολογιστεί για κάθε χρήστη ανεξάρτητα
-% από το ποιος κερδίζει, οπότε οι τρεις πολιτικές διαφέρουν μόνο στην επιλογή
-% και η σύγκριση είναι κατά ζεύγη πάνω στο ίδιο κανάλι.
-%
-% 8ο όρισμα prevDecision / 24η έξοδος newDecision: κατάσταση της απόφασης
-% (εξυπηρετών κόμβος, υποψήφιος σε εκκρεμότητα, μετρητής επιβεβαίωσης) ανά
-% πολιτική. Χρειάζεται επειδή η υστέρηση και ο χρόνος επιβεβαίωσης κάνουν την
-% απόφαση εξαρτώμενη από το παρελθόν. Το runSimulation.m τη μεταφέρει μέσα σε
-% κάθε διέλευση και τη μηδενίζει στην αρχή της επόμενης.
-%
-% prevChannelState (προαιρετικό, 7ο όρισμα): αν δοθεί, LOS/NLOS και shadow
-% fading κάθε ζεύξης συσχετίζονται χωρικά με την προηγούμενη κλήση αντί για
-% i.i.d. δειγματοληψία. Το περνάει το runSimulation.m μέσα σε κάθε διέλευση
-% (διαδοχικά βήματα 1 s με κινούμενους χρήστες) και το μηδενίζει στην αρχή
-% κάθε νέας διέλευσης, ώστε οι διελεύσεις να είναι ανεξάρτητες μεταξύ τους.
-% Τα scripts επαλήθευσης το παραλείπουν.
+% Ένα βήμα: SINR κάθε υποψηφίου, επιλογή κόμβου ανά πολιτική (A3, RLF),
+% χωρητικότητα και ενέργεια. Όλες οι πολιτικές στο ίδιο κανάλι.
+% prevChannelState/prevDecision: προηγούμενο βήμα (κενά στην αρχή).
 if nargin < 7
     prevChannelState = [];
 end
@@ -39,7 +18,30 @@ if nargin < 8
 end
 
 numUsers = size(user_geo,1);
-numBs    = size(bs_geo,1);
+numBs    = size(bs_geo,1);   % κελιά (TRxP): κόμβοι "BS1".."BSnumBs"
+% Τομείς (TR 38.901 Πίν. 7.8-1)· χωρίς αυτούς, ένα κελί ανά σταθμό.
+if isfield(simParameters, 'CellSite') && ~isempty(simParameters.CellSite)
+    cellSite         = simParameters.CellSite(:);
+    cellBoresightDeg = simParameters.CellBoresightDeg(:);
+else
+    cellSite         = (1:numBs)';
+    cellBoresightDeg = [];
+end
+sectorized = ~isempty(cellBoresightDeg);
+numSites   = max(cellSite);
+siteGeo    = zeros(numSites, 3);
+for k = 1:numSites
+    siteGeo(k,:) = bs_geo(find(cellSite == k, 1), :);
+end
+numSats  = size(sat_geo,1);   % κόμβοι "SAT-k"
+
+% FRF (TR 38.821 Πίν. 6.1.1.1-5): δορυφόρος k στη ζώνη mod(k-1, FRF).
+if isfield(satParameters, 'FreqReuse') && ~isempty(satParameters.FreqReuse)
+    satFreqReuse = satParameters.FreqReuse;
+else
+    satFreqReuse = 1;
+end
+satSubBand = mod((0:numSats-1)', satFreqReuse);
 
 %% ------------------ Bandwidth ------------------
 BW_bs = simParameters.Carrier.NSizeGrid * 12 * ...
@@ -53,46 +55,36 @@ Teq = simParameters.RxAntTemperature + 290*(NF-1);
 noisePowerBS_dBW  = 10*log10(kBoltz * Teq * BW_bs);
 noisePowerSAT_dBW = 10*log10(kBoltz * Teq * satParameters.Bandwidth);
 
-%% ------------------ Ελάχιστο χρησιμοποιήσιμο SINR (κατάσταση outage) ------------------
-% Κάτω από αυτό -> ο χρήστης θεωρείται outage αντί να ανατεθεί στον
-% "λιγότερο κακό" κόμβο. = Shannon-ισοδύναμο SINR του MCS 0 (TS 38.214 Πίν. 5.1.3.1-1).
-minSpectralEfficiency = 0.2344;                        % bits/s/Hz (MCS 0)
+%% ------------------ Ελάχιστο χρησιμοποιήσιμο SINR ------------------
+% SINR του MCS 0 (TS 38.214 Πίν. 5.1.3.1-1)· κάτω από αυτό: εκτός κάλυψης.
+minSpectralEfficiency = 0.2344;                        % bit/s/Hz (MCS 0)
 minUsableSinrDb = 10*log10(2^minSpectralEfficiency - 1); % ≈ -7.53 dB
 
-%% ------------------ Κατώφλι σε επίπεδο υπηρεσίας ------------------
-% 5ο εκατοστημόριο φασματικής απόδοσης χρήστη (απαίτηση ITU-R M.2410, όπως
-% παρατίθεται στο TR 37.910). Η τιμή εξαρτάται από το περιβάλλον:
-% 0.3 bit/s/Hz για Indoor Hotspot-eMBB DL (Πίν. 5.4.1.1.1-1) και
-% 0.225 bit/s/Hz για Dense Urban-eMBB DL (Πίν. 5.4.1.2.1-1). Εφαρμόζεται η
-% αυστηρότερη τιμή. Ορίζεται επί του ΣΥΝΟΛΙΚΟΥ εύρους καναλιού, άρα
-% SE_ζεύξης >= targetNormalizedSe * L.
+%% ------------------ Στόχος υπηρεσίας ------------------
+% 5ο εκατοστημόριο SE χρήστη (ITU-R M.2410 / TR 37.910 Πίν. 5.4.1.1.1-1).
 targetNormalizedSe = 0.3;   % bit/s/Hz
 
-%% ------------------ Ισχύς εκπομπής ανά αλυσίδα πομποδέκτη ------------------
-% Το μοντέλο EARTH (Auer et al. 2011, εξ. 1) ορίζει P_out ΑΝΑ αλυσίδα, με
-% ανώτατο όριο P_max = 20 W για μακροκυψελικό σταθμό (Πίν. 2).
+%% ------------------ Ισχύς ανά αλυσίδα πομποδέκτη ------------------
+% EARTH (Auer et al. 2011, εξ. 1, Πίν. 2): P_out ανά αλυσίδα, P_max = 20 W.
 pOutTotalW    = 10^((simParameters.TxPower - 30)/10);
 pOutPerChainW = pOutTotalW / simParameters.Power.NumTrx;
 earthPmaxW    = 20;
 if pOutPerChainW > earthPmaxW
     warning('simulateScenario:EarthOutOfRange', ...
-        ['Ισχύς ανά αλυσίδα %.1f W > P_max = %.0f W του μοντέλου EARTH ' ...
-         '(Auer et al. 2011, Πίν. 2). Αύξησε το simParameters.Power.NumTrx.'], ...
+        ['Power per transceiver chain %.1f W > P_max = %.0f W of the EARTH model ' ...
+         '(Auer et al. 2011, Table 2). Increase simParameters.Power.NumTrx.'], ...
         pOutPerChainW, earthPmaxW);
 end
 
-%% ------------------ Διαλείψεις δορυφορικής ζεύξης ------------------
-% Shadowed Rician (Abdi et al. 2003). Η σκίαση περιέχεται ήδη στο μοντέλο
-% (τυχαίο πλάτος LOS κατά Nakagami-m), οπότε δεν προστίθεται χωριστός
-% λογαριθμοκανονικός όρος. Παράμετροι (b0,m,Ω) από την ανύψωση, εξ. (19).
-satFadeElevRangeDeg = [20 80];   % πεδίο ισχύος της προσαρμογής της εξ. (19)
+%% ------------------ Διαλείψεις ------------------
+% Δορυφόρος: Shadowed Rician (Abdi et al. 2003)· συσχέτιση σκίασης 37 m
+% (TR 38.811 Πίν. 6.7.2-3a).
+satFadeElevRangeDeg = [20 80];   % πεδίο ισχύος της εξ. (19)
+satShadowDcorrM     = 37;
 terrKdBLos          = 9;         % Rician K επίγειο LOS, TR 38.901 Πίν. 7.5-6
 
-%% ------------------ Υστέρηση και χρόνος επιβεβαίωσης ------------------
-% Μεταφορά του Event A3 (TS 38.331 §5.5.4.4) στον κανόνα της εργασίας. Το
-% Hysteresis ορίζεται στην §6.3.2 ως INTEGER (0..30) με τιμή = πεδίο * 0.5 dB,
-% δηλαδή 0 έως 15 dB· το TimeToTrigger ως απαριθμημένο σύνολο τιμών σε ms.
-% Προεπιλογή 0 και 0: αναπαράγει τη συμπεριφορά χωρίς υστέρηση.
+%% ------------------ A3: υστέρηση και χρόνος επιβεβαίωσης ------------------
+% TS 38.331 §5.5.4.4 / §6.3.2. Χωρίς simParameters.Mobility: 0 dB, 0 ms.
 if isfield(simParameters, 'Mobility')
     hysDb    = simParameters.Mobility.HysteresisDb;
     tttMs    = simParameters.Mobility.TimeToTriggerMs;
@@ -100,29 +92,54 @@ if isfield(simParameters, 'Mobility')
 else
     hysDb = 0; tttMs = 0; dtSecHys = 1;
 end
-% Ο χρόνος επιβεβαίωσης μετατρέπεται σε διαδοχικά βήματα. Η στρογγυλοποίηση
-% είναι προς τα πάνω επειδή το πρότυπο απαιτεί η συνθήκη να ΙΣΧΥΕΙ για τη
-% διάρκεια αυτή· με Δt = 1 s οι τιμές κάτω από 1024 ms δεν διακρίνονται.
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'PingPongMtsS')
+    pingPongMtsS = simParameters.Mobility.PingPongMtsS;
+else
+    pingPongMtsS = 1;
+end
+% Ping-pong: παραμονή < MTS (TR 36.839 Ορισμός 5), σε βήματα.
+ppMaxStaySteps = max(1, ceil(pingPongMtsS/dtSecHys - 1e-9) - 1);
+% TTT σε βήματα (προς τα πάνω).
 nTtt = max(1, ceil(tttMs / (dtSecHys*1000)));
 
+%% ------------------ Παρακολούθηση ζεύξης και RLF ------------------
+% TS 38.331 §5.3.10, τιμές TR 36.839 Πίν. 5.2.1.3.1· μία ένδειξη ανά βήμα.
+rlfP = struct('QoutDb', -8, 'QinDb', -6, 'T310Ms', 1000, 'N310', 1, 'N311', 1);
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'Rlf')
+    rlfP = simParameters.Mobility.Rlf;
+end
+mob = struct('MinUsableDb', minUsableSinrDb, 'HysDb', hysDb, 'NTtt', nTtt, ...
+    'QoutDb', rlfP.QoutDb, 'QinDb', rlfP.QinDb, 'N310', rlfP.N310, 'N311', rlfP.N311, ...
+    'NT310', max(1, ceil(rlfP.T310Ms / (dtSecHys*1000))), 'NReport', 0);
+
+%% ------------------ Εξισορρόπηση φόρτου (MLB) ------------------
+% TS 38.300 §15.5.1: Ocn ανάλογο της διαφοράς φόρτου (Nasri & Altman,
+% arXiv:1307.1212), στρογγυλεμένο στο Q-OffsetRange (TS 38.331).
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'MlbMaxOffsetDb')
+    mlbMaxOffsetDb = simParameters.Mobility.MlbMaxOffsetDb;
+else
+    mlbMaxOffsetDb = 6;   % = HMmax - f(0) του Nasri & Altman
+end
+
+%% ------------------ Απόφαση handover με ML ------------------
+% Μετά την αναφορά A3 (TS 38.300 §9.2.3.2.1· TR 37.817 §5.3): αν P(ping-pong)
+% > κατώφλι, αναμονή για την επόμενη αναφορά (reportInterval).
+% Mobility.MlGate: Model, Threshold, FeatIdx, ReportSteps (κενό = χωρίς *ML).
+mlGate = [];
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'MlGate')
+    mlGate = simParameters.Mobility.MlGate;
+end
+hasMl = ~isempty(mlGate);
+% Ιστορικό της φιλτραρισμένης μέτρησης (t, t-1 s, t-2 s) για τα χαρακτηριστικά.
+histW   = 2*round(1/dtSecHys) + 1;
+histLag = (histW - 1)/2;
+if hasMl
+    mob.NReport = mlGate.ReportSteps;
+end
+
 %% ------------------ Μέτρηση: μέση τιμή και φίλτρο L3 ------------------
-% Το TS 38.331 §5.5.3.2 ορίζει ότι ο A3 δεν συγκρίνει τη στιγμιαία μέτρηση
-% αλλά τη φιλτραρισμένη, F_n = (1-a)*F_{n-1} + a*M_n ("filter the measured
-% result, BEFORE using for evaluation of reporting criteria"), και το ίδιο το
-% M_n δεν είναι στιγμιαίο δείγμα: είναι αποτέλεσμα περιόδου μέτρησης
-% τουλάχιστον 200 ms στο FR1 (TS 38.133 Πίν. 9.2.5.2-1). Αντίγραφα των δύο
-% εδαφίων: Sources/TS38331_L3_filtering.md.
-%
-%   Meas.NAvg    πλήθος ανεξάρτητων πραγματώσεων γρήγορων διαλείψεων που
-%                μεσοποιούνται μέσα στο βήμα. Προκύπτει από την αυτοσυσχέτιση
-%                του Clarke και υπολογίζεται στο runSimulation.m.
-%   Meas.L3Alpha ο συντελεστής a, ΗΔΗ προσαρμοσμένος στο βήμα της προσομοίωσης
-%                κατά τη ρήτρα "adapt the filter such that the time
-%                characteristics ... are preserved at different input rates".
-%                Τιμή 1 = χωρίς φίλτρο (NOTE 1, k = 0).
-%
-% Προεπιλογές 1 και 1: αναπαράγουν ακριβώς τη συμπεριφορά πριν τη μέτρηση,
-% ώστε τα scripts επαλήθευσης και η παλιά ρύθμιση να μένουν αναπαραγώγιμα.
+% Φίλτρο L3 (TS 38.331 §5.5.3.2) σε μέση τιμή 200 ms (TS 38.133 Πίν. 9.2.5.2-1).
+%   Meas.NAvg: δείγματα ανά βήμα· Meas.L3Alpha: συντελεστής (1 = χωρίς φίλτρο)
 measNAvgTerr = max(1, round(measParam(simParameters, 'NAvg',    1)));
 measNAvgSat  = max(1, round(measParam(satParameters, 'NAvg',    1)));
 l3Alpha      = min(max(measParam(simParameters, 'L3Alpha', 1), 0), 1);
@@ -130,14 +147,52 @@ l3Alpha      = min(max(measParam(simParameters, 'L3Alpha', 1), 0), 1);
 %% ------------------ Αποθήκευση αποτελεσμάτων ------------------
 bestNodeVec         = strings(numUsers,1);
 bestNodeTypeVec     = strings(numUsers,1);
-bestBsNodeVec       = strings(numUsers,1);   % ποιος BS κέρδισε, για τη σύγκριση πολιτικών
-policyNamesLocal    = {'Actual','TerrestrialOnly','SatelliteOnly'};
+bestBsNodeVec       = strings(numUsers,1);   % καλύτερος BS, για τη σύγκριση πολιτικών
+% Πολιτικές: οι τρεις βασικές και οι δύο εκδοχές με MLB (ίδιος A3 + μετατόπιση).
+policyNamesLocal    = {'Actual','TerrestrialOnly','SatelliteOnly', ...
+                       'ActualMLB','TerrestrialOnlyMLB'};
+policyBaseLocal     = {'Actual','TerrestrialOnly','SatelliteOnly', ...
+                       'Actual','TerrestrialOnly'};
+policyMlbLocal      = [false false false true true];
+% Με μοντέλο: η μεικτή χωρίς και με MLB, με την απόφαση του σταθμού από το ML.
+if hasMl
+    policyNamesLocal = [policyNamesLocal, {'ActualML','ActualMLBML'}];
+    policyBaseLocal  = [policyBaseLocal,  {'Actual','Actual'}];
+    policyMlbLocal   = [policyMlbLocal, false, true];
+end
+numPolLocal         = numel(policyNamesLocal);
+policyMlLocal       = [false(1,5), true(1, numPolLocal - 5)];
+nGateFeat           = numel(handoverFeatures());
+% Κατάσταση απόφασης ανά πολιτική και χρήστη:
+%   Node/Pending/Count   εξυπηρετών, υποψήφιος του A3, βήματα επιβεβαίωσης
+%   Wait                 βήματα ως την επόμενη αναφορά μετά από αναμονή (*ML)
+%   Prev/Stay            κόμβος πριν το τελευταίο HO και βήματα παραμονής (ping-pong)
+%   Cause/Offset         πώς άλλαξε ο κόμβος ("HO", "RLF", "HOF", "") και η μετατόπιση
+%   Attempt/AttemptOffset στόχος και μετατόπιση της εντολής HO του βήματος
+%   Oos/Is/T310          μετρητές N310/N311 και βήματα του T310 (-1 = σταματημένος)
+%   LoadNode/LoadRho     εικονικός φόρτος ανά κόμβο (αναφορά φόρτου, TS 38.300 §15.5.1)
+%   GateFeat             χαρακτηριστικά που είδε το μοντέλο (*ML· NaN = δεν ρωτήθηκε)
 newDecision = struct();
-for pol = policyNamesLocal
-    newDecision.(pol{1}) = struct('Node', strings(numUsers,1), ...
-        'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1));
+for pI = 1:numPolLocal
+    newDecision.(policyNamesLocal{pI}) = struct('Node', strings(numUsers,1), ...
+        'Pending', strings(numUsers,1), 'Count', zeros(numUsers,1), 'Wait', zeros(numUsers,1), ...
+        'Prev', strings(numUsers,1), 'Stay', zeros(numUsers,1), ...
+        'Cause', strings(numUsers,1), 'Offset', zeros(numUsers,1), ...
+        'Attempt', strings(numUsers,1), 'AttemptOffset', zeros(numUsers,1), ...
+        'Oos', zeros(numUsers,1), 'Is', zeros(numUsers,1), 'T310', -ones(numUsers,1), ...
+        'LoadNode', strings(0,1), 'LoadRho', zeros(0,1), 'LoadAge', 0);
+    if policyMlLocal(pI)
+        newDecision.(policyNamesLocal{pI}).GateFeat = nan(numUsers, nGateFeat);
+    end
 end
 hasPrevDecision = ~isempty(prevDecision);
+
+% Μετρητές ανά πολιτική: HO, ping-pong, RLF, HOF, αναμονές ML (TR 36.839).
+hoCount = struct();
+for pol = policyNamesLocal
+    hoCount.(pol{1}) = struct('TerrTerr', 0, 'TerrSat', 0, 'SatSat', 0, 'PingPong', 0, ...
+        'RlfTerr', 0, 'RlfSat', 0, 'HoFail', 0, 'Held', 0);
+end
 bestDistanceVec     = nan(numUsers,1);
 bestPathLossVec     = nan(numUsers,1);
 bestSinrDbVec        = nan(numUsers,1);
@@ -153,51 +208,167 @@ throughputMbpsVec   = zeros(numUsers,1);
 bsUnavailReasonVec  = strings(numUsers,1);
 satUnavailReasonVec = strings(numUsers,1);
 
-% Καταστάσεις εναλλακτικών πολιτικών (στήλες 2 και 3: επίγεια / δορυφορική)
-polNodeMat = strings(numUsers,3);
-polTypeMat = strings(numUsers,3);
-polSinrMat = nan(numUsers,3);
+% Αναθέσεις ανά πολιτική, μία στήλη ανά policyNamesLocal.
+polNodeMat = strings(numUsers,numPolLocal);
+polTypeMat = strings(numUsers,numPolLocal);
+polSinrMat = nan(numUsers,numPolLocal);
 
-% Διαγνωστικοί πίνακες
-groundDistanceMat = nan(numUsers,numBs);
-range3DMat        = nan(numUsers,numBs);
-pathLossMat       = nan(numUsers,numBs);
-snrDbMat          = nan(numUsers,numBs);   % χωρίς παρεμβολή, διαγνωστικό
+% Η διάδοση ορίζεται ανά site· τα κελιά ενός site διαφέρουν μόνο στο κέρδος κεραίας.
+pathLossMat       = nan(numUsers,numSites);
+pLosMat           = nan(numUsers,numSites);
+losMat            = false(numUsers,numSites);
+losLatentMat      = zeros(numUsers,numSites);
+sfMat             = nan(numUsers,numSites);
+% Soft LOS (TR 38.901 §7.6.3.3): μία διεργασία σκίασης για κάθε κατάσταση.
+sfLosMat          = zeros(numUsers,numSites);
+sfNlosMat         = zeros(numUsers,numSites);
+losSoftMat        = nan(numUsers,numSites);
+useSoftLos = isfield(simParameters, 'SoftLos') && simParameters.SoftLos;
+% sqrt(d_LOS/λ) της εξ. 7.6-18, με d_LOS = 50 m (απόσταση συσχέτισης LOS, Πίν. 7.6.3.1-2).
+softLosK = sqrt(50 / (physconst('LightSpeed')/simParameters.CarrierFrequency));
+snrDbMat          = nan(numUsers,numBs);   % χωρίς παρεμβολή
 sinrDbMat         = nan(numUsers,numBs);
-pLosMat           = nan(numUsers,numBs);
-losMat            = false(numUsers,numBs);
-losLatentMat      = zeros(numUsers,numBs);
-sfMat             = nan(numUsers,numBs);
+cellPathLossMat   = nan(numUsers,numBs);   % = απώλειες του site του κελιού
+cellRange3DMat    = nan(numUsers,numBs);
+% Καλύτερος δορυφόρος ανά χρήστη και SINR κάθε δορυφόρου.
 satSlantRangeVec  = nan(numUsers,1);
 satElevationVec   = nan(numUsers,1);
 satPathLossVec    = nan(numUsers,1);
 satSinrDbVec       = nan(numUsers,1);
+satSinrDbMat      = -inf(numUsers,numSats);
+satElevMat        = nan(numUsers,numSats);
 
 hasPrevState = ~isempty(prevChannelState) && ...
     isfield(prevChannelState, 'LosLatent') && ...
-    isequal(size(prevChannelState.IsLOS), [numUsers, numBs]);
+    isequal(size(prevChannelState.IsLOS), [numUsers, numSites]) && ...
+    (~useSoftLos || isfield(prevChannelState, 'SfLos_dB'));
+% Κρυφή γκαουσιανή μεταβλητή της δορυφορικής σκίασης ανά (χρήστη, δορυφόρο).
+hasPrevSatShadow = hasPrevState && isfield(prevChannelState, 'SatShadowLatent') && ...
+    isequal(size(prevChannelState.SatShadowLatent), [numUsers, numSats]);
+satShadowLatentMat = zeros(numUsers,numSats);
 
-% Κατάσταση του φίλτρου L3 ανά υποψήφιο. NaN σημαίνει "δεν υπάρχει
-% προηγούμενη μέτρηση", οπότε F_0 = M_1 όπως ορίζει η §5.5.3.2. Ταξιδεύει
-% μέσα στο prevChannelState, δηλαδή μηδενίζεται στην αρχή κάθε διέλευσης μαζί
-% με το υπόλοιπο κανάλι. Η μέτρηση είναι ΚΟΙΝΗ για τις τρεις πολιτικές: δεν
-% εξαρτάται από το ποιος κόμβος εξυπηρετεί, άρα η σύγκριση κατά ζεύγη μένει
-% έγκυρη.
+% Κατάσταση φίλτρου L3 ανά υποψήφιο (NaN = καμία μέτρηση).
 hasPrevFilt = hasPrevState && isfield(prevChannelState, 'FiltSinrBs_dB') && ...
-    isequal(size(prevChannelState.FiltSinrBs_dB), [numUsers, numBs]);
+    isequal(size(prevChannelState.FiltSinrBs_dB), [numUsers, numBs]) && ...
+    isequal(size(prevChannelState.FiltSinrSat_dB), [numUsers, numSats]);
 if hasPrevFilt
     prevFiltBs  = prevChannelState.FiltSinrBs_dB;
     prevFiltSat = prevChannelState.FiltSinrSat_dB;
 else
     prevFiltBs  = nan(numUsers, numBs);
-    prevFiltSat = nan(numUsers, 1);
+    prevFiltSat = nan(numUsers, numSats);
 end
 filtSinrBsMat  = nan(numUsers, numBs);
-filtSinrSatVec = nan(numUsers, 1);
+filtSinrSatMat = nan(numUsers, numSats);
+
+% Ιστορικό μετρήσεων (μόνο *ML).
+if hasMl
+    if hasPrevFilt && isfield(prevChannelState, 'HistStep')
+        histBs   = prevChannelState.HistFiltBs;
+        histSat  = prevChannelState.HistFiltSat;
+        histStep = prevChannelState.HistStep + 1;
+    else
+        histBs   = nan(histW, numUsers, numBs);
+        histSat  = nan(histW, numUsers, numSats);
+        histStep = 1;
+    end
+end
+
+lambdaSat    = physconst('LightSpeed') / satParameters.CarrierFrequency;
+noiseSatLinW = 10^(noisePowerSAT_dBW/10);
 
 %% ------------------ Επιλογή Καλύτερου Κόμβου (βάσει SINR) ------------------
+useWrapAround = isfield(simParameters, 'BsImageGeo') && ~isempty(simParameters.BsImageGeo);
+if useWrapAround
+    bsImageGeo = simParameters.BsImageGeo;
+end
+
+% Γεωμετρία και απώλειες διανυσματικά· στον βρόχο μένουν οι κληρώσεις.
+uLat  = user_geo(:,1);
+uLon  = user_geo(:,2);
+hUtV  = user_geo(:,3);
+% Wrap-around: κάθε ζεύξη από το πλησιέστερο αντίγραφο του site.
+if useWrapAround
+    imgLatRow = reshape(bsImageGeo(:,:,1), 1, []);
+    imgLonRow = reshape(bsImageGeo(:,:,2), 1, []);
+    nImgPts   = numel(imgLatRow);
+    dImgAll = distance(repmat(uLat, 1, nImgPts), repmat(uLon, 1, nImgPts), ...
+        repmat(imgLatRow, numUsers, 1), repmat(imgLonRow, numUsers, 1), wgs84);
+    [gdAll, nearImgAll] = min(reshape(dImgAll, numUsers, numSites, []), [], 3);
+else
+    gdAll = distance(repmat(siteGeo(:,1)', numUsers, 1), repmat(siteGeo(:,2)', numUsers, 1), ...
+        repmat(uLat, 1, numSites), repmat(uLon, 1, numSites), wgs84);
+end
+% Γεωδαιτική απόσταση και φυσικά ύψη (όχι ENU).
+groundDistanceMat = gdAll;
+range3DMat        = hypot(gdAll, siteGeo(:,3)' - hUtV);
+% Πεδίο ισχύος UMa/UMi (TR 38.901 Πίν. 7.4.1-1)· εκτός ορίων το SINR μένει NaN.
+validLinkMat = isValidTerrestrialLink(gdAll, repmat(hUtV, 1, numSites), simParameters.CarrierFrequency);
+% Πιθανότητα LOS κάθε ζεύξης (TR 38.901 §7.4.2).
+pLosAll = losProbability38901(gdAll, repmat(hUtV, 1, numSites), simParameters.PathLoss.Scenario);
+% Απώλειες LOS και NLOS κάθε έγκυρης ζεύξης.
+plLosMat  = nan(numUsers, numSites);  sfSigmaLosMat  = nan(numUsers, numSites);
+plNlosMat = nan(numUsers, numSites);  sfSigmaNlosMat = nan(numUsers, numSites);
+for b = 1:numSites
+    iv = find(validLinkMat(:,b));
+    if isempty(iv)
+        continue;
+    end
+    txPosition = [0; 0; siteGeo(b,3)];
+    rxPosition = [gdAll(iv,b)'; zeros(1, numel(iv)); hUtV(iv)'];
+    [pl, sg] = nrPathLoss(simParameters.PathLoss, simParameters.CarrierFrequency, ...
+        true(1, numel(iv)), txPosition, rxPosition);
+    plLosMat(iv,b) = pl';  sfSigmaLosMat(iv,b) = sg';
+    [pl, sg] = nrPathLoss(simParameters.PathLoss, simParameters.CarrierFrequency, ...
+        false(1, numel(iv)), txPosition, rxPosition);
+    plNlosMat(iv,b) = pl'; sfSigmaNlosMat(iv,b) = sg';
+end
+% Αζιμούθιο site -> χρήστη (από βορρά, δεξιόστροφα) για την κεραία τομέα.
+if sectorized
+    if useWrapAround
+        siteIdxM = repmat(1:numSites, numUsers, 1);
+        imgLatM = bsImageGeo(sub2ind(size(bsImageGeo), siteIdxM, nearImgAll, ones(numUsers, numSites)));
+        imgLonM = bsImageGeo(sub2ind(size(bsImageGeo), siteIdxM, nearImgAll, 2*ones(numUsers, numSites)));
+    else
+        imgLatM = repmat(siteGeo(:,1)', numUsers, 1);
+        imgLonM = repmat(siteGeo(:,2)', numUsers, 1);
+    end
+    [~, azNorthAll] = distance(imgLatM, imgLonM, repmat(uLat, 1, numSites), ...
+        repmat(uLon, 1, numSites), wgs84);
+end
+% Μετακίνηση κάθε χρήστη από το προηγούμενο βήμα (συσχέτιση της σκίασης).
+if hasPrevState
+    userMoveAll = distance(prevChannelState.UserGeo(:,1), prevChannelState.UserGeo(:,2), ...
+        uLat, uLon, wgs84);
+else
+    userMoveAll = inf(numUsers, 1);   % καμία προηγούμενη κατάσταση -> ανεξάρτητο δείγμα
+end
+% Ανύψωση και απόσταση κάθε δορυφόρου από κάθε χρήστη.
+satElevAll  = nan(numUsers, numSats);
+satRangeAll = nan(numUsers, numSats);
+for k = 1:numSats
+    [~, satElevAll(:,k), satRangeAll(:,k)] = geodetic2aer( ...
+        repmat(sat_geo(k,1), numUsers, 1), repmat(sat_geo(k,2), numUsers, 1), ...
+        repmat(sat_geo(k,3), numUsers, 1), uLat, uLon, hUtV, wgs84);
+end
+cellNames = "BS" + string((1:numBs)');
+satNames  = "SAT-" + string((1:numSats)');
+% MLB: φόρτος από την αναφορά του προηγούμενου βήματος.
+nodeLoadAll = struct();
+prevNodeIdx = struct();
+if hasPrevDecision
+    allNodeNames = [cellNames; satNames];
+    for pI = find(policyMlbLocal)
+        polName = policyNamesLocal{pI};
+        ldAll = zeros(numBs + numSats, 1);
+        [tf, loc] = ismember(prevDecision.(polName).LoadNode, allNodeNames);
+        ldAll(loc(tf)) = prevDecision.(polName).LoadRho(tf);
+        nodeLoadAll.(polName) = ldAll;
+        [~, prevNodeIdx.(polName)] = ismember(prevDecision.(polName).Node, allNodeNames);
+    end
+end
+
 for u = 1:numUsers
-    % Αρχικοποιήσεις
     userBestSinr      = -Inf;
     userBestNode      = "";
     userBestType      = "";
@@ -205,42 +376,18 @@ for u = 1:numUsers
     userBestPathLoss  = NaN;
     userBestElevation = NaN;
 
-    % Απόσταση μετακίνησης του χρήστη από την προηγούμενη κλήση· καθορίζει
-    % πόσο συσχετίζεται το shadow fading με την προηγούμενη τιμή (βλ. correlatedLosState).
-    if hasPrevState
-        userMoveDistance = distance(prevChannelState.UserGeo(u,1), prevChannelState.UserGeo(u,2), ...
-                                     user_geo(u,1), user_geo(u,2), wgs84);
-    else
-        userMoveDistance = Inf; % καμία προηγούμενη κατάσταση -> ανεξάρτητο δείγμα, όπως πριν
-    end
+    userMoveDistance = userMoveAll(u);
 
-    %% ===== Terrestrial BS candidates =====
-    for b = 1:numBs
-        % Οριζόντια απόσταση (γεωδαιτική) και φυσικά ύψη κεραιών. Η γεωμετρία
-        % για τη nrPathLoss κατασκευάζεται απευθείας από αυτά: η κατακόρυφη
-        % συντεταγμένη ENU αποκλίνει από το ύψος κεραίας λόγω καμπυλότητας.
-        groundDistance = distance(bs_geo(b,1), bs_geo(b,2), ...
-                                  user_geo(u,1), user_geo(u,2), wgs84);
-        hBs = bs_geo(b,3);
-        hUt = user_geo(u,3);
-        d3d = hypot(groundDistance, hBs - hUt);
-
-        txPosition = [0; 0; hBs];
-        rxPosition = [groundDistance; 0; hUt];
-
-        groundDistanceMat(u,b) = groundDistance;
-        range3DMat(u,b)        = d3d;
-
-        % Πεδίο ισχύος UMa/UMi (TR 38.901 Πίν. 7.4.1-1). Εκτός ορίων η ζεύξη
-        % δεν υπολογίζεται: το SINR μένει NaN, ώστε να ξεχωρίζει από ζεύξη που
-        % υπολογίστηκε και βρέθηκε ανεπαρκής.
-        if ~isValidTerrestrialLink(groundDistance, hUt, simParameters.CarrierFrequency)
+    %% ===== Επίγειοι υποψήφιοι =====
+    % Κληρώσεις ανά ζεύξη (LOS, σκίαση, γρήγορες διαλείψεις), σειρά χρήστης -> site.
+    for b = 1:numSites
+        if ~validLinkMat(u,b)
             sfMat(u,b) = 0;
             continue;
         end
 
-        % LOS ανά ζεύξη βάσει πιθανότητας απόστασης (TR 38.901 §7.4.2).
-        pLos = losProbability38901(groundDistance, user_geo(u,3), simParameters.PathLoss.Scenario);
+        % Κατάσταση LOS με χωρική συνέπεια (TR 38.901 §7.4.2, §7.6.3.3).
+        pLos = pLosAll(u,b);
         if hasPrevState
             prevIsLos  = prevChannelState.IsLOS(u,b);
             prevSF     = prevChannelState.ShadowFading_dB(u,b);
@@ -252,20 +399,42 @@ for u = 1:numUsers
         end
         [isLos, losLatent] = spatiallyConsistentLos(pLos, userMoveDistance, ...
             hasPrevState, prevLatent);
+        pLosMat(u,b)      = pLos;
+        losMat(u,b)       = isLos;
+        losLatentMat(u,b) = losLatent;
+
+        if useSoftLos
+            % Soft LOS (TR 38.901 §7.6.3.3, εξ. 7.6-18/19).
+            losSoft = 0.5 + atan(softLosK*(-losLatent + sqrt(2)*erfinv(2*pLos - 1)))/pi;
+            losSoftMat(u,b) = losSoft;
+            if hasPrevState
+                rhoL = shadowFadingCorrelation(userMoveDistance, simParameters.PathLoss.Scenario, true);
+                rhoN = shadowFadingCorrelation(userMoveDistance, simParameters.PathLoss.Scenario, false);
+                sfL = rhoL*prevChannelState.SfLos_dB(u,b)  + sqrt(1 - rhoL^2)*sfSigmaLosMat(u,b)*randn();
+                sfN = rhoN*prevChannelState.SfNlos_dB(u,b) + sqrt(1 - rhoN^2)*sfSigmaNlosMat(u,b)*randn();
+            else
+                sfL = sfSigmaLosMat(u,b)*randn();
+                sfN = sfSigmaNlosMat(u,b)*randn();
+            end
+            sfLosMat(u,b) = sfL; sfNlosMat(u,b) = sfN;
+            sfMat(u,b) = isLos*sfL + (~isLos)*sfN;   % διαγνωστικό
+            plL = plLosMat(u,b)  + sfL - smallScaleFadingDb(true,  terrKdBLos, measNAvgTerr);
+            plN = plNlosMat(u,b) + sfN - smallScaleFadingDb(false, terrKdBLos, measNAvgTerr);
+            pathLossMat(u,b) = -10*log10(losSoft*10^(-plL/10) + (1 - losSoft)*10^(-plN/10));
+            continue;
+        end
+
         rho = shadowFadingCorrelation(userMoveDistance, ...
             simParameters.PathLoss.Scenario, isLos);
         useCorrelatedSF = hasPrevState && (isLos == prevIsLos);
-        pLosMat(u,b)     = pLos;
-        losMat(u,b)      = isLos;
-        losLatentMat(u,b) = losLatent;
 
-        [pathLoss, sigmaSF] = nrPathLoss(simParameters.PathLoss, ...
-                              simParameters.CarrierFrequency, ...
-                              isLos, ...
-                              txPosition, rxPosition);
+        if isLos
+            pathLoss = plLosMat(u,b);  sigmaSF = sfSigmaLosMat(u,b);
+        else
+            pathLoss = plNlosMat(u,b); sigmaSF = sfSigmaNlosMat(u,b);
+        end
 
-        % Shadow fading: log-normal δείγμα με τυπική απόκλιση sigmaSF (TR 38.901 §7.4.1),
-        % AR(1)-συσχετισμένο με το προηγούμενο όταν useCorrelatedSF, αλλιώς ανεξάρτητο.
+        % Σκίαση log-normal (TR 38.901 §7.4.1), AR(1) με το προηγούμενο βήμα (§7.4.4).
         if useCorrelatedSF
             sfSample = rho*prevSF + sqrt(1 - rho^2) * sigmaSF * randn();
         else
@@ -274,67 +443,60 @@ for u = 1:numUsers
         sfMat(u,b) = sfSample;
         pathLoss = pathLoss + sfSample;
 
-        % Small-scale fading: Rician (LOS, K=terrKdBLos) ή Rayleigh (NLOS).
-        % Ο χρόνος συνοχής (~43 ms στα 3.5 GHz με πεζό χρήστη) είναι πολύ
-        % μικρότερος από το βήμα, οπότε μέσα σε ένα βήμα χωρούν πολλές
-        % ανεξάρτητες πραγματώσεις. Η μέτρηση είναι η μέση τιμή τους σε
-        % γραμμική ισχύ, όχι μία από αυτές (TS 38.133 Πίν. 9.2.5.2-1).
+        % Γρήγορες διαλείψεις Rician/Rayleigh, μέσος όρος NAvg δειγμάτων.
         pathLoss = pathLoss - smallScaleFadingDb(isLos, terrKdBLos, measNAvgTerr);
         pathLossMat(u,b) = pathLoss;
-
-        % Ο λόγος σήματος προς θόρυβο ΜΟΝΟ, χωρίς παρεμβολή, κρατείται ως
-        % διαγνωστικό: είναι το άνω φράγμα του SINR και δείχνει πόσο κοστίζει
-        % η παρεμβολή σε κάθε ζεύξη.
-        snrDbMat(u,b) = (simParameters.EIRP - 30) - pathLoss - noisePowerBS_dBW;
     end
 
+    %% ===== Λαμβανόμενη ισχύς ανά κελί (dBW) =====
+    % Κέρδος τομέα (TR 38.901 Πίν. 7.8-1)· χωρίς τομείς: σταθερό EIRP.
+    cellPathLossMat(u,:) = pathLossMat(u, cellSite);
+    cellRange3DMat(u,:)  = range3DMat(u, cellSite);
+    if sectorized
+        phiSiteDeg   = 90 - azNorthAll(u,:)';   % GCS: από ανατολή, αριστερόστροφα
+        % Ζενιθιακή γωνία στο site (90° = οριζόντια, > 90° προς τα κάτω).
+        thetaSiteDeg = 90 + atand((siteGeo(:,3) - user_geo(u,3)) ./ groundDistanceMat(u,:)');
+        phiCell = mod(phiSiteDeg(cellSite) - cellBoresightDeg + 180, 360) - 180;
+        gainDb  = bsSectorGainDb(thetaSiteDeg(cellSite), phiCell, simParameters.BsAntenna);
+        rxDbW   = (simParameters.TxPower - 30) + gainDb' - cellPathLossMat(u,:);
+    else
+        rxDbW   = (simParameters.EIRP - 30) - cellPathLossMat(u,:);
+    end
+    snrDbMat(u,:) = rxDbW - noisePowerBS_dBW;   % χωρίς παρεμβολή
+
     %% ===== SINR ανά επίγειο υποψήφιο =====
-    % Όλοι οι σταθμοί εκπέμπουν ταυτόχρονα στο ίδιο φάσμα: επαναχρησιμοποίηση
-    % συχνοτήτων 1 και μοντέλο πλήρους απασχόλησης, όπως ορίζει ο ΠΙΝΑΚΑΣ 5 β)
-    % του ITU-R M.2412-0 (§8.4, "Inter-site interference modeling: Explicitly
-    % modelled", "Traffic model: Full buffer") και όπως προϋποθέτουν οι μετρικές
-    % βαθμονόμησης του TR 38.901 §7.8 (Πίν. 7.8-1 "Geometry", Πίν. 7.8-2
-    % "Wideband SIR", Πίν. 7.8-3 "Wideband SINR").
-    %
-    % Ορισμός: TR 38.821 Πίν. 6.1.1.2-1, ΣΗΜΕΙΩΣΗ:
-    %   Geometry SINR = -10*log10(I/C + N/C)  <=>  SINR = C / (I + N)
-    % με C, I, N μετρημένα στο ίδιο εύρος ζώνης. Επειδή σήμα, παρεμβολή και
-    % θόρυβος κλιμακώνονται όλα με το εκχωρημένο εύρος, ο λόγος δεν εξαρτάται
-    % από την κατανομή πόρων: υπολογίζεται μία φορά στο εύρος του κόμβου.
-    %
-    % Σταθμός εκτός του πεδίου ισχύος του μοντέλου δεν προσμετράται ως
-    % παρεμβολέας, γιατί οι απώλειές του δεν είναι υπολογίσιμες με το UMa/UMi
-    % χωρίς να παραβιαστεί ο έλεγχος εγκυρότητας. Η παρεμβολή είναι επομένως
-    % κάτω φράγμα, όπως και λόγω του μικρού πλήθους σταθμών.
+    % SINR = C/(I+N), reuse 1, full buffer (TR 38.821· M.2412-0 §8.4).
     noiseLinW   = 10^(noisePowerBS_dBW/10);
-    rxPowLinW   = 10.^(((simParameters.EIRP - 30) - pathLossMat(u,:))/10);
+    rxPowLinW   = 10.^(rxDbW/10);
     rxPowLinW(~isfinite(rxPowLinW)) = 0;
     totalRxLinW = sum(rxPowLinW);
 
-    for b = 1:numBs
-        if ~isfinite(pathLossMat(u,b))
-            continue;
-        end
-        interfLinW     = totalRxLinW - rxPowLinW(b);
-        sinr_db        = 10*log10(rxPowLinW(b) / (noiseLinW + interfLinW));
-        sinrDbMat(u,b) = sinr_db;
-        filtSinrBsMat(u,b) = l3Filter(sinr_db, prevFiltBs(u,b), l3Alpha);
+    vb = isfinite(cellPathLossMat(u,:));
+    sinrRow = 10*log10(rxPowLinW(vb) ./ (noiseLinW + (totalRxLinW - rxPowLinW(vb))));
+    sinrDbMat(u,vb) = sinrRow;
+    % Φίλτρο L3.
+    fPrev = prevFiltBs(u,vb);
+    fNew  = sinrRow;
+    hasF  = isfinite(fPrev);
+    fNew(hasF) = (1 - l3Alpha)*fPrev(hasF) + l3Alpha*sinrRow(hasF);
+    filtSinrBsMat(u,vb) = fNew;
 
-        % Η επιλογή είναι μονότονη ως προς τη λαμβανόμενη ισχύ: με κοινό
-        % άθροισμα ισχύων, το SINR αυξάνει με το C, οπότε ο καλύτερος σταθμός
-        % είναι ο ίδιος με ή χωρίς παρεμβολή. Αλλάζει η τιμή, όχι η επιλογή.
-        if sinr_db > userBestSinr
-            userBestSinr      = sinr_db;
-            userBestNode      = "BS" + string(b);
+    % Καλύτερο κελί: ο πρώτος με το μέγιστο SINR.
+    if any(vb)
+        vbIdx = find(vb);
+        [mxSinr, iMx] = max(sinrRow);
+        if mxSinr > userBestSinr
+            b = vbIdx(iMx);
+            userBestSinr      = mxSinr;
+            userBestNode      = cellNames(b);
             userBestType      = "Terrestrial";
-            userBestDistance  = range3DMat(u,b);
-            userBestPathLoss  = pathLossMat(u,b);
+            userBestDistance  = cellRange3DMat(u,b);
+            userBestPathLoss  = cellPathLossMat(u,b);
             userBestElevation = NaN;
         end
     end
 
-    % Στιγμιότυπο του καλύτερου υποψήφιου BS πριν τη σύγκριση με τον δορυφόρο (per-candidate διαγνωστικό).
-    % NaN όταν καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
+    % Καλύτερος BS, πριν τη σύγκριση με τους δορυφόρους.
     bestBsNodeVec(u) = userBestNode;
     if isfinite(userBestSinr)
         bestBsSinrDbVec(u) = userBestSinr;
@@ -342,100 +504,120 @@ for u = 1:numUsers
             bsUnavailReasonVec(u) = "BelowSinrFloor";
         end
     else
-        % Καμία επίγεια ζεύξη δεν ήταν εντός του πεδίου ισχύος του μοντέλου.
         bsUnavailReasonVec(u) = "OutOfModelRange";
     end
     bestBsDistanceVec(u) = userBestDistance;
     bestBsPathLossVec(u) = userBestPathLoss;
 
-    %% ===== Satellite candidate =====
-    [~, elevSat, slantRangeSat] = geodetic2aer( ...
-        sat_geo(1), sat_geo(2), sat_geo(3), ...
-        user_geo(u,1), user_geo(u,2), user_geo(u,3), wgs84);
+    %% ===== Δορυφορικοί υποψήφιοι =====
+    % Πρώτα οι απώλειες όλων: το SINR του καθενός εξαρτάται από τους υπόλοιπους.
+    satPlRow    = inf(1,numSats);
+    satElevRow  = nan(1,numSats);
+    satRangeRow = nan(1,numSats);
+    for k = 1:numSats
+        % Σκίαση AR(1) ανά δορυφόρο.
+        if hasPrevSatShadow
+            rhoSat = exp(-userMoveDistance / satShadowDcorrM);
+            satShadowLatentMat(u,k) = rhoSat*prevChannelState.SatShadowLatent(u,k) + ...
+                sqrt(1 - rhoSat^2)*randn();
+        else
+            satShadowLatentMat(u,k) = randn();
+        end
 
-    satSlantRangeVec(u) = slantRangeSat;
-    satElevationVec(u)  = elevSat;
+        elevSat       = satElevAll(u,k);
+        slantRangeSat = satRangeAll(u,k);
+        satElevRow(k)  = elevSat;
+        satRangeRow(k) = slantRangeSat;
+        satElevMat(u,k) = elevSat;
 
-    if elevSat >= satParameters.MinElevationDeg
-        lambdaSat = physconst('LightSpeed') / satParameters.CarrierFrequency;
+        if elevSat < satParameters.MinElevationDeg
+            continue;
+        end
         satPathLoss = fspl(slantRangeSat, lambdaSat);
 
-        % Ατμοσφαιρική απόσβεση αερίων (οξυγόνο + υδρατμοί), TR 38.811 §6.6.4.
-        % Βροχή/νέφωση & ιονοσφαιρική σπινθηρίδα δεν μοντελοποιούνται.
+        % Απόσβεση αερίων (TR 38.811 §6.6.4)· βροχή και σπινθηρισμός δεν μοντελοποιούνται.
         gasAttenuationDb = gasAttenuationSlantP676(satParameters.CarrierFrequency, elevSat);
         satPathLoss = satPathLoss + gasAttenuationDb;
 
-        % Shadowed Rician· i.i.d. ανά κλήση (ο δορυφόρος κινείται -> η γεωμετρία
-        % σκίασης αποσυσχετίζεται γρήγορα). Η ανύψωση περιορίζεται στο πεδίο
-        % ισχύος της προσαρμογής· εναλλακτικά σταθερή κατάσταση σκίασης μέσω
-        % satParameters.ShadowingState (για ανάλυση ευαισθησίας).
+        % Shadowed Rician με χρονική συσχέτιση της σκίασης.
         if isfield(satParameters, 'ShadowingState') && ~isempty(satParameters.ShadowingState)
             [b0, mNak, omega] = shadowedRicianStateParams(satParameters.ShadowingState);
         else
             elevClamped = min(max(elevSat, satFadeElevRangeDeg(1)), satFadeElevRangeDeg(2));
             [b0, mNak, omega] = shadowedRicianElevParams(elevClamped);
         end
-        satPathLoss = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega, measNAvgSat);
+        uShadow = 0.5*erfc(-satShadowLatentMat(u,k)/sqrt(2));   % γκαουσιανή -> ομοιόμορφη
+        satPlRow(k) = satPathLoss - shadowedRicianFadingDb(b0, mNak, omega, measNAvgSat, uShadow);
+    end
 
-        % Ο όρος παρεμβολής είναι μηδενικός στο δορυφορικό σκέλος: 2.0 GHz
-        % έναντι 3.5 GHz του επίγειου (TR 38.821 Πίν. 6.1.3.2-1 και TR 38.901),
-        % άρα καμία ομοδιαυλική επικάλυψη, και ένας μόνο δορυφόρος, άρα καμία
-        % παρεμβολή μεταξύ δεσμών. Το SINR ταυτίζεται εδώ με το SNR.
-        satSinrDb = (satParameters.EIRP - 30) - satPathLoss - noisePowerSAT_dBW;
+    % Παρεμβολή μόνο από ορατές δέσμες της ίδιας ζώνης (TR 38.821 §6.1.1.1).
+    satRxLinW = 10.^(((satParameters.EIRP - 30) - satPlRow)/10);   % PL = Inf -> 0
+    for k = 1:numSats
+        if ~isfinite(satPlRow(k))
+            continue;
+        end
+        coChannel = (satSubBand == satSubBand(k))';
+        coChannel(k) = false;
+        satSinrDbMat(u,k) = 10*log10(satRxLinW(k) / (noiseSatLinW + sum(satRxLinW(coChannel))));
+        filtSinrSatMat(u,k) = l3Filter(satSinrDbMat(u,k), prevFiltSat(u,k), l3Alpha);
+    end
+
+    % Καλύτερος δορυφόρος: ο ορατός με το μέγιστο SINR, αλλιώς με τη μέγιστη ανύψωση.
+    if any(isfinite(satPlRow))
+        [~, kBest] = max(satSinrDbMat(u,:));
     else
-        satPathLoss = inf;
-        satSinrDb = -Inf;
+        [~, kBest] = max(satElevRow);
         satUnavailReasonVec(u) = "NotVisible";
     end
-    if satUnavailReasonVec(u) == "" && satSinrDb < minUsableSinrDb
+    satSlantRangeVec(u) = satRangeRow(kBest);
+    satElevationVec(u)  = satElevRow(kBest);
+    satPathLossVec(u)   = satPlRow(kBest);
+    satSinrDbVec(u)     = satSinrDbMat(u,kBest);
+    if satUnavailReasonVec(u) == "" && satSinrDbVec(u) < minUsableSinrDb
         satUnavailReasonVec(u) = "BelowSinrFloor";
     end
 
-    satPathLossVec(u) = satPathLoss;
-    satSinrDbVec(u)    = satSinrDb;
-    if isfinite(satSinrDb)
-        filtSinrSatVec(u) = l3Filter(satSinrDb, prevFiltSat(u), l3Alpha);
-    end
-
-    if satSinrDb > userBestSinr
-        userBestSinr       = satSinrDb;
-        userBestNode      = "SAT-1";
+    if satSinrDbVec(u) > userBestSinr
+        userBestSinr       = satSinrDbVec(u);
+        userBestNode      = satNames(kBest);
         userBestType      = "Satellite";
-        userBestDistance  = slantRangeSat;
-        userBestPathLoss  = satPathLoss;
-        userBestElevation = elevSat;
+        userBestDistance  = satRangeRow(kBest);
+        userBestPathLoss  = satPlRow(kBest);
+        userBestElevation = satElevRow(kBest);
     end
 
-    %% ===== Απόφαση με υστέρηση και χρόνο επιβεβαίωσης =====
-    % Κατάλογος υποψηφίων: όλοι οι σταθμοί εντός πεδίου ισχύος συν ο δορυφόρος.
-    % Η υστέρηση εφαρμόζεται σε ΟΛΟΥΣ, ώστε να καλύπτει και την εναλλαγή μεταξύ
-    % επίγειων σταθμών, που αποτελεί το μεγαλύτερο μέρος του φαινομένου.
+    %% ===== Απόφαση ανά πολιτική (A3, RLF) =====
+    % Υποψήφιοι: τα κελιά εντός πεδίου ισχύος και οι ορατοί δορυφόροι.
     nCand = 0;
-    candNode = strings(numBs+1,1); candType = strings(numBs+1,1);
-    candSinr = -inf(numBs+1,1);    candDist = nan(numBs+1,1);
-    candSinrMeas = -inf(numBs+1,1);
-    candPl   = nan(numBs+1,1);     candElev = nan(numBs+1,1);
+    nMax = numBs + numSats;
+    candNode = strings(nMax,1); candType = strings(nMax,1);
+    candSinr = -inf(nMax,1);    candDist = nan(nMax,1);
+    candSinrMeas = -inf(nMax,1);
+    candPl   = nan(nMax,1);     candElev = nan(nMax,1);
     for b = 1:numBs
         if isfinite(sinrDbMat(u,b))
             nCand = nCand + 1;
-            candNode(nCand) = "BS" + string(b);
+            candNode(nCand) = cellNames(b);
             candType(nCand) = "Terrestrial";
             candSinr(nCand) = sinrDbMat(u,b);
             candSinrMeas(nCand) = filtSinrBsMat(u,b);
-            candDist(nCand) = range3DMat(u,b);
-            candPl(nCand)   = pathLossMat(u,b);
+            candDist(nCand) = cellRange3DMat(u,b);
+            candPl(nCand)   = cellPathLossMat(u,b);
         end
     end
-    if isfinite(satSinrDb)
-        nCand = nCand + 1;
-        candNode(nCand) = "SAT-1";
-        candType(nCand) = "Satellite";
-        candSinr(nCand) = satSinrDb;
-        candSinrMeas(nCand) = filtSinrSatVec(u);
-        candDist(nCand) = slantRangeSat;
-        candPl(nCand)   = satPathLoss;
-        candElev(nCand) = elevSat;
+    for k = 1:numSats
+        if isfinite(satSinrDbMat(u,k))
+            nCand = nCand + 1;
+            candNode(nCand) = satNames(k);
+            candType(nCand) = "Satellite";
+            candSinr(nCand) = satSinrDbMat(u,k);
+            candSinrMeas(nCand) = filtSinrSatMat(u,k);
+            candDist(nCand) = satRangeRow(k);
+            candPl(nCand)   = satPlRow(k);
+            candElev(nCand) = satElevRow(k);
+        end
     end
+    candIdx  = [find(isfinite(sinrDbMat(u,:)))'; numBs + find(isfinite(satSinrDbMat(u,:)))'];
     candNode = candNode(1:nCand); candType = candType(1:nCand);
     candSinr = candSinr(1:nCand); candDist = candDist(1:nCand);
     candSinrMeas = candSinrMeas(1:nCand);
@@ -446,199 +628,413 @@ for u = 1:numUsers
 
     for pI = 1:numel(policyNamesLocal)
         polName = policyNamesLocal{pI};
-        switch polName
+        switch policyBaseLocal{pI}
             case 'Actual',          keepMask = true(nCand,1);
             case 'TerrestrialOnly', keepMask = isTerr;
             otherwise,              keepMask = isSat;
         end
 
-        pN = ""; pP = ""; pC = 0;
+        pN = ""; pPrev = ""; pStay = 0;
+        st = struct('Node', "", 'Pending', "", 'Count', 0, 'Wait', 0, 'Oos', 0, 'Is', 0, 'T310', -1);
         if hasPrevDecision
-            pN = prevDecision.(polName).Node(u);
-            pP = prevDecision.(polName).Pending(u);
-            pC = prevDecision.(polName).Count(u);
+            pd = prevDecision.(polName);
+            pN = pd.Node(u);
+            pPrev = pd.Prev(u);
+            pStay = pd.Stay(u);
+            st = struct('Node', pN, 'Pending', pd.Pending(u), 'Count', pd.Count(u), ...
+                'Wait', pd.Wait(u), 'Oos', pd.Oos(u), 'Is', pd.Is(u), 'T310', pd.T310(u));
         end
 
-        [ci, pendN, pendC] = applyHysteresis(candNode, candSinr, candSinrMeas, ...
-            keepMask, pN, pP, pC, minUsableSinrDb, hysDb, nTtt);
+        % Μετατόπιση MLB κάθε υποψηφίου (0 για τον εξυπηρετούντα και χωρίς MLB).
+        candOffsetDb = zeros(nCand,1);
+        if policyMlbLocal(pI) && hasPrevDecision && pN ~= "" && pN ~= "None"
+            ldAll   = nodeLoadAll.(polName);
+            rhoServ = ldAll(prevNodeIdx.(polName)(u));
+            x = min(max(rhoServ - ldAll(candIdx), -1), 1);
+            candOffsetDb = quantizeQOffsetDb(mlbMaxOffsetDb * x);
+            candOffsetDb(candNode == pN) = 0;
+        end
 
-        if ci == 0
-            selNode = "None"; selType = "Outage"; selSinr = NaN;
+        % Πολιτική με ML: δεδομένα για τα χαρακτηριστικά της απόφασης (mlGateDecision).
+        gateCtx = [];
+        if policyMlLocal(pI) && hasPrevDecision
+            gateCtx = struct('Gate', mlGate, 'User', u, 'Step', histStep, ...
+                'W', histW, 'Lag', histLag, 'DtS', dtSecHys, 'NumUsers', numUsers, ...
+                'HistBs', histBs, 'HistSat', histSat, ...
+                'FiltBs', filtSinrBsMat(u,:), 'FiltSat', filtSinrSatMat(u,:), ...
+                'Elev', satElevMat(u,:), 'Dist', cellRange3DMat(u,:), ...
+                'Prev', pPrev, 'Stay', pStay, 'PrevNodes', pd.Node, ...
+                'LoadNode', pd.LoadNode, 'LoadRho', pd.LoadRho);
+        end
+
+        [ci, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, keepMask, ...
+            st, mob, candOffsetDb, gateCtx);
+
+        % ci = 0: εκτός κάλυψης ή εξυπηρετών χωρίς SINR (T310).
+        selNode = st.Node;
+        if ci > 0
+            selType = candType(ci); selSinr = candSinr(ci);
+        elseif selNode == "None"
+            selType = "Outage"; selSinr = NaN;
         else
-            selNode = candNode(ci); selType = candType(ci); selSinr = candSinr(ci);
+            selSinr = NaN;
+            if startsWith(selNode, "SAT")
+                selType = "Satellite";
+            else
+                selType = "Terrestrial";
+            end
         end
         newDecision.(polName).Node(u)    = selNode;
-        newDecision.(polName).Pending(u) = pendN;
-        newDecision.(polName).Count(u)   = pendC;
+        newDecision.(polName).Pending(u) = st.Pending;
+        newDecision.(polName).Count(u)   = st.Count;
+        newDecision.(polName).Wait(u)    = st.Wait;
+        newDecision.(polName).Oos(u)     = st.Oos;
+        newDecision.(polName).Is(u)      = st.Is;
+        newDecision.(polName).T310(u)    = st.T310;
+        newDecision.(polName).Cause(u)   = ev.Cause;
+        if ci > 0
+            newDecision.(polName).Offset(u) = candOffsetDb(ci);
+        end
+        if ev.Target ~= ""
+            newDecision.(polName).Attempt(u)       = ev.Target;
+            newDecision.(polName).AttemptOffset(u) = candOffsetDb(candNode == ev.Target);
+        end
+        if ~isempty(ev.GateFeat)
+            newDecision.(polName).GateFeat(u,:) = ev.GateFeat;
+        end
+        hoCount.(polName).Held = hoCount.(polName).Held + ev.Held;
+        if ev.Rlf
+            if startsWith(pN, "SAT")
+                hoCount.(polName).RlfSat = hoCount.(polName).RlfSat + 1;
+            else
+                hoCount.(polName).RlfTerr = hoCount.(polName).RlfTerr + 1;
+            end
+        end
+        hoCount.(polName).HoFail = hoCount.(polName).HoFail + ev.HoFail;
+
+        % HO = επιτυχής A3 (TR 36.839 Ορισμός 6), όχι επανεγκατάσταση.
+        if ev.Cause == "HO"
+            fromSat = startsWith(pN, "SAT");
+            toSat   = startsWith(selNode, "SAT");
+            if ~fromSat && ~toSat
+                hoType = 'TerrTerr';
+            elseif fromSat && toSat
+                hoType = 'SatSat';
+            else
+                hoType = 'TerrSat';
+            end
+            hoCount.(polName).(hoType) = hoCount.(polName).(hoType) + 1;
+            % Ping-pong (TR 36.839 Ορισμός 5).
+            if selNode == pPrev && (pStay + 1) <= ppMaxStaySteps
+                hoCount.(polName).PingPong = hoCount.(polName).PingPong + 1;
+            end
+            newDecision.(polName).Prev(u) = pN;
+            newDecision.(polName).Stay(u) = 0;
+        elseif ev.Cause == "" && selNode ~= "None" && selNode == pN
+            newDecision.(polName).Prev(u) = pPrev;
+            newDecision.(polName).Stay(u) = pStay + 1;
+        end
+        % Αλλιώς η παραμονή ξεκινά από την αρχή (TR 36.839 §5.2.2).
 
         if strcmp(polName, 'Actual')
-            if ci == 0
-                % Σε outage κρατάμε τα διαγνωστικά του καλύτερου υποψηφίου,
-                % αλλά ο χρήστης δεν ανατίθεται σε κόμβο.
+            if selNode == "None"
+                % Εκτός κάλυψης: διαγνωστικά του καλύτερου υποψηφίου.
                 bestNodeVec(u)         = "None";
                 bestNodeTypeVec(u)     = "Outage";
                 bestDistanceVec(u)     = userBestDistance;
                 bestPathLossVec(u)     = userBestPathLoss;
                 bestSinrDbVec(u)       = userBestSinr;
                 bestElevationDegVec(u) = userBestElevation;
-            else
-                % Με υστέρηση ο επιλεγμένος κόμβος δεν είναι κατ' ανάγκη ο
-                % καλύτερος: η χωρητικότητα υπολογίζεται από το SINR του
-                % κόμβου στον οποίο ο χρήστης είναι όντως συνδεδεμένος.
+            elseif ci > 0
+                % Ο κόμβος που εξυπηρετεί (όχι κατ' ανάγκη ο καλύτερος).
                 bestNodeVec(u)         = candNode(ci);
                 bestNodeTypeVec(u)     = candType(ci);
                 bestDistanceVec(u)     = candDist(ci);
                 bestPathLossVec(u)     = candPl(ci);
                 bestSinrDbVec(u)       = candSinr(ci);
                 bestElevationDegVec(u) = candElev(ci);
+            else
+                bestNodeVec(u)         = selNode;
+                bestNodeTypeVec(u)     = selType;
+                bestDistanceVec(u)     = NaN;
+                bestPathLossVec(u)     = NaN;
+                bestSinrDbVec(u)       = NaN;
+                bestElevationDegVec(u) = NaN;
             end
-        else
-            polNodeMat(u,pI) = selNode;
-            polTypeMat(u,pI) = selType;
-            polSinrMat(u,pI) = selSinr;
         end
+        polNodeMat(u,pI) = selNode;
+        polTypeMat(u,pI) = selType;
+        polSinrMat(u,pI) = selSinr;
     end
 end
 
 %% ------------------ Κατανομή πόρων, χωρητικότητα, ενέργεια ------------------
-% Ο κανόνας ζει σε μία μόνο συνάρτηση (allocateAndTally), επειδή καλείται και
-% για τις εναλλακτικές πολιτικές παρακάτω: αν ήταν αντιγραμμένος, οι δύο
-% αντιγραφές θα μπορούσαν να αποκλίνουν χωρίς να φανεί.
+% maxSe: μέγιστη φασματική απόδοση NR (MCS 28, TS 38.214 Πίν. 5.1.3.1-1).
 alloc = struct('BW_bs', BW_bs, 'pOutPerChainW', pOutPerChainW, ...
-               'targetNormalizedSe', targetNormalizedSe, 'numBs', numBs);
+               'targetNormalizedSe', targetNormalizedSe, 'numBs', numBs, ...
+               'maxSe', 5.5547, 'minUsableDb', minUsableSinrDb);
 
 [capacityMbpsVec, throughputMbpsVec, serviceStateVec, nodePowerWattsVec, ...
  energyPerBitUJVec, networkEnergy] = allocateAndTally(bestNodeVec, ...
     bestNodeTypeVec, bestSinrDbVec, simParameters, satParameters, alloc);
 
-%% ------------------ Σύγκριση πολιτικών στην ίδια πραγματοποίηση ------------------
-% Τα δύο υποψήφια SINR είναι ήδη υπολογισμένα για κάθε χρήστη. Οι εναλλακτικές
-% πολιτικές δεν ξαναδειγματοληπτούν τίποτα: κρατούν το ίδιο κανάλι και αλλάζουν
-% μόνο ποιος υποψήφιος επιλέγεται, με την κατανομή πόρων να υπολογίζεται εκ νέου
-% ώστε να αποτυπωθεί ο διαφορετικός φόρτος που προκύπτει.
-
-% Οι δύο εναλλακτικές πολιτικές αποφασίστηκαν παραπάνω με τον ΙΔΙΟ κανόνα
-% υστέρησης, καθεμία με τη δική της κατάσταση: μια πολιτική που αλλάζει κόμβο
-% δεν πρέπει να συγκρίνεται με μία που δεν αλλάζει.
-terrNode = polNodeMat(:,2);
-terrType = polTypeMat(:,2);
-terrSnr  = polSinrMat(:,2);
-
-satNode = polNodeMat(:,3);
-satType = polTypeMat(:,3);
-satSnrPolicy = polSinrMat(:,3);
-
-% Διαθέσιμο φάσμα ανά σκέλος σε αυτό το βήμα (MHz).
+%% ------------------ KPIs ανά πολιτική (ίδιο κανάλι) ------------------
+% Κατανομή πόρων ξανά ανά πολιτική.
 spectrumTerrMHz = BW_bs/1e6;
-if any(isfinite(satSinrDbVec))
-    spectrumSatMHz = satParameters.Bandwidth/1e6;
-else
-    spectrumSatMHz = 0;
-end
+satVisible = any(isfinite(satSinrDbMat), 1)';
+spectrumSatMHz = numel(unique(satSubBand(satVisible))) * satParameters.Bandwidth/1e6;
 
 policyKpis = struct();
 policyKpis.Actual = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, ...
-    spectrumTerrMHz + spectrumSatMHz);
+    spectrumTerrMHz + spectrumSatMHz, hoCount.Actual, dtSecHys);
 
-[capT, thrT, ~, ~, ~, netT] = allocateAndTally(terrNode, terrType, terrSnr, ...
-    simParameters, satParameters, alloc);
-policyKpis.TerrestrialOnly = policySummary(capT, thrT, netT, numUsers, spectrumTerrMHz);
+for pI = 2:numPolLocal
+    polName = policyNamesLocal{pI};
+    switch policyBaseLocal{pI}
+        case 'Actual',          specMHz = spectrumTerrMHz + spectrumSatMHz;
+        case 'TerrestrialOnly', specMHz = spectrumTerrMHz;
+        otherwise,              specMHz = spectrumSatMHz;
+    end
+    [capP, thrP, ~, ~, ~, netP] = allocateAndTally(polNodeMat(:,pI), polTypeMat(:,pI), ...
+        polSinrMat(:,pI), simParameters, satParameters, alloc);
+    policyKpis.(polName) = policySummary(capP, thrP, netP, numUsers, specMHz, ...
+        hoCount.(polName), dtSecHys);
+end
 
-[capS, thrS, ~, ~, ~, netS] = allocateAndTally(satNode, satType, satSnrPolicy, ...
-    simParameters, satParameters, alloc);
-policyKpis.SatelliteOnly = policySummary(capS, thrS, netS, numUsers, spectrumSatMHz);
+% Περιοδική αναφορά φόρτου (TS 38.423 §9.1.3.18).
+if isfield(simParameters, 'Mobility') && isfield(simParameters.Mobility, 'LoadReportPeriodMs')
+    nLoadRep = max(1, round(simParameters.Mobility.LoadReportPeriodMs / (dtSecHys*1000)));
+else
+    nLoadRep = 1;
+end
+for pI = 1:numPolLocal
+    polName = policyNamesLocal{pI};
+    if hasPrevDecision && isfield(prevDecision.(polName), 'LoadAge') && ...
+            prevDecision.(polName).LoadAge + 1 < nLoadRep
+        newDecision.(polName).LoadNode = prevDecision.(polName).LoadNode;
+        newDecision.(polName).LoadRho  = prevDecision.(polName).LoadRho;
+        newDecision.(polName).LoadAge  = prevDecision.(polName).LoadAge + 1;
+    else
+        [ldNode, ldRho] = virtualLoad(polNodeMat(:,pI), polSinrMat(:,pI), ...
+            targetNormalizedSe, alloc.maxSe, minUsableSinrDb);
+        newDecision.(polName).LoadNode = ldNode;
+        newDecision.(polName).LoadRho  = ldRho;
+        newDecision.(polName).LoadAge  = 0;
+    end
+end
 
-%% ------------------ Κατάσταση καναλιού για την επόμενη κλήση ------------------
-% Ό,τι χρειάζεται μια continuation κλήση για τη χωρική συσχέτιση του shadow fading.
+%% ------------------ Κατάσταση καναλιού για το επόμενο βήμα ------------------
 newChannelState.UserGeo         = user_geo;
 newChannelState.IsLOS           = losMat;
 newChannelState.LosLatent       = losLatentMat;
+newChannelState.SatShadowLatent = satShadowLatentMat;
 newChannelState.ShadowFading_dB = sfMat;
+newChannelState.SfLos_dB        = sfLosMat;
+newChannelState.SfNlos_dB       = sfNlosMat;
+newChannelState.LosSoft         = losSoftMat;
 newChannelState.FiltSinrBs_dB   = filtSinrBsMat;
-newChannelState.FiltSinrSat_dB  = filtSinrSatVec;
+newChannelState.FiltSinrSat_dB  = filtSinrSatMat;
+if hasMl
+    slot = mod(histStep - 1, histW) + 1;
+    histBs(slot,:,:)  = filtSinrBsMat;
+    histSat(slot,:,:) = filtSinrSatMat;
+    newChannelState.HistFiltBs  = histBs;
+    newChannelState.HistFiltSat = histSat;
+    newChannelState.HistStep    = histStep;
+end
+% Γεωμετρία των υποψηφίων, για την καταγραφή των handovers.
+newChannelState.SatElev_deg     = satElevMat;
+newChannelState.BsDist_m        = cellRange3DMat;
 
 end
 
-function [chosenIdx, pendNode, pendCount] = applyHysteresis(candNode, candSinr, ...
-    candSinrMeas, keepMask, prevNode, prevPending, prevCount, minUsableSinrDb, hysDb, nTtt)
-% Απόφαση επιλογής κόμβου με υστέρηση και χρόνο επιβεβαίωσης, κατά τη μεταφορά
-% του Event A3 του TS 38.331 §5.5.4.4:
-%   είσοδος (A3-1):  M_n - Hys > M_p     έξοδος (A3-2):  M_n + Hys < M_p
-% με Off = Ofn = Ocn = Ofp = Ocp = 0, δηλαδή χωρίς μετατοπίσεις ανά κυψέλη ή
-% ανά συχνότητα, και με τη συνθήκη εισόδου να πρέπει να ισχύει για nTtt
-% διαδοχικά βήματα. Δεν πρόκειται για υλοποίηση της διαδικασίας RRC: δεν
-% υπάρχει σηματοδοσία, αναφορά μέτρησης, ούτε έλεγχος επιτυχίας.
-%
-% Δύο διαφορετικά SINR, σκόπιμα:
-%   candSinr     το πραγματικό SINR της ζεύξης. Καθορίζει ΜΟΝΟ αν η ζεύξη
-%                μπορεί να σηκώσει δεδομένα, δηλαδή τον έλεγχο κατωφλίου.
-%                Το κατώφλι είναι φυσικό όριο (MCS 0), όχι μέτρηση.
-%   candSinrMeas η φιλτραρισμένη μέτρηση κατά §5.5.3.2. Καθορίζει ΠΟΙΟΝ
-%                υποψήφιο βλέπει ο μηχανισμός απόφασης ως καλύτερο και αν
-%                ικανοποιείται η συνθήκη A3. Αυτό βλέπει ένα πραγματικό
-%                τερματικό· δεν βλέπει ποτέ στιγμιαίο δείγμα.
-% Με l3Alpha = 1 τα δύο ταυτίζονται και η συμπεριφορά ανάγεται στην παλιά.
-usable = keepMask & (candSinr >= minUsableSinrDb);
-chosenIdx = 0; pendNode = ""; pendCount = 0;
+function [chosenIdx, st, ev] = mobilityStep(candNode, candSinr, candSinrMeas, keepMask, st, P, candOffsetDb, gateCtx)
+% Ένα βήμα κινητικότητας (χρήστης, πολιτική): RLF (TS 38.331 §5.3.10), A3
+% (§5.5.4.4), αποτυχία HO (TR 36.839 Ορ. 3), επανεγκατάσταση (§5.3.7), ML.
+% candSinr: πραγματικό SINR· candSinrMeas: φιλτραρισμένο (A3).
+ev = struct('Cause', "", 'Rlf', false, 'HoFail', false, 'Held', false, 'GateFeat', [], ...
+    'Target', "");
+valid = keepMask & isfinite(candSinrMeas);
+pN = st.Node;
 
-if ~any(usable)
-    return;   % κανένας επιλέξιμος υποψήφιος -> εκτός κάλυψης
-end
-
-masked = candSinrMeas; masked(~usable) = -Inf;
-[~, iBest] = max(masked);
-
-iPrev = 0;
-if prevNode ~= "" && prevNode ~= "None"
-    hit = find(candNode == prevNode & usable, 1);
-    if ~isempty(hit)
-        iPrev = hit;
-    end
-end
-
-if iPrev == 0
-    % Δεν υπάρχει εξυπηρετών κόμβος, είτε επειδή είναι το πρώτο βήμα είτε
-    % επειδή η ζεύξη του έπεσε κάτω από το κατώφλι. Η υστέρηση καθυστερεί τη
-    % μετάβαση προς καλύτερο κόμβο· δεν κρατά μια ζεύξη που έχει πάψει να
-    % είναι αξιοποιήσιμη. Η επιλογή γίνεται άμεσα.
-    chosenIdx = iBest;
+if pN == "" || pN == "None"
+    [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st);
     return;
 end
 
-if iBest == iPrev
-    chosenIdx = iPrev;
-    return;
+iPrev = find(candNode == pN & valid, 1);
+if isempty(iPrev)
+    iPrev = 0;
+    sServ = -Inf;   % η ζεύξη δεν μετριέται: out-of-sync
+else
+    sServ = candSinr(iPrev);
 end
 
-if candSinrMeas(iBest) - hysDb > candSinrMeas(iPrev)
-    % Η συνθήκη εισόδου ισχύει: ο μετρητής επιβεβαίωσης προχωρά μόνο αν ο
-    % υποψήφιος είναι ο ίδιος με το προηγούμενο βήμα.
-    if prevPending == candNode(iBest)
-        pendCount = prevCount + 1;
+% ---- RLM ----
+if st.T310 < 0
+    if sServ < P.QoutDb
+        st.Oos = st.Oos + 1;
     else
-        pendCount = 1;
+        st.Oos = 0;
     end
-    if pendCount >= nTtt
-        chosenIdx = iBest;
-        pendNode  = "";
-        pendCount = 0;
-    else
-        chosenIdx = iPrev;
-        pendNode  = candNode(iBest);
+    if st.Oos >= P.N310
+        st.T310 = 0; st.Oos = 0; st.Is = 0;
     end
 else
-    % Η συνθήκη έπαψε να ισχύει: ο μετρητής μηδενίζεται, όπως απαιτεί η
-    % απαίτηση του προτύπου να ισχύει η συνθήκη συνεχώς για TimeToTrigger.
-    chosenIdx = iPrev;
+    st.T310 = st.T310 + 1;
+    if sServ > P.QinDb
+        st.Is = st.Is + 1;
+    else
+        st.Is = 0;
+    end
+    if st.Is >= P.N311
+        st.T310 = -1; st.Is = 0;
+    elseif st.T310 >= P.NT310
+        ev.Rlf = true;
+        ev.HoFail = st.Count > 0;    % RLF στην κατάσταση 2
+        ev.Cause = "RLF";
+        [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st);
+        return;
+    end
+end
+
+% ---- A3 ----
+chosenIdx = iPrev;
+masked = candSinrMeas + candOffsetDb;
+masked(~valid) = -Inf;
+if iPrev > 0
+    masked(iPrev) = candSinrMeas(iPrev);   % η μετατόπιση του ίδιου είναι 0
+    mServ = candSinrMeas(iPrev);
+else
+    mServ = -Inf;
+end
+[mBest, iBest] = max(masked);
+if ~isfinite(mBest) || iBest == iPrev
+    st.Pending = ""; st.Count = 0; st.Wait = 0;
+    return;
+end
+if mBest - P.HysDb > mServ
+    if st.Pending == candNode(iBest)
+        st.Count = st.Count + 1;
+        st.Wait  = max(st.Wait - 1, 0);
+    else
+        st.Pending = candNode(iBest);
+        st.Count = 1;
+        st.Wait  = 0;
+    end
+else
+    st.Pending = ""; st.Count = 0; st.Wait = 0;   % η συνθήκη έπαψε να ισχύει
+    return;
+end
+if st.Count < P.NTtt || st.Wait > 0
+    return;
+end
+
+% ---- Απόφαση του σταθμού ----
+if ~isempty(gateCtx)
+    [holdHo, ev.GateFeat] = mlGateDecision(gateCtx, candNode, iBest, candOffsetDb, pN);
+    if holdHo
+        ev.Held = true;
+        st.Wait = P.NReport;
+        return;
+    end
+end
+
+% ---- Εντολή handover ----
+ev.Target = candNode(iBest);
+st.Pending = ""; st.Count = 0; st.Wait = 0;
+if st.T310 >= 0
+    ev.HoFail = true;   % κριτήριο 1: ο T310 τρέχει, ο χρήστης μένει
+    return;
+end
+if candSinr(iBest) < P.QoutDb
+    ev.HoFail = true;   % κατάσταση 3: ο στόχος δεν είναι προσβάσιμος
+    ev.Cause = "HOF";
+    [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st);
+    return;
+end
+ev.Cause = "HO";
+chosenIdx = iBest;
+st.Node = candNode(iBest);
+st.Oos = 0; st.Is = 0; st.T310 = -1;   % νέα ζεύξη, νέα παρακολούθηση
+end
+
+function [chosenIdx, st] = cellSelection(candNode, candSinr, candSinrMeas, valid, P, st)
+% Επιλογή κελιού: ο καλύτερος με SINR >= MCS 0, αλλιώς outage.
+usable = valid & (candSinr >= P.MinUsableDb);
+st.Pending = ""; st.Count = 0; st.Wait = 0; st.Oos = 0; st.Is = 0; st.T310 = -1;
+if ~any(usable)
+    chosenIdx = 0;
+    st.Node = "None";
+    return;
+end
+m = candSinrMeas;
+m(~usable) = -Inf;
+[~, chosenIdx] = max(m);
+st.Node = candNode(chosenIdx);
+end
+
+function [holdHo, feat] = mlGateDecision(g, candNode, iBest, candOffsetDb, servNode)
+% Απόφαση σταθμού: P(ping-pong) από το μοντέλο, αναμονή αν > κατώφλι.
+tgtNode = candNode(iBest);
+[satF, idxF] = gateNodeIndex(servNode);
+[satT, idxT] = gateNodeIndex(tgtNode);
+mF = [gateMeas(g, satF, idxF, 0), gateMeas(g, satF, idxF, g.Lag), gateMeas(g, satF, idxF, 2*g.Lag)];
+mT = [gateMeas(g, satT, idxT, 0), gateMeas(g, satT, idxT, g.Lag), gateMeas(g, satT, idxT, 2*g.Lag)];
+feat = handoverFeatures(struct('SinrFrom', mF, 'SinrTo', mT, ...
+    'LagS', g.Lag*g.DtS, 'NumUsers', g.NumUsers, ...
+    'ReturnToPrev', tgtNode == g.Prev, 'StayFrom_s', (g.Stay + 1)*g.DtS, ...
+    'ElevFrom', gateGeom(g.Elev, satF, idxF), 'ElevTo', gateGeom(g.Elev, satT, idxT), ...
+    'DistFrom', gateGeom(g.Dist, ~satF, idxF), 'DistTo', gateGeom(g.Dist, ~satT, idxT), ...
+    'LoadFrom', sum(g.LoadRho(g.LoadNode == servNode)), ...
+    'LoadTo', sum(g.LoadRho(g.LoadNode == tgtNode)), ...
+    'UsersOnFrom', sum(g.PrevNodes == servNode), 'UsersOnTo', sum(g.PrevNodes == tgtNode), ...
+    'MlbOffset', candOffsetDb(iBest)));
+x = [feat, satF, satT];
+p = handoverGatePredict(g.Gate.Model, x(g.Gate.FeatIdx));
+holdHo = p > g.Gate.Threshold;
+end
+
+function v = gateMeas(g, isSat, idx, lag)
+% Φιλτραρισμένη μέτρηση lag βήματα πριν· NaN εκτός ιστορικού.
+v = NaN;
+if lag >= g.W || g.Step - lag < 1
+    return;
+end
+if lag == 0
+    if isSat, v = g.FiltSat(idx); else, v = g.FiltBs(idx); end
+    return;
+end
+slot = mod(g.Step - lag - 1, g.W) + 1;
+if isSat
+    v = g.HistSat(slot, g.User, idx);
+else
+    v = g.HistBs(slot, g.User, idx);
+end
+end
+
+function v = gateGeom(row, applies, idx)
+% Ανύψωση (δορυφόρος) ή απόσταση (σταθμός) του κόμβου· NaN για τον άλλο τύπο.
+if applies
+    v = row(idx);
+else
+    v = NaN;
+end
+end
+
+function [isSat, idx] = gateNodeIndex(node)
+isSat = startsWith(node, "SAT-");
+if isSat
+    idx = str2double(extractAfter(node, "SAT-"));
+else
+    idx = str2double(extractAfter(node, "BS"));
 end
 end
 
 function [capacityMbpsVec, throughputMbpsVec, serviceStateVec, ...
           nodePowerWattsVec, energyPerBitUJVec, networkEnergy] = ...
           allocateAndTally(nodeVec, typeVec, sinrDbVec, simParameters, satParameters, alloc)
-% Κατανομή εύρους ζώνης, χωρητικότητα, κατάσταση υπηρεσίας, ισχύς και ενέργεια
-% ανά bit, για ΔΕΔΟΜΕΝΗ ανάθεση χρηστών σε κόμβους. Απομονωμένη ώστε η ίδια
-% λογική να εφαρμόζεται και στις εναλλακτικές πολιτικές.
+% Εύρος, χωρητικότητα, ισχύς και ενέργεια/bit για δεδομένη ανάθεση.
 numUsers = numel(nodeVec);
 numBs    = alloc.numBs;
 
@@ -647,15 +1043,13 @@ throughputMbpsVec = zeros(numUsers,1);
 serviceStateVec   = strings(numUsers,1);
 nodePowerWattsVec = nan(numUsers,1);
 energyPerBitUJVec = inf(numUsers,1);
+% Πλήθος χρηστών ανά κόμβο.
+[~, ~, nodeGrp] = unique(nodeVec);
+nodeCount = accumarray(nodeGrp(:), 1);
 
 for u = 1:numUsers
-    % Outage: μηδενική χωρητικότητα/ισχύς, ενέργεια/bit = Inf. Παραλείπονται
-    % πριν το usersOnThisNode ώστε να μη μετρηθούν σαν να μοιράζονται κόμβο.
+    % Εκτός κάλυψης: χωρητικότητα NaN, ρυθμός 0, ενέργεια/bit Inf.
     if typeVec(u) == "Outage"
-        % Καμία ενεργή ζεύξη: η χωρητικότητα δεν ορίζεται (δεν υπάρχει ζεύξη
-        % να τη φέρει), η παραδοθείσα ρυθμαπόδοση είναι μηδενική, και η
-        % ενέργεια ανά παραδοθέν bit απροσδιόριστη. Η κατανάλωση των κόμβων
-        % συνεχίζεται και προσμετράται στο ισοζύγιο δικτύου παρακάτω.
         capacityMbpsVec(u)   = NaN;
         throughputMbpsVec(u) = 0;
         nodePowerWattsVec(u) = NaN;
@@ -664,13 +1058,9 @@ for u = 1:numUsers
         continue;
     end
 
-    servingNode = nodeVec(u);
+    usersOnThisNode = nodeCount(nodeGrp(u));
 
-    % Πόσοι χρήστες συνολικά εξυπηρετούνται από τον ΙΔΙΟ κόμβο
-    usersOnThisNode = sum(nodeVec == servingNode);
-
-    % Συνολικό bandwidth και κατανάλωση ισχύος του κόμβου: μοντέλο EARTH
-    % (Auer et al. 2011) για BS, γραμμικό μοντέλο ενισχυτή ισχύος για δορυφόρο.
+    % Ισχύς: EARTH για BS, γραμμικός ενισχυτής για δορυφόρο.
     if typeVec(u) == "Terrestrial"
         nodeBW = alloc.BW_bs;
         nodePowerW = simParameters.Power.NumTrx * ...
@@ -681,38 +1071,35 @@ for u = 1:numUsers
         nodePowerW = satParameters.Power.Pfix + pOutW / satParameters.Power.EtaPA;
     end
 
-    % Κατανομή πόρων (B_user = BW_grid / N_users)
+    % Ίσος διαμοιρασμός εύρους.
     B_user = nodeBW / usersOnThisNode;
 
-    % Χωρητικότητα Shannon, με clamp στη μέγιστη φασματική απόδοση του NR
-    % (MCS 28 / 64QAM, TS 38.214 Πίν. 5.1.3.1-1) ώστε να μην υπερεκτιμάται σε υψηλό SINR.
-    maxSpectralEfficiency = 5.5547;   % bits/s/Hz (MCS 28, 64QAM)
+    % Shannon με όριο MCS 28· κάτω από MCS 0 ρυθμός 0.
     sinr_lin = 10^(sinrDbVec(u)/10);
-    spectralEfficiency = min(log2(1 + sinr_lin), maxSpectralEfficiency);
+    if sinrDbVec(u) >= alloc.minUsableDb
+        spectralEfficiency = min(log2(1 + sinr_lin), alloc.maxSe);
+    else
+        spectralEfficiency = 0;
+    end
     capacity = B_user * spectralEfficiency;   % bits/s
 
     capacityMbpsVec(u)   = capacity * 1e-6;    % Mbps
-    throughputMbpsVec(u) = capacity * 1e-6;    % ενεργή ζεύξη -> παραδίδεται
+    throughputMbpsVec(u) = capacity * 1e-6;
 
-    % Κατάσταση υπηρεσίας: το κριτήριο ορίζεται επί του συνολικού εύρους
-    % καναλιού, οπότε σφίγγει καθώς αυξάνεται ο φόρτος του κόμβου.
+    % Κατάσταση υπηρεσίας, επί του συνολικού εύρους του κόμβου.
     if (capacity / nodeBW) >= alloc.targetNormalizedSe
         serviceStateVec(u) = "Served";
     else
         serviceStateVec(u) = "BelowTarget";
     end
 
-    % Ενεργειακό proxy: ισομερής κατανομή ισχύος κόμβου ανά χρήστη (ίδια λογική
-    % με το bandwidth split), διαιρεμένη με τον ρυθμό bit του χρήστη -> µJ/bit
+    % Ενέργεια ανά bit: ισομερές μερίδιο της ισχύος του κόμβου / ρυθμός (µJ/bit).
     nodePowerWattsVec(u) = nodePowerW;
     energyPerBitUJVec(u) = (nodePowerW / usersOnThisNode) / capacity * 1e6;
 end
 
-%% ------------------ Ενεργειακή απόδοση σε επίπεδο δικτύου ------------------
-% Η ενέργεια ανά bit της (eq. energy-per-bit) είναι ανεξάρτητη του πλήθους
-% χρηστών: το L_n απλοποιείται. Ο δείκτης bit/J αθροίζει ισχύ ΑΝΑ ΚΟΜΒΟ (όχι
-% ανά χρήστη) και συνολικό ρυθμό, οπότε αποτυπώνει τη σύνθεση των χρηστών.
-% Δίνονται δύο εμβέλειες: πλήρης κόμβος και μόνο ενισχυτής (συμμετρική).
+%% ------------------ Ενεργειακή απόδοση δικτύου ------------------
+% bit/J: πλήρης κόμβος και μόνο ενισχυτής.
 networkEnergy = struct();
 totalRateBps      = sum(throughputMbpsVec) * 1e6;   % παραδοθέντα bits
 pOutSatW          = 10^((satParameters.TxPower - 30)/10);
@@ -722,19 +1109,12 @@ bsSleepW          = simParameters.Power.NumTrx * simParameters.Power.Psleep;
 satFullW          = satParameters.Power.Pfix + pOutSatW/satParameters.Power.EtaPA;
 satRfW            = pOutSatW / satParameters.Power.EtaPA;
 
-activeBs  = 0;
-for b = 1:numBs
-    if any(nodeVec == "BS" + string(b))
-        activeBs = activeBs + 1;
-    end
-end
+activeBs  = sum(ismember("BS" + string((1:numBs)'), nodeVec));
 idleBs    = numBs - activeBs;
-satActive = any(typeVec == "Satellite");
+satActive = numel(unique(nodeVec(typeVec == "Satellite")));   % δορυφόροι με χρήστες
 
-% Πλήρης εμβέλεια: ενεργοί BS κατά EARTH, αδρανείς σε Psleep. Ο δορυφόρος δεν
-% έχει αντίστοιχο μέγεθος αδράνειας, οπότε προσμετράται μόνο όταν εξυπηρετεί.
+% Πλήρης: ενεργοί BS κατά EARTH, αδρανείς σε Psleep, δορυφόροι μόνο όταν εξυπηρετούν.
 networkEnergy.TotalPower_W    = activeBs*bsFullW + idleBs*bsSleepW + satActive*satFullW;
-% Συμμετρική εμβέλεια: μόνο το τμήμα που εξαρτάται από τον ενισχυτή, και στα δύο σκέλη.
 networkEnergy.TotalPowerRf_W  = activeBs*bsRfW + satActive*satRfW;
 networkEnergy.TotalRate_bps   = totalRateBps;
 networkEnergy.ActiveBs        = activeBs;
@@ -745,14 +1125,32 @@ networkEnergy.BitPerJouleRf   = totalRateBps / networkEnergy.TotalPowerRf_W;
 networkEnergy.ServedUsers     = sum(serviceStateVec == "Served");
 networkEnergy.BelowTargetUsers= sum(serviceStateVec == "BelowTarget");
 networkEnergy.OutageUsers     = sum(serviceStateVec == "Outage");
+networkEnergy.SatelliteUsers  = sum(typeVec == "Satellite");
 networkEnergy.TargetNormSe    = alloc.targetNormalizedSe;
 end
 
-function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, spectrumMHz)
-% Δείκτες μιας πολιτικής για ένα βήμα, σε μορφή έτοιμη για συνάθροιση ανά
-% διέλευση. Η μέση χωρητικότητα υπολογίζεται στους χρήστες που εξυπηρετούνται,
-% ενώ η συνολική ρυθμαπόδοση και τα ποσοστά ορίζονται σε όλους - ώστε μια
-% πολιτική να μην ωφελείται επειδή αφήνει χρήστες εκτός.
+function q = quantizeQOffsetDb(offsetDb)
+% Πλησιέστερη τιμή του Q-OffsetRange (TS 38.331), συμμετρικά.
+levels = [0:6, 8:2:24];
+[~, k] = min(abs(levels - abs(offsetDb(:))), [], 2);
+q = reshape(sign(offsetDb(:)) .* levels(k)', size(offsetDb));
+end
+
+function [nodes, rho] = virtualLoad(nodeVec, sinrDbVec, targetNormalizedSe, maxSe, minUsableDb)
+% Εικονικός φόρτος ρ_c = Σ target/SE_u (Awada et al., PIMRC 2010),
+% χωρίς τους χρήστες κάτω από MCS 0.
+served = nodeVec ~= "None" & nodeVec ~= "" & isfinite(sinrDbVec) & sinrDbVec >= minUsableDb;
+nodes  = unique(nodeVec(served));
+rho    = zeros(numel(nodes),1);
+se     = min(log2(1 + 10.^(sinrDbVec/10)), maxSe);
+for i = 1:numel(nodes)
+    onNode = served & nodeVec == nodes(i);
+    rho(i) = sum(targetNormalizedSe ./ se(onNode));
+end
+end
+
+function s = policySummary(capacityMbpsVec, throughputMbpsVec, networkEnergy, numUsers, spectrumMHz, ho, dtS)
+% KPIs μιας πολιτικής για ένα βήμα.
 served = ~isnan(capacityMbpsVec);
 s = struct();
 if any(served)
@@ -764,25 +1162,28 @@ s.TotalRate_Mbps   = sum(throughputMbpsVec);
 s.FracServed       = networkEnergy.ServedUsers / numUsers;
 s.FracBelowTarget  = networkEnergy.BelowTargetUsers / numUsers;
 s.FracOutage       = networkEnergy.OutageUsers / numUsers;
+s.FracSatellite    = networkEnergy.SatelliteUsers / numUsers;
 s.TotalPower_W     = networkEnergy.TotalPower_W;
 s.TotalPowerRf_W   = networkEnergy.TotalPowerRf_W;
 s.BitPerJoule      = networkEnergy.BitPerJoule;
 s.BitPerJouleRf    = networkEnergy.BitPerJouleRf;
-% Φάσμα που έχει στη διάθεσή της η πολιτική σε αυτό το βήμα. Ορίζεται από τη
-% ΔΙΑΘΕΣΙΜΟΤΗΤΑ και όχι από τις επιλογές της, ώστε να μένει συγκρίσιμο: οι
-% σταθμοί βάσης εκπέμπουν πάντα (και οι δύο στο ίδιο φάσμα, επαναχρησιμοποίηση
-% 1), ενώ ο δορυφόρος μετράει μόνο όταν είναι πάνω από τη γωνία αποκοπής.
-% Χρησιμεύει για να χωριστεί το πλεονέκτημα της μεικτής πολιτικής σε μέρος που
-% οφείλεται στην απόφαση και σε μέρος που οφείλεται στο διαθέσιμο φάσμα.
-s.Spectrum_MHz     = spectrumMHz;
+s.Spectrum_MHz     = spectrumMHz;   % διαθέσιμο (όχι χρησιμοποιούμενο) φάσμα
+% Ρυθμοί γεγονότων ανά χρήστη ανά λεπτό (TR 36.839 Ορισμοί 2, 3, 5).
+perUserMin = 60 / (numUsers * dtS);
+s.HoRate_perUserMin         = (ho.TerrTerr + ho.TerrSat + ho.SatSat) * perUserMin;
+s.HoRateTerrTerr_perUserMin = ho.TerrTerr * perUserMin;
+s.HoRateTerrSat_perUserMin  = ho.TerrSat  * perUserMin;
+s.HoRateSatSat_perUserMin   = ho.SatSat   * perUserMin;
+s.PingPongRate_perUserMin   = ho.PingPong * perUserMin;
+s.RlfRate_perUserMin        = (ho.RlfTerr + ho.RlfSat) * perUserMin;
+s.RlfRateTerr_perUserMin    = ho.RlfTerr * perUserMin;
+s.RlfRateSat_perUserMin     = ho.RlfSat  * perUserMin;
+s.HoFailRate_perUserMin     = ho.HoFail  * perUserMin;
+s.HoHeldRate_perUserMin     = ho.Held    * perUserMin;   % αναμονές του μοντέλου (*ML)
 end
 
 function [isLos, latent] = spatiallyConsistentLos(pLos, moveDistance, hasPrevState, prevLatent)
-% Χωρικά συνεπής κατάσταση LOS/NLOS (TR 38.901 §7.6.3.3): η κατάσταση
-% προκύπτει συγκρίνοντας μια χωρικά συσχετισμένη ομοιόμορφη μεταβλητή με την
-% πιθανότητα LOS. Η υποκείμενη γκαουσιανή μεταβλητή εξελίσσεται ως AR(1) με
-% εκθετική συσχέτιση (§7.4.4, εξ. 7.4-5) και απόσταση συσχέτισης 50 m για την
-% κατάσταση LOS/NLOS (Πίν. 7.6.3.1-2, UMa & UMi).
+% Χωρικά συνεπής LOS (TR 38.901 §7.6.3.3), συσχέτιση 50 m.
 dCorrLos = 50;
 if ~hasPrevState
     latent = randn();
@@ -795,9 +1196,7 @@ isLos = u < pLos;
 end
 
 function rho = shadowFadingCorrelation(moveDistance, scenario, isLos)
-% Συντελεστής αυτοσυσχέτισης σκίασης, TR 38.901 §7.4.4 εξ. (7.4-5):
-% R(Δd) = exp(-Δd/d_corr). Αποστάσεις συσχέτισης από τον Πίν. 7.5-6:
-% UMa LOS=37/NLOS=50 m, UMi LOS=10/NLOS=13 m.
+% Αυτοσυσχέτιση σκίασης exp(-Δd/d_corr) (TR 38.901 εξ. 7.4-5, Πίν. 7.5-6).
 switch scenario
     case 'UMi'
         dCorr = 10*isLos + 13*~isLos;
@@ -808,21 +1207,10 @@ rho = exp(-moveDistance / dCorr);
 end
 
 function fadeDb = smallScaleFadingDb(isLos, KdB, nAvg)
-% Κέρδος small-scale fading σε dB, με E[|h|^2] = 1.
-%   isLos=false -> Rayleigh: |h|^2 ~ Exp(1)
-%   isLos=true  -> Rician με συντελεστή K (dB)· K->0 ανάγεται ομαλά σε Rayleigh
-%
-% nAvg: η τιμή που βγαίνει δεν είναι στιγμιαίο δείγμα αλλά μέση τιμή σε
-% ΓΡΑΜΜΙΚΗ ισχύ πάνω σε nAvg ανεξάρτητες πραγματώσεις μέσα στο βήμα, επειδή
-% η μέτρηση ορίζεται πάνω σε περίοδο μέτρησης και όχι σε στιγμή
-% (TS 38.133 Πίν. 9.2.5.2-1). nAvg = 1 επιστρέφει το στιγμιαίο δείγμα.
+% Γρήγορες διαλείψεις σε dB (Rayleigh/Rician), μέσος όρος nAvg δειγμάτων.
 if nargin < 3 || isempty(nAvg)
     nAvg = 1;
 end
-% Η περίπτωση nAvg = 1 κρατά κατά γράμμα την προηγούμενη έκφραση: το
-% 10*log10(mean(x)) και το 20*log10(abs(h)) είναι μαθηματικά ταυτόσημα με
-% τα αντίστοιχα, αλλά διαφέρουν κατά ένα ulp. Έτσι ο έλεγχος ουδετερότητας
-% δίνει ταυτόσημο αρχείο και όχι «σχεδόν ταυτόσημο».
 if ~isLos
     if nAvg == 1
         fadeDb = 10*log10(-log(rand()));
@@ -844,17 +1232,14 @@ fadeDb = 10*log10(powLin);
 end
 
 function isValid = isValidTerrestrialLink(d2D, hUT, fcHz)
-% Πεδίο ισχύος των μοντέλων UMa/UMi (TR 38.901 Πίν. 7.4.1-1, στήλη
-% "Applicability range"): 10m <= d2D <= 5km, 1.5m <= hUT <= 22.5m.
-% Η συχνότητα ελέγχεται ως προς το εύρος του ίδιου του μοντέλου (§7.4.1).
-isValid = d2D  >= 10   && d2D  <= 5000 && ...
-          hUT  >= 1.5  && hUT  <= 22.5 && ...
-          fcHz >= 0.5e9 && fcHz <= 100e9;
+% Πεδίο ισχύος UMa/UMi (TR 38.901 Πίν. 7.4.1-1).
+isValid = d2D  >= 10   & d2D  <= 5000 & ...
+          hUT  >= 1.5  & hUT  <= 22.5 & ...
+          fcHz >= 0.5e9 & fcHz <= 100e9;
 end
 
 function [b0, m, omega] = shadowedRicianElevParams(elevDeg)
-% Παράμετροι Shadowed Rician από τη γωνία ανύψωσης (Abdi et al. 2003, εξ. 19).
-% Προσαρμογή πολυωνύμων σε πειραματικά δεδομένα, ισχύει για 20° < θ < 80°.
+% Παράμετροι Shadowed Rician από την ανύψωση (Abdi et al. 2003, εξ. 19), 20°-80°.
 th = elevDeg;
 b0    = -4.7943e-8*th^3 + 5.5784e-6*th^2 - 2.1344e-4*th + 3.2710e-2;
 m     =  6.3739e-5*th^3 + 5.8533e-4*th^2 - 1.5973e-1*th + 3.5156;
@@ -872,38 +1257,32 @@ switch lower(string(state))
         b0 = 0.063; m = 0.739; omega = 8.97e-4;
     otherwise
         error('shadowedRicianStateParams:UnknownState', ...
-            'Άγνωστη κατάσταση σκίασης "%s" - δεκτές: "light", "average", "heavy".', state);
+            'Unknown shadowing state "%s"; valid: "light", "average", "heavy".', state);
 end
 end
 
-function fadeDb = shadowedRicianFadingDb(b0, m, omega, nAvg)
-% Κέρδος Shadowed Rician σε dB (Abdi et al. 2003, εξ. 1): σκεδαζόμενη
-% συνιστώσα Rayleigh μέσης ισχύος 2*b0 συν συνιστώσα LOS με πλάτος
-% κατά Nakagami-m μέσης ισχύος omega. E[|h|^2] = omega + 2*b0 < 1, δηλαδή
-% η μέση εξασθένηση λόγω σκίασης περιέχεται στο ίδιο το μοντέλο.
-%
-% nAvg: μέση τιμή της μέτρησης μέσα στο βήμα, όπως και στο επίγειο σκέλος.
-% Η συνιστώσα σκίασης κληρώνεται ΜΙΑ φορά και μένει σταθερή μέσα στο βήμα:
-% η σκίαση δεν είναι γρήγορο φαινόμενο και δεν εξομαλύνεται από την περίοδο
-% μέτρησης. Μέσος όρος παίρνεται μόνο στη σκεδαζόμενη συνιστώσα.
+function fadeDb = shadowedRicianFadingDb(b0, m, omega, nAvg, uShadow)
+% Shadowed Rician σε dB (Abdi et al. 2003, εξ. 1)· σκίαση σταθερή στο βήμα.
 if nargin < 4 || isempty(nAvg)
     nAvg = 1;
 end
-losAmp  = sqrt(gammaRand(m, omega/m));            % |Z|, E[Z^2] = omega
+% Z^2 ~ Gamma(m, omega/m): από το εκατοστημόριο uShadow, αλλιώς ανεξάρτητο δείγμα.
+if nargin >= 5 && ~isempty(uShadow)
+    uShadow = min(max(uShadow, eps), 1 - eps);
+    losAmp  = sqrt((omega/m) * gammaincinv(uShadow, m));   % |Z|, E[Z^2] = omega
+else
+    losAmp  = sqrt(gammaRand(m, omega/m));
+end
 scatter = sqrt(b0)*(randn(1,nAvg) + 1i*randn(1,nAvg));   % E[|A|^2] = 2*b0
 if nAvg == 1
-    fadeDb = 20*log10(abs(losAmp + scatter));   % ίδια έκφραση με πριν (βλ. smallScaleFadingDb)
+    fadeDb = 20*log10(abs(losAmp + scatter));
 else
     fadeDb = 10*log10(mean(abs(losAmp + scatter).^2));
 end
 end
 
 function f = l3Filter(mNow, fPrev, alpha)
-% Φίλτρο Layer 3, TS 38.331 §5.5.3.2:  F_n = (1 - a)*F_{n-1} + a*M_n
-% Εφαρμόζεται σε dB, όπως απαιτεί η NOTE 2 ("logarithmic filtering for
-% logarithmic measurements"). Χωρίς προηγούμενη μέτρηση ισχύει F_0 = M_1,
-% ρητά στο ίδιο εδάφιο. Το alpha έρχεται ήδη προσαρμοσμένο στο βήμα της
-% προσομοίωσης· alpha = 1 σημαίνει καθόλου φίλτρο (NOTE 1, k = 0).
+% Φίλτρο L3 (TS 38.331 §5.5.3.2): F_n = (1 - a)*F_{n-1} + a*M_n, σε dB· F_0 = M_1.
 if ~isfinite(fPrev)
     f = mNow;
 else
@@ -920,8 +1299,7 @@ end
 end
 
 function x = gammaRand(shape, scale)
-% Δείγμα από κατανομή Gamma (Marsaglia & Tsang 2000). Υλοποιείται τοπικά
-% ώστε να μη χρειάζεται το Statistics Toolbox· δέχεται και shape < 1.
+% Δείγμα Gamma (Marsaglia & Tsang 2000), χωρίς Statistics Toolbox.
 if shape < 1
     x = gammaRand(shape + 1, scale) * rand()^(1/shape);
     return;
@@ -943,39 +1321,34 @@ end
 end
 
 function pLos = losProbability38901(d2D, hUT, scenario)
-% Πιθανότητα LOS ζεύξης BS-χρήστη (TR 38.901 Πίν. 7.4.2-1). d2D, hUT σε μέτρα.
+% Πιθανότητα LOS ζεύξης BS-χρήστη (TR 38.901 Πίν. 7.4.2-1).
+pLos = ones(size(d2D));
+far  = d2D > 18;
+d    = d2D(far);
 switch scenario
     case 'UMi'
-        if d2D <= 18
-            pLos = 1;
-        else
-            pLos = 18/d2D + exp(-d2D/36) * (1 - 18/d2D);
-        end
+        pLos(far) = 18./d + exp(-d/36) .* (1 - 18./d);
     case 'UMa'
-        if d2D <= 18
-            pLos = 1;
-        else
-            if hUT <= 13
-                Cprime = 0;
-            else
-                g = 1.25e-6 * d2D^3 * exp(-d2D/150);
-                Cprime = ((hUT - 13)/10)^1.5 * g;
-            end
-            pLos = (18/d2D + exp(-d2D/63) * (1 - 18/d2D)) * (1 + Cprime);
-        end
+        h = hUT(far);
+        Cprime = zeros(size(d));
+        hi = h > 13;
+        g = 1.25e-6 * d(hi).^3 .* exp(-d(hi)/150);
+        Cprime(hi) = ((h(hi) - 13)/10).^1.5 .* g;
+        pLos(far) = (18./d + exp(-d/63) .* (1 - 18./d)) .* (1 + Cprime);
     otherwise
         error('losProbability38901:UnsupportedScenario', ...
-            'Άγνωστο PathLoss.Scenario "%s" - η πιθανότητα LOS (TR 38.901 §7.4.2) είναι ορισμένη μόνο για "UMa" και "UMi".', ...
+            'Unsupported PathLoss.Scenario "%s"; the LOS probability (TR 38.901 §7.4.2) is implemented for "UMa" and "UMi" only.', ...
             scenario);
 end
 end
 
 function pla_dB = gasAttenuationSlantP676(freqHz, elevDeg)
-% Απόσβεση ατμοσφαιρικών αερίων (O2 + υδρατμοί) σε ζεύξη δορυφόρου-χρήστη.
-% TR 38.811 §6.6.4 εξ. (6.6-8): PLA = A_zenith / sin(ε).
-% A_zenith = γ_o·h_o + γ_w·h_w· ισοδύναμα ύψη κατά ITU-R P.676-12 Annex 2·
-% ειδικές αποσβέσεις γ_o/γ_w από gaspl (ITU-R P.676-13 Annex 1)·
-% reference atmosphere κατά ITU-R P.835.
+% Απόσβεση αερίων (TR 38.811 εξ. 6.6-8· ITU-R P.676, P.835).
+persistent cacheFreqHz cacheAzenith
+if ~isempty(cacheFreqHz) && cacheFreqHz == freqHz
+    pla_dB = cacheAzenith / sind(elevDeg);
+    return;
+end
 TcRef    = 15;        % °C (= 288.15 K)
 TKRef    = 288.15;    % K
 pPaRef   = 101325;    % Pa
@@ -991,6 +1364,8 @@ gammaWet = gammaTot - gammaDry;
 [ho, hw] = equivalentHeightsP676(freqGHz, TKRef, pHpaRef, rhoRef);
 
 Azenith = gammaDry*ho + gammaWet*hw;   % dB
+cacheFreqHz  = freqHz;
+cacheAzenith = Azenith;
 pla_dB  = Azenith / sind(elevDeg);     % dB
 end
 

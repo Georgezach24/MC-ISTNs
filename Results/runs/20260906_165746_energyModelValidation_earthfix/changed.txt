@@ -1,3 +1,0 @@
-Σύγκριση vs 20260906_164149_energyModelValidation_check
-
-  ~ terrestrialPower.NumTrx : 1  ->  4
